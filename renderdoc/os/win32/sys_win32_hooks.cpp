@@ -27,6 +27,7 @@
 #include "core/core.h"
 #include "hooks/hooks.h"
 #include "os/os_specific.h"
+#include "renderdoc_ui_exe_name.h"
 #include "strings/string_utils.h"
 
 #include <string>
@@ -337,7 +338,7 @@ private:
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("renderdoccmd.exe") || app.contains("qrenderdoc.exe"))
+      if(app.contains("renderdoccmd.exe") || app.contains(RENDERDOC_UI_EXE_FULL))
       {
         inject = false;
       }
@@ -346,7 +347,7 @@ private:
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("renderdoccmd.exe") || cmd.contains("qrenderdoc.exe"))
+      if(cmd.contains("renderdoccmd.exe") || cmd.contains(RENDERDOC_UI_EXE_FULL))
       {
         inject = false;
       }

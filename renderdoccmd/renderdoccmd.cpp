@@ -23,6 +23,7 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
+#include "renderdoc_ui_exe_name.h"
 #include "renderdoccmd.h"
 #include <app/renderdoc_app.h>
 #include <replay/version.h>

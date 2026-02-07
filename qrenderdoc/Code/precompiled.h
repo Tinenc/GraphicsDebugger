@@ -24,5 +24,8 @@
 
 #pragma once
 
+
+#include "renderdoc_ui_exe_name.h"
+
 #include "Code/Interface/QRDInterface.h"
 #include "Code/QRDUtils.h"

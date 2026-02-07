@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <algorithm>
 
+#include "renderdoc_ui_exe_name.h"
 #include "renderdoc_replay.h"
 
 template <>
