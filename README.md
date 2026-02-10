@@ -15,10 +15,14 @@
 1. **快速开始指南** - [QUICK_START.md](QUICK_START.md)
    - 5分钟快速上手教程
    - 详细的步骤：
-   1）先global hook /n
-   2）然后勾选 capture child process /n
-   3）launch 启动器 /n
-   4）使用Inject到需要注入的进程 /n
+   1）先global hook 
+
+   2）然后勾选 capture child process 
+
+   3）launch 启动器 
+
+   4）使用Inject到需要注入的进程 
+   
 
    ![快速开始步骤](Zmd截图.png)
 
