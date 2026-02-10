@@ -14,14 +14,13 @@
 
 1. **快速开始指南** - [QUICK_START.md](QUICK_START.md)
    - 5分钟快速上手教程
-   - 详细的步骤说明和示例
-
-2. **完整技术文档** - [bypass_anticheat_guide.md](bypass_anticheat_guide.md)
-   - 详细的技术分析和实现方法
-   - 7种主要绕过方案
-
-3. **更新日志** - [CHANGELOG.md](CHANGELOG.md)
-   - 版本历史和功能更新
+   - 详细的步骤：
+   1）先global hook
+   2）然后勾选 capture child process
+   3）launch 启动器
+   
+企业微信截图_17707114639790.png
+image.png
 
 ### 🛠️ 工具
 
