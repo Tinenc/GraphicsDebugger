@@ -18,9 +18,11 @@
    1）先global hook
    2）然后勾选 capture child process
    3）launch 启动器
-   
-企业微信截图_17707114639790.png
-image.png
+   4）
+
+   ![快速开始步骤](Zmd截图.png)
+
+   ![Inject 步骤](Inject截图_17707116436894.png)
 
 ### 🛠️ 工具
 
@@ -189,8 +191,6 @@ python tools\string_replacer.py "C:\Program Files\RenderDoc\renderdoc.dll"
   - DLL 注入
   - 自动化流程
   - 品牌名称: TinecmaTools
-  
-详细更新日志请查看: [CHANGELOG.md](CHANGELOG.md)
 
 ## 🤝 贡献
 
