@@ -15,6 +15,7 @@
 1. **快速开始指南** - [QUICK_START.md](QUICK_START.md)
    - 5分钟快速上手教程
    - 详细的步骤：
+   
    1）先global hook 
 
    2）然后勾选 capture child process 
