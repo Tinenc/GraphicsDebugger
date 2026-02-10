@@ -1,0 +1,25 @@
+name: Lock old issues and PRs
+
+on:
+  schedule:
+    - cron: "45 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  inactivity-lock:
+    name: Lock issues and PRs
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: 🔒 Lock closed issues and PRs
+        uses: klaasnicolaas/action-inactivity-lock@v1.1.3
+        id: lock
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          rate-limit-buffer: 500
+          days-inactive-issues: 70
+          days-inactive-prs: 70
+          lock-reason-issues: "resolved"
+          lock-reason-prs: "resolved"
