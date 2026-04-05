@@ -727,6 +727,10 @@ re-initialise any data, including e.g. bindless feedback, printf results or mesh
 )");
   virtual void ClearReplayCache() = 0;
 
+  DOCUMENT(R"(Reload the shader debug information for all shaders in the capture.
+)");
+  virtual void ReloadShaderDebugInformation() = 0;
+
   DOCUMENT(R"(Remove any previously specified replacement for an object.
 
 See :meth:`ReplaceResource`.
@@ -2440,8 +2444,7 @@ extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunUnitTests(const rdcstr &c
                                                                  const rdcarray<rdcstr> &args);
 
 DOCUMENT("INTERNAL: Run functional tests.");
-extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(int pythonMinorVersion,
-                                                                       const rdcarray<rdcstr> &args);
+extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(const rdcarray<rdcstr> &args);
 #endif
 
 #if !defined(SWIG)

@@ -445,7 +445,7 @@ const ShaderReflection *VulkanReplay::GetShader(ResourceId pipeline, ResourceId 
   // if this shader was never used in a pipeline the reflection won't be prepared. Do that now -
   // this will be ignored if it was already prepared.
   shad->second.GetReflection(entry.stage, entry.name, pipeline)
-      .Init(GetResourceManager(), shader, shad->second.spirv, entry.name,
+      .Init(GetResourceManager(), m_pDriver->m_CreationInfo, shader, shad->second.spirv, entry.name,
             VkShaderStageFlagBits(1 << uint32_t(entry.stage)), {});
 
   return shad->second.GetReflection(entry.stage, entry.name, pipeline).refl;
@@ -1798,6 +1798,9 @@ void VulkanReplay::SavePipelineState(uint32_t eventId)
       fbState.attachments.push_back({});
 
       ResourceId viewid = GetResID(dyn.color[i].imageView);
+      if(state.dynamicRendering.beginCustomResolve &&
+         (dyn.color[i].resolveMode & VK_RESOLVE_MODE_CUSTOM_BIT_EXT))
+        viewid = GetResID(dyn.color[i].resolveImageView);
 
       if(viewid != ResourceId())
       {
@@ -1825,7 +1828,9 @@ void VulkanReplay::SavePipelineState(uint32_t eventId)
 
       rpState.colorAttachments.push_back(uint32_t(attIdx++));
 
-      if(dyn.color[i].resolveMode && dyn.color[i].resolveImageView != VK_NULL_HANDLE)
+      if((dyn.color[i].resolveMode != VK_RESOLVE_MODE_NONE) &&
+         !(dyn.color[i].resolveMode & VK_RESOLVE_MODE_CUSTOM_BIT_EXT) &&
+         (dyn.color[i].resolveImageView != VK_NULL_HANDLE))
       {
         fbState.attachments.push_back({});
 
@@ -1851,8 +1856,16 @@ void VulkanReplay::SavePipelineState(uint32_t eventId)
       fbState.attachments.push_back({});
 
       ResourceId viewid = GetResID(dyn.depth.imageView);
+      if(state.dynamicRendering.beginCustomResolve &&
+         (dyn.depth.resolveMode & VK_RESOLVE_MODE_CUSTOM_BIT_EXT))
+        viewid = GetResID(dyn.depth.resolveImageView);
       if(dyn.depth.imageView == VK_NULL_HANDLE)
+      {
         viewid = GetResID(dyn.stencil.imageView);
+        if(state.dynamicRendering.beginCustomResolve &&
+           (dyn.stencil.resolveMode & VK_RESOLVE_MODE_CUSTOM_BIT_EXT))
+          viewid = GetResID(dyn.stencil.resolveImageView);
+      }
 
       fbState.attachments.back().view = viewid;
       ret.currentPass.framebuffer.attachments[attIdx].resource = c.m_ImageView[viewid].image;
@@ -5201,6 +5214,12 @@ void VulkanReplay::ClearReplayCache()
 {
   ClearPostVSCache();
   ClearFeedbackCache();
+}
+
+void VulkanReplay::ReloadShaderDebugInformation()
+{
+  m_pDriver->ReloadShaderDebugInformation();
+  ClearReplayCache();
 }
 
 void VulkanReplay::ReplaceResource(ResourceId from, ResourceId to)

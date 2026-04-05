@@ -2701,6 +2701,13 @@ void D3D11Replay::ClearReplayCache()
   ClearPostVSCache();
 }
 
+void D3D11Replay::ReloadShaderDebugInformation()
+{
+  DXBC::ResetSearchDirsCache();
+  WrappedID3D11Shader<ID3D11ComputeShader>::ReloadShaderDebugInformation();
+  ClearReplayCache();
+}
+
 D3D11DebugManager *D3D11Replay::GetDebugManager()
 {
   return m_pDevice->GetDebugManager();

@@ -1675,6 +1675,15 @@ void main()
       Color = vec4(x, y, z, w);
       break;
     }
+    case 187:
+    {
+      uint a = zerou + 0x44b82a80;
+      int b = zeroi + 0x44b82a80;
+
+      Color = vec4(float(bitfieldExtract(a, 0, 32)), float(bitfieldExtract(b, 0, 32)),
+                   float(bitfieldExtract(a, 32, 0)), float(bitfieldExtract(b, 32, 0)));
+      break;
+    }
     default: break;
   }
 }
@@ -3387,15 +3396,15 @@ OpBranch %_bottomlabel
       // Packed 4x8-bit
       append_tests({
           R"EOTEST(
-%_x = OpSDotKHR %int %int_dyn_0x01020304 %int_dyn_0x05060708
-%_y = OpSUDotKHR %int %int_dyn_0x090A0B0C %uint_dyn_0x0D0E0F10
-%_z = OpSDotAccSatKHR %int %int_dyn_0x01020304 %int_dyn_0x05060708 %int_191
-%_w = OpSUDotAccSatKHR %int %int_dyn_0x090A0B0C %uint_dyn_0x0D0E0F10 %int_neg237
+%_x = OpSDotKHR %int %int_dyn_0x01020304 %int_dyn_0x05060708 PackedVectorFormat4x8BitKHR
+%_y = OpSUDotKHR %int %int_dyn_0x090A0B0C %uint_dyn_0x0D0E0F10 PackedVectorFormat4x8BitKHR
+%_z = OpSDotAccSatKHR %int %int_dyn_0x01020304 %int_dyn_0x05060708 %int_191 PackedVectorFormat4x8BitKHR
+%_w = OpSUDotAccSatKHR %int %int_dyn_0x090A0B0C %uint_dyn_0x0D0E0F10 %int_neg237 PackedVectorFormat4x8BitKHR
 %_out_int4 = OpCompositeConstruct %int4 %_x %_y %_z %_w
 )EOTEST",
           R"EOTEST(
-%_x = OpUDotKHR %uint %uint_dyn_0x01020304 %uint_dyn_0x05060708
-%_y = OpUDotAccSatKHR %uint %uint_dyn_0x090A0B0C0D %uint_dyn_0x0E0F1011 %uint_73
+%_x = OpUDotKHR %uint %uint_dyn_0x01020304 %uint_dyn_0x05060708 PackedVectorFormat4x8BitKHR
+%_y = OpUDotAccSatKHR %uint %uint_dyn_0x090A0B0C0D %uint_dyn_0x0E0F1011 %uint_73 PackedVectorFormat4x8BitKHR
 %_out_uint4 = OpCompositeConstruct %uint4 %_x %_y %_x %_y
 )EOTEST",
       });

@@ -451,7 +451,7 @@ struct SDObjectData
 
   DOCUMENT(R"(The plain-old data contents of the object, in a :class:`SDObjectPODData`.
 
-:type: basic
+:type: SDObjectPODData
 )");
   SDObjectPODData basic;
 
@@ -628,7 +628,7 @@ struct SDObject
 
   DOCUMENT(R"(The name of this object.
 
-:type: name
+:type: str
 )");
   rdcinflexiblestr name;
 

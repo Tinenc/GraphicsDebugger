@@ -656,11 +656,18 @@ private:
   struct TrackedFile
   {
     TrackedFile() = default;
-    TrackedFile(const rdcstr &name, const rdcstr &path) : nickname(name), filepath(path) {}
-    TrackedFile(const rdcstr &name, const bytebuf &contents) : nickname(name), data(contents) {}
+    TrackedFile(const rdcstr &name, const rdcstr &path)
+        : nickname(name), filepath(path), hasData(false)
+    {
+    }
+    TrackedFile(const rdcstr &name, const bytebuf &contents)
+        : nickname(name), data(contents), hasData(true)
+    {
+    }
     rdcstr nickname;
     rdcstr filepath;
     bytebuf data;
+    bool hasData;
   };
 
   void SyncAvailableGPUThread();

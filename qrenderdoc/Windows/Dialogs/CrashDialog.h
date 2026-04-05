@@ -83,6 +83,8 @@ private:
 
   QElapsedTimer *m_UploadTimer = NULL;
 
+  bool m_Corrupted = false;
+
   QNetworkAccessManager *m_NetManager;
   QNetworkReply *m_Request = NULL;
 

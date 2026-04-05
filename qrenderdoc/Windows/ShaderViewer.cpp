@@ -455,6 +455,9 @@ void ShaderViewer::editShader(ResourceId id, ShaderStage stage, const QString &e
   ui->inputSig->hide();
   ui->outputSig->hide();
 
+  // hide debug info logging
+  ui->toggleLog->hide();
+
   QString title;
 
   QWidget *sel = NULL;
@@ -6625,6 +6628,41 @@ void ShaderViewer::on_debugToggle_clicked()
     gotoSourceDebugging();
 
   updateDebugState();
+}
+
+void ShaderViewer::on_toggleLog_clicked()
+{
+  if(m_Scintillas.isEmpty())
+    return;
+
+  if(debugInfoLog)
+  {
+    ui->docking->removeToolWindow(debugInfoLog);
+    debugInfoLog = NULL;
+    ui->toggleLog->setChecked(false);
+    return;
+  }
+
+  debugInfoLog = new QTextEdit(this);
+  debugInfoLog->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  debugInfoLog->setWindowTitle(tr("Debug Info Loading Logging"));
+  debugInfoLog->setFont(Formatter::FixedFont());
+
+  QString qText;
+  if(m_ShaderDetails && !m_ShaderDetails->debugInfo.debugInfoLoadingLog.empty())
+    qText = m_ShaderDetails->debugInfo.debugInfoLoadingLog;
+  else
+    qText = QString::fromUtf8("Debug info loading logging is not available for this shader");
+
+  debugInfoLog->setText(qText);
+
+  ui->docking->addToolWindow(
+      debugInfoLog, ToolWindowManager::AreaReference(ToolWindowManager::AddTo,
+                                                     ui->docking->areaOf(m_Scintillas.back())));
+  ui->docking->setToolWindowProperties(
+      debugInfoLog, ToolWindowManager::HideCloseButton | ToolWindowManager::DisallowFloatWindow);
+
+  ui->toggleLog->setChecked(true);
 }
 
 void ShaderViewer::on_resources_sortByStep_clicked()

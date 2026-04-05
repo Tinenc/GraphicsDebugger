@@ -258,7 +258,7 @@ void WrappedVulkan::vkGetPhysicalDeviceFormatProperties2(VkPhysicalDevice physic
 
   VkDrmFormatModifierPropertiesListEXT *drm = (VkDrmFormatModifierPropertiesListEXT *)FindNextStruct(
       pFormatProperties, VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_EXT);
-  if(drm)
+  if(drm && drm->pDrmFormatModifierProperties)
   {
     for(uint32_t i = 0; i < drm->drmFormatModifierCount; i++)
     {
@@ -269,7 +269,7 @@ void WrappedVulkan::vkGetPhysicalDeviceFormatProperties2(VkPhysicalDevice physic
   VkDrmFormatModifierPropertiesList2EXT *drm2 =
       (VkDrmFormatModifierPropertiesList2EXT *)FindNextStruct(
           pFormatProperties, VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_2_EXT);
-  if(drm2)
+  if(drm2 && drm2->pDrmFormatModifierProperties)
   {
     for(uint32_t i = 0; i < drm2->drmFormatModifierCount; i++)
     {

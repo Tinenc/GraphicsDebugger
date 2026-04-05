@@ -988,6 +988,11 @@ enum class BufferDescriptorFormat
   //    top_19 = byteSize256>>4
   Packed_4519_Aligned256_8,
 
+  // 8 bytes:
+  //    bottom 51 = pointer>>4
+  //    top_13 = byteSize16>>4
+  Packed_5113_Aligned16_8,
+
   // 16 bytes:
   //    uint64[0] = pointer
   //    uint64[1] = elemSize
@@ -1404,6 +1409,7 @@ enum class VulkanChunk : uint32_t
   vkCmdEndRendering2EXT,
   SetQueueAnnotation,
   SetCommandAnnotation,
+  vkCmdBeginCustomResolveEXT,
   Max,
 };
 
@@ -1472,6 +1478,7 @@ DECLARE_REFLECTION_STRUCT(VkAttachmentFeedbackLoopInfoEXT);
 DECLARE_REFLECTION_STRUCT(VkAttachmentReference2);
 DECLARE_REFLECTION_STRUCT(VkAttachmentReferenceStencilLayout);
 DECLARE_REFLECTION_STRUCT(VkAttachmentSampleLocationsEXT);
+DECLARE_REFLECTION_STRUCT(VkBeginCustomResolveInfoEXT);
 DECLARE_REFLECTION_STRUCT(VkBindBufferMemoryDeviceGroupInfo);
 DECLARE_REFLECTION_STRUCT(VkBindBufferMemoryInfo);
 DECLARE_REFLECTION_STRUCT(VkBindDescriptorBufferEmbeddedSamplersInfoEXT)
@@ -1516,6 +1523,7 @@ DECLARE_REFLECTION_STRUCT(VkCopyImageToImageInfo);
 DECLARE_REFLECTION_STRUCT(VkCopyImageToMemoryInfo);
 DECLARE_REFLECTION_STRUCT(VkCopyMemoryToAccelerationStructureInfoKHR);
 DECLARE_REFLECTION_STRUCT(VkCopyMemoryToImageInfo);
+DECLARE_REFLECTION_STRUCT(VkCustomResolveCreateInfoEXT);
 DECLARE_REFLECTION_STRUCT(VkDebugMarkerMarkerInfoEXT);
 DECLARE_REFLECTION_STRUCT(VkDebugMarkerObjectNameInfoEXT);
 DECLARE_REFLECTION_STRUCT(VkDebugMarkerObjectTagInfoEXT);
@@ -1673,6 +1681,7 @@ DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceConditionalRenderingFeaturesEXT);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceConservativeRasterizationPropertiesEXT);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceCustomBorderColorFeaturesEXT);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceCustomBorderColorPropertiesEXT);
+DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceCustomResolveFeaturesEXT);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceDepthClampZeroOneFeaturesKHR);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceDepthClipControlFeaturesEXT);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceDepthClipEnableFeaturesEXT);
@@ -1923,7 +1932,7 @@ DECLARE_REFLECTION_STRUCT(VkRenderingAttachmentLocationInfo);
 DECLARE_REFLECTION_STRUCT(VkRenderingFragmentDensityMapAttachmentInfoEXT);
 DECLARE_REFLECTION_STRUCT(VkRenderingFragmentShadingRateAttachmentInfoKHR);
 DECLARE_REFLECTION_STRUCT(VkRenderingInfo);
-DECLARE_REFLECTION_STRUCT(VkRenderingEndInfoEXT);
+DECLARE_REFLECTION_STRUCT(VkRenderingEndInfoKHR);
 DECLARE_REFLECTION_STRUCT(VkRenderingInputAttachmentIndexInfo);
 DECLARE_REFLECTION_STRUCT(VkRenderPassAttachmentBeginInfo);
 DECLARE_REFLECTION_STRUCT(VkRenderPassBeginInfo);
@@ -2056,6 +2065,7 @@ DECLARE_DESERIALISE_TYPE(VkCopyImageToImageInfo);
 DECLARE_DESERIALISE_TYPE(VkCopyImageToMemoryInfo);
 DECLARE_DESERIALISE_TYPE(VkCopyMemoryToAccelerationStructureInfoKHR);
 DECLARE_DESERIALISE_TYPE(VkCopyMemoryToImageInfo);
+DECLARE_DESERIALISE_TYPE(VkBeginCustomResolveInfoEXT);
 DECLARE_DESERIALISE_TYPE(VkDebugMarkerMarkerInfoEXT);
 DECLARE_DESERIALISE_TYPE(VkDebugMarkerObjectNameInfoEXT);
 DECLARE_DESERIALISE_TYPE(VkDebugMarkerObjectTagInfoEXT);
@@ -2457,7 +2467,7 @@ DECLARE_DESERIALISE_TYPE(VkRenderingAttachmentLocationInfo);
 DECLARE_DESERIALISE_TYPE(VkRenderingFragmentDensityMapAttachmentInfoEXT);
 DECLARE_DESERIALISE_TYPE(VkRenderingFragmentShadingRateAttachmentInfoKHR);
 DECLARE_DESERIALISE_TYPE(VkRenderingInfo);
-DECLARE_DESERIALISE_TYPE(VkRenderingEndInfoEXT);
+DECLARE_DESERIALISE_TYPE(VkRenderingEndInfoKHR);
 DECLARE_DESERIALISE_TYPE(VkRenderingInputAttachmentIndexInfo);
 DECLARE_DESERIALISE_TYPE(VkRenderPassAttachmentBeginInfo);
 DECLARE_DESERIALISE_TYPE(VkRenderPassBeginInfo);
@@ -2747,6 +2757,7 @@ DECLARE_REFLECTION_ENUM(VkColorComponentFlagBits);
 DECLARE_REFLECTION_ENUM(VkColorSpaceKHR);
 DECLARE_REFLECTION_ENUM(VkCommandBufferLevel);
 DECLARE_REFLECTION_ENUM(VkCommandBufferUsageFlagBits);
+DECLARE_REFLECTION_ENUM(VkCommandBufferResetFlagBits);
 DECLARE_REFLECTION_ENUM(VkCommandPoolCreateFlagBits);
 DECLARE_REFLECTION_ENUM(VkCommandPoolResetFlagBits);
 DECLARE_REFLECTION_ENUM(VkCompareOp);

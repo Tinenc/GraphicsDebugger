@@ -246,6 +246,7 @@ bool D3D12ResourceManager::Prepare_InitialState(ID3D12DeviceChild *res)
       const bool isUploadHeap = (heapProps.Type == D3D12_HEAP_TYPE_UPLOAD);
 
       desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+      desc.Alignment = 0;
 
       ID3D12Resource *copyDst = NULL;
       hr = m_Device->CreateInitialStateBuffer(desc, &copyDst);
@@ -436,6 +437,10 @@ bool D3D12ResourceManager::Prepare_InitialState(ID3D12DeviceChild *res)
         RDCDEBUG("Removing UAV flag from BCn desc to allow GetCopyableFootprints");
         desc.Flags &= ~D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
       }
+
+      // normalise alignment - sometimes D3D12 returns an alignment that is invalid to use
+      if(desc.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+        desc.Alignment = 0;
 
       for(UINT i = 0; i < numSubresources; i++)
       {
@@ -2133,6 +2138,9 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
         else
         {
           D3D12_RESOURCE_DESC desc = unwrappedCopyDst->GetDesc();
+          // normalise alignment - sometimes D3D12 returns an alignment that is invalid to use
+          if(desc.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+            desc.Alignment = 0;
 
           UINT numSubresources = desc.MipLevels;
           if(desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)

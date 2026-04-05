@@ -69,7 +69,7 @@ class VK_Mesh_Shader(rdtest.TestCase):
 
         y -= 100
         action = action.next
-        name = f"Amplification Shader with Local Payload EID:{action.eventId}"
+        name = f"Task Shader with Local Payload EID:{action.eventId}"
         rdtest.log.begin_section(name)
         self.controller.SetFrameEvent(action.eventId, False)
 
@@ -84,3 +84,27 @@ class VK_Mesh_Shader(rdtest.TestCase):
         self.check_mesh_data(postms_ref, postms_data)
         self.check_debug_pixel(x, y)
         rdtest.log.end_section(name)
+        
+        name = f"Mesh Shader with Points output"
+
+        with rdtest.log.auto_section(name):
+            action = action.next
+            self.controller.SetFrameEvent(action.eventId, False)
+            x = 290
+            y = 90
+        
+            color = [0.0, 1.0, 0.0, 1.0]
+            postms_ref = {}
+            for i in range(6):
+                    postms_ref[i] = {
+                        'vtx': i,
+                        'idx': i,
+                        'gl_Position': [-0.4+0.21*i, -0.4, 0.0, 1.0],
+                        'gl_PointSize': 20.0,
+                        'outColor': color,
+                    }
+            postms_data = self.get_postvs(action, rd.MeshDataStage.MeshOut, 0, action.numIndices)
+            self.check_mesh_data(postms_ref, postms_data)
+            self.check_debug_pixel(x, y)
+            rdtest.log.end_section(name)
+            

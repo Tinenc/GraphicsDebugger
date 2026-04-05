@@ -45,6 +45,14 @@ RD_TEST(D3D12_Predication, D3D12GraphicsTest)
     ID3D12QueryHeapPtr qh;
     dev->CreateQueryHeap(&desc, __uuidof(ID3D12QueryHeap), (void **)&qh);
 
+    desc.Count = 16;
+    ID3D12QueryHeapPtr qh2;
+    dev->CreateQueryHeap(&desc, __uuidof(ID3D12QueryHeap), (void **)&qh2);
+
+    ID3D12CommandAllocatorPtr alloc2;
+    CHECK_HR(dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                         __uuidof(ID3D12CommandAllocator), (void **)&alloc2));
+
     ID3D12ResourcePtr queryData = MakeBuffer().Size(sizeof(uint64_t) * (desc.Count + 1) * 3);
 
     uint64_t val = 1;
@@ -98,6 +106,7 @@ RD_TEST(D3D12_Predication, D3D12GraphicsTest)
     while(Running())
     {
       ID3D12GraphicsCommandListPtr cmd = GetCommandBuffer();
+      ID3D12GraphicsCommandListPtr cmd2 = GetCommandBuffer();
 
       Reset(cmd);
 
@@ -177,9 +186,20 @@ RD_TEST(D3D12_Predication, D3D12GraphicsTest)
 
       FinishUsingBackbuffer(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
+      // check for queries being "imbalanced" between command buffers
+
+      cmd2->Reset(alloc2, NULL);
+
+      cmd2->BeginQuery(qh2, D3D12_QUERY_TYPE_OCCLUSION, 0);
+
+      // this is fine, because the query is open on cmd2
       cmd->Close();
 
-      Submit({cmd});
+      cmd2->EndQuery(qh2, D3D12_QUERY_TYPE_OCCLUSION, 0);
+
+      cmd2->Close();
+
+      Submit({cmd, cmd2});
 
       Present();
     }

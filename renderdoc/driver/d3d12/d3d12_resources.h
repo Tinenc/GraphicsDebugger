@@ -945,6 +945,8 @@ public:
       return false;
     }
 
+    static void ReloadShaderDebugInformation();
+
     static void GetReflections(rdcarray<const ShaderReflection *> &refls)
     {
       refls.clear();
@@ -1010,6 +1012,7 @@ public:
 
   private:
     void BuildReflection();
+    void Reload();
 
     DXBCKey m_Key;
 
@@ -1636,6 +1639,8 @@ public:
     // normalise alignment - sometimes D3D12 returns an alignment that is invalid to use
     if(ret.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
        ret.Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+      ret.Alignment = 0;
+    if(ret.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
       ret.Alignment = 0;
     return ret;
   }

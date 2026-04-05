@@ -34,5 +34,6 @@ void NVAftermath_Init();
 void NVAftermath_EnableVK(const std::set<rdcstr> &supportedExtensions, rdcarray<rdcstr> &Extensions,
                           const void **deviceCreateNext);
 void NVAftermath_EnableD3D12(ID3D12Device *dev);
+void NVAftermath_Shader(ShaderEncoding encoding, const void *shader, size_t len);
 void NVAftermath_DumpCrash();
 void NVAftermath_DumpRTValidation(ID3D12Device5 *dev5);

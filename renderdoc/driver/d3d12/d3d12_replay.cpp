@@ -3634,6 +3634,13 @@ void D3D12Replay::ClearReplayCache()
   ClearFeedbackCache();
 }
 
+void D3D12Replay::ReloadShaderDebugInformation()
+{
+  DXBC::ResetSearchDirsCache();
+  WrappedID3D12Shader::ReloadShaderDebugInformation();
+  ClearReplayCache();
+}
+
 void D3D12Replay::RefreshDerivedReplacements()
 {
   D3D12ResourceManager *rm = m_pDevice->GetResourceManager();

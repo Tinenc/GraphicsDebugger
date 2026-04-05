@@ -238,6 +238,8 @@ KHR extensions will definitely be implemented at some point, though KHR extensio
 
 ## EXT
 
+* `SPV_EXT_descriptor_heap`
+  * `DescriptorHeapEXT`
 * `SPV_EXT_float8`
   * `Float8EXT`
   * `Float8CooperativeMatrixEXT`
@@ -245,10 +247,16 @@ KHR extensions will definitely be implemented at some point, though KHR extensio
   * `FragmentShaderSampleInterlockEXT`
   * `FragmentShaderShadingRateInterlockEXT`
   * `FragmentShaderPixelInterlockEXT`
+* `SPV_EXT_long_vector`
+  * `LongVectorEXT`
 * `SPV_EXT_replicated_composites`
   * `ReplicatedCompositesEXT`
 * `SPV_EXT_shader_64bit_indexing`
   * `Shader64BitIndexingEXT`
+* `SPV_EXT_shader_invocation_reorder`
+  * `ShaderInvocationReorderEXT`
+* `SPV_EXT_shader_subgroup_partitioned`
+  * `GroupNonUniformPartitionedEXT`
 * `SPV_EXT_shader_tile_image`
   * `TileImageColorReadAccessEXT`
   * `TileImageDepthReadAccessEXT`
@@ -432,6 +440,8 @@ KHR extensions will definitely be implemented at some point, though KHR extensio
   * `RayTracingLinearSweptSpheresGeometryNV`
 * `SPV_NV_mesh_shader`
   * `MeshShadingNV`
+* `SPV_NV_push_constant_bank`
+  * `PushConstantBanksNV`
 * `SPV_NV_raw_access_chains`
   * `RawAccessChainsNV`
 * `SPV_NV_ray_tracing_motion_blur`

@@ -3344,7 +3344,7 @@ ParseTrace EventFilterModel::ParseExpressionToFilters(QString expr, rdcarray<Eve
 
           subexpr.matchType = matchType;
           subexpr.function = true;
-          subexpr.name = lit("$any$");
+          subexpr.name = lit("$subexp$");
           subexpr.params = params;
 
           subexpr.position = trace.position;
@@ -5127,9 +5127,9 @@ void EventBrowser::AddFilterExplanations(RDTreeWidgetItem *root, QVector<FilterE
     {
       explanation += tr("Name matches '%1'").arg(f.name);
     }
-    else if(f.name == lit("$any$"))
+    else if(f.name == lit("$subexp$"))
     {
-      explanation += tr("Any of...");
+      explanation += tr("Match against...");
     }
     else
     {

@@ -494,7 +494,7 @@ jobs:
       env:
         UPLOADLOCATION: ${{ secrets.MacUploadLocation }}
       run: |
-        echo '|1|if7jyhkGD/xNbs/bfYSZ4zcgIoo=|gjhyr71exVKt7rNtMly68VccvLk= ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPhCdt25vFMUQ63wTBxKLCZY1Ax+F9Y+SSusjuG6b4xtdVQ1lo3FqHnyLtsvYja0R0RiwTEob6TDrr/j7rjR96M=' >> $HOME/.ssh/known_hosts
+        echo '|1|wjfvzc9dsrUZWq+yQ9C/psA2ng0=|eKz84/FpRkQPqQ0UWVb1iJvfId8= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL9bItIDu0p2uhCjto9n2Z0ra/D9EBYrSp44+i9bRn6Q' >> $HOME/.ssh/known_hosts
         ls -lR $HOME/.ssh
         cat $HOME/.ssh/known_hosts
         if [ ! -z "${UPLOADLOCATION}" ]; then lftp sftp://"${UPLOADLOCATION}" -e "cd upload; put ${FNAME}; bye"; fi

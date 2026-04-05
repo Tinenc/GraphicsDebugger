@@ -46,6 +46,7 @@
 #include <algorithm>
 
 #include "SpvBuilder.h"
+#include "spvUtil.h"
 #include "hex_float.h"
 
 #ifndef _WIN32
@@ -56,10 +57,10 @@ namespace spv {
 
 Builder::Builder(unsigned int spvVersion, unsigned int magicNumber, SpvBuildLogger* buildLogger) :
     spvVersion(spvVersion),
-    sourceLang(SourceLanguageUnknown),
+    sourceLang(SourceLanguage::Unknown),
     sourceVersion(0),
-    addressModel(AddressingModelLogical),
-    memoryModel(MemoryModelGLSL450),
+    addressModel(AddressingModel::Logical),
+    memoryModel(MemoryModel::GLSL450),
     builderNumber(magicNumber),
     buildPoint(nullptr),
     uniqueId(0),
@@ -76,7 +77,7 @@ Builder::~Builder()
 
 Id Builder::import(const char* name)
 {
-    Instruction* import = new Instruction(getUniqueId(), NoType, OpExtInstImport);
+    Instruction* import = new Instruction(getUniqueId(), NoType, Op::OpExtInstImport);
     import->addStringOperand(name);
     module.mapInstruction(import);
 
@@ -88,17 +89,17 @@ Id Builder::import(const char* name)
 Id Builder::makeVoidType()
 {
     Instruction* type;
-    if (groupedTypes[OpTypeVoid].size() == 0) {
+    if (groupedTypes[enumCast(Op::OpTypeVoid)].size() == 0) {
         Id typeId = getUniqueId();
-        type = new Instruction(typeId, NoType, OpTypeVoid);
-        groupedTypes[OpTypeVoid].push_back(type);
+        type = new Instruction(typeId, NoType, Op::OpTypeVoid);
+        groupedTypes[enumCast(Op::OpTypeVoid)].push_back(type);
         constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
         module.mapInstruction(type);
         // Core OpTypeVoid used for debug void type
         if (emitNonSemanticShaderDebugInfo)
-            debugId[typeId] = typeId;
+            debugTypeIdLookup[typeId] = typeId;
     } else
-        type = groupedTypes[OpTypeVoid].back();
+        type = groupedTypes[enumCast(Op::OpTypeVoid)].back();
 
     return type->getResultId();
 }
@@ -106,39 +107,39 @@ Id Builder::makeVoidType()
 Id Builder::makeBoolType()
 {
     Instruction* type;
-    if (groupedTypes[OpTypeBool].size() == 0) {
-        type = new Instruction(getUniqueId(), NoType, OpTypeBool);
-        groupedTypes[OpTypeBool].push_back(type);
+    if (groupedTypes[enumCast(Op::OpTypeBool)].size() == 0) {
+        type = new Instruction(getUniqueId(), NoType, Op::OpTypeBool);
+        groupedTypes[enumCast(Op::OpTypeBool)].push_back(type);
         constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
         module.mapInstruction(type);
 
         if (emitNonSemanticShaderDebugInfo) {
             auto const debugResultId = makeBoolDebugType(32);
-            debugId[type->getResultId()] = debugResultId;
+            debugTypeIdLookup[type->getResultId()] = debugResultId;
         }
 
     } else
-        type = groupedTypes[OpTypeBool].back();
+        type = groupedTypes[enumCast(Op::OpTypeBool)].back();
 
 
     return type->getResultId();
 }
 
-Id Builder::makeSamplerType()
+Id Builder::makeSamplerType(const char* debugName)
 {
     Instruction* type;
-    if (groupedTypes[OpTypeSampler].size() == 0) {
-        type = new Instruction(getUniqueId(), NoType, OpTypeSampler);
-        groupedTypes[OpTypeSampler].push_back(type);
+    if (groupedTypes[enumCast(Op::OpTypeSampler)].size() == 0) {
+        type = new Instruction(getUniqueId(), NoType, Op::OpTypeSampler);
+        groupedTypes[enumCast(Op::OpTypeSampler)].push_back(type);
         constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
         module.mapInstruction(type);
     } else
-        type = groupedTypes[OpTypeSampler].back();
+        type = groupedTypes[enumCast(Op::OpTypeSampler)].back();
 
     if (emitNonSemanticShaderDebugInfo)
     {
-        auto const debugResultId = makeCompositeDebugType({}, "type.sampler", NonSemanticShaderDebugInfo100Structure, true);
-        debugId[type->getResultId()] = debugResultId;
+        auto const debugResultId = makeOpaqueDebugType(debugName);
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
@@ -148,25 +149,25 @@ Id Builder::makePointer(StorageClass storageClass, Id pointee)
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypePointer].size(); ++t) {
-        type = groupedTypes[OpTypePointer][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypePointer)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypePointer)][t];
         if (type->getImmediateOperand(0) == (unsigned)storageClass &&
             type->getIdOperand(1) == pointee)
             return type->getResultId();
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), NoType, OpTypePointer);
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypePointer);
     type->reserveOperands(2);
     type->addImmediateOperand(storageClass);
     type->addIdOperand(pointee);
-    groupedTypes[OpTypePointer].push_back(type);
+    groupedTypes[enumCast(Op::OpTypePointer)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
     if (emitNonSemanticShaderDebugInfo) {
         const Id debugResultId = makePointerDebugType(storageClass, pointee);
-        debugId[type->getResultId()] = debugResultId;
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
@@ -177,15 +178,36 @@ Id Builder::makeForwardPointer(StorageClass storageClass)
     // Caching/uniquifying doesn't work here, because we don't know the
     // pointee type and there can be multiple forward pointers of the same
     // storage type. Somebody higher up in the stack must keep track.
-    Instruction* type = new Instruction(getUniqueId(), NoType, OpTypeForwardPointer);
+    Instruction* type = new Instruction(getUniqueId(), NoType, Op::OpTypeForwardPointer);
     type->addImmediateOperand(storageClass);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
     if (emitNonSemanticShaderDebugInfo) {
         const Id debugResultId = makeForwardPointerDebugType(storageClass);
-        debugId[type->getResultId()] = debugResultId;
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
+    return type->getResultId();
+}
+
+Id Builder::makeUntypedPointer(StorageClass storageClass, bool setBufferPointer)
+{
+    // try to find it
+    Instruction* type;
+    // both typeBufferEXT and UntypedPointer only contains storage class info.
+    spv::Op typeOp = setBufferPointer ? Op::OpTypeBufferEXT : Op::OpTypeUntypedPointerKHR;
+    for (int t = 0; t < (int)groupedTypes[enumCast(typeOp)].size(); ++t) {
+        type = groupedTypes[enumCast(typeOp)][t];
+        if (type->getImmediateOperand(0) == (unsigned)storageClass)
+            return type->getResultId();
+    }
+
+    // not found, make it
+    type = new Instruction(getUniqueId(), NoType, typeOp);
+    type->addImmediateOperand(storageClass);
+    groupedTypes[enumCast(typeOp)].push_back(type);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
+    module.mapInstruction(type);
     return type->getResultId();
 }
 
@@ -193,18 +215,18 @@ Id Builder::makePointerFromForwardPointer(StorageClass storageClass, Id forwardP
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypePointer].size(); ++t) {
-        type = groupedTypes[OpTypePointer][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypePointer)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypePointer)][t];
         if (type->getImmediateOperand(0) == (unsigned)storageClass &&
             type->getIdOperand(1) == pointee)
             return type->getResultId();
     }
 
-    type = new Instruction(forwardPointerType, NoType, OpTypePointer);
+    type = new Instruction(forwardPointerType, NoType, Op::OpTypePointer);
     type->reserveOperands(2);
     type->addImmediateOperand(storageClass);
     type->addIdOperand(pointee);
-    groupedTypes[OpTypePointer].push_back(type);
+    groupedTypes[enumCast(Op::OpTypePointer)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
@@ -212,9 +234,9 @@ Id Builder::makePointerFromForwardPointer(StorageClass storageClass, Id forwardP
     // that was emitted alongside the forward pointer, now that we have a pointee debug
     // type for it to point to.
     if (emitNonSemanticShaderDebugInfo) {
-        Instruction *debugForwardPointer = module.getInstruction(debugId[forwardPointerType]);
-        assert(debugId[pointee]);
-        debugForwardPointer->setIdOperand(2, debugId[pointee]);
+        Instruction *debugForwardPointer = module.getInstruction(getDebugType(forwardPointerType));
+        assert(getDebugType(pointee));
+        debugForwardPointer->setIdOperand(2, getDebugType(pointee));
     }
 
     return type->getResultId();
@@ -224,19 +246,19 @@ Id Builder::makeIntegerType(int width, bool hasSign)
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypeInt].size(); ++t) {
-        type = groupedTypes[OpTypeInt][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeInt)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeInt)][t];
         if (type->getImmediateOperand(0) == (unsigned)width &&
             type->getImmediateOperand(1) == (hasSign ? 1u : 0u))
             return type->getResultId();
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), NoType, OpTypeInt);
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeInt);
     type->reserveOperands(2);
     type->addImmediateOperand(width);
     type->addImmediateOperand(hasSign ? 1 : 0);
-    groupedTypes[OpTypeInt].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeInt)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
@@ -247,7 +269,7 @@ Id Builder::makeIntegerType(int width, bool hasSign)
         // these are currently handled by storage-type declarations and post processing
         break;
     case 64:
-        addCapability(CapabilityInt64);
+        addCapability(Capability::Int64);
         break;
     default:
         break;
@@ -256,7 +278,7 @@ Id Builder::makeIntegerType(int width, bool hasSign)
     if (emitNonSemanticShaderDebugInfo)
     {
         auto const debugResultId = makeIntegerDebugType(width, hasSign);
-        debugId[type->getResultId()] = debugResultId;
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
@@ -266,16 +288,19 @@ Id Builder::makeFloatType(int width)
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypeFloat].size(); ++t) {
-        type = groupedTypes[OpTypeFloat][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeFloat)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeFloat)][t];
+        if (type->getNumOperands() != 1) {
+            continue;
+        }
         if (type->getImmediateOperand(0) == (unsigned)width)
             return type->getResultId();
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), NoType, OpTypeFloat);
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeFloat);
     type->addImmediateOperand(width);
-    groupedTypes[OpTypeFloat].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeFloat)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
@@ -285,7 +310,7 @@ Id Builder::makeFloatType(int width)
         // currently handled by storage-type declarations and post processing
         break;
     case 64:
-        addCapability(CapabilityFloat64);
+        addCapability(Capability::Float64);
         break;
     default:
         break;
@@ -294,8 +319,119 @@ Id Builder::makeFloatType(int width)
     if (emitNonSemanticShaderDebugInfo)
     {
         auto const debugResultId = makeFloatDebugType(width);
-        debugId[type->getResultId()] = debugResultId;
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
+
+    return type->getResultId();
+}
+
+Id Builder::makeBFloat16Type()
+{
+    // try to find it
+    Instruction* type;
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeFloat)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeFloat)][t];
+        if (type->getNumOperands() != 2) {
+            continue;
+        }
+        if (type->getImmediateOperand(0) == (unsigned)16 &&
+            type->getImmediateOperand(1) == FPEncoding::BFloat16KHR)
+            return type->getResultId();
+    }
+
+    // not found, make it
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeFloat);
+    type->addImmediateOperand(16);
+    type->addImmediateOperand(FPEncoding::BFloat16KHR);
+    groupedTypes[enumCast(Op::OpTypeFloat)].push_back(type);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
+    module.mapInstruction(type);
+
+    addExtension(spv::E_SPV_KHR_bfloat16);
+    addCapability(Capability::BFloat16TypeKHR);
+
+#if 0
+    // XXX not supported
+    if (emitNonSemanticShaderDebugInfo)
+    {
+        auto const debugResultId = makeFloatDebugType(width);
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
+    }
+#endif
+
+    return type->getResultId();
+}
+
+Id Builder::makeFloatE5M2Type()
+{
+    // try to find it
+    Instruction* type;
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeFloat)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeFloat)][t];
+        if (type->getNumOperands() != 2) {
+            continue;
+        }
+        if (type->getImmediateOperand(0) == (unsigned)8 &&
+            type->getImmediateOperand(1) == FPEncoding::Float8E5M2EXT)
+            return type->getResultId();
+    }
+
+    // not found, make it
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeFloat);
+    type->addImmediateOperand(8);
+    type->addImmediateOperand(FPEncoding::Float8E5M2EXT);
+    groupedTypes[enumCast(Op::OpTypeFloat)].push_back(type);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
+    module.mapInstruction(type);
+
+    addExtension(spv::E_SPV_EXT_float8);
+    addCapability(Capability::Float8EXT);
+
+#if 0
+    // XXX not supported
+    if (emitNonSemanticShaderDebugInfo)
+    {
+        auto const debugResultId = makeFloatDebugType(width);
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
+    }
+#endif
+
+    return type->getResultId();
+}
+
+Id Builder::makeFloatE4M3Type()
+{
+    // try to find it
+    Instruction* type;
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeFloat)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeFloat)][t];
+        if (type->getNumOperands() != 2) {
+            continue;
+        }
+        if (type->getImmediateOperand(0) == (unsigned)8 &&
+            type->getImmediateOperand(1) == FPEncoding::Float8E4M3EXT)
+            return type->getResultId();
+    }
+
+    // not found, make it
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeFloat);
+    type->addImmediateOperand(8);
+    type->addImmediateOperand(FPEncoding::Float8E4M3EXT);
+    groupedTypes[enumCast(Op::OpTypeFloat)].push_back(type);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
+    module.mapInstruction(type);
+
+    addExtension(spv::E_SPV_EXT_float8);
+    addCapability(Capability::Float8EXT);
+
+#if 0
+    // XXX not supported
+    if (emitNonSemanticShaderDebugInfo)
+    {
+        auto const debugResultId = makeFloatDebugType(width);
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
+    }
+#endif
 
     return type->getResultId();
 }
@@ -304,24 +440,27 @@ Id Builder::makeFloatType(int width)
 // See makeStructResultType() for non-decorated structs
 // needed as the result of some instructions, which does
 // check for duplicates.
-Id Builder::makeStructType(const std::vector<Id>& members, const char* name, bool const compilerGenerated)
+// For compiler-generated structs, debug info is ignored.
+Id Builder::makeStructType(const std::vector<Id>& members, const std::vector<spv::StructMemberDebugInfo>& memberDebugInfo,
+                           const char* name, bool const compilerGenerated)
 {
     // Don't look for previous one, because in the general case,
     // structs can be duplicated except for decorations.
 
     // not found, make it
-    Instruction* type = new Instruction(getUniqueId(), NoType, OpTypeStruct);
+    Instruction* type = new Instruction(getUniqueId(), NoType, Op::OpTypeStruct);
     for (int op = 0; op < (int)members.size(); ++op)
         type->addIdOperand(members[op]);
-    groupedTypes[OpTypeStruct].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeStruct)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
     addName(type->getResultId(), name);
 
-    if (emitNonSemanticShaderDebugInfo && !compilerGenerated)
-    {
-        auto const debugResultId = makeCompositeDebugType(members, name, NonSemanticShaderDebugInfo100Structure);
-        debugId[type->getResultId()] = debugResultId;
+    if (emitNonSemanticShaderDebugInfo && !compilerGenerated) {
+        assert(members.size() == memberDebugInfo.size());
+        auto const debugResultId =
+            makeCompositeDebugType(members, memberDebugInfo, name, NonSemanticShaderDebugInfo100Structure);
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
@@ -333,8 +472,8 @@ Id Builder::makeStructResultType(Id type0, Id type1)
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypeStruct].size(); ++t) {
-        type = groupedTypes[OpTypeStruct][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeStruct)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeStruct)][t];
         if (type->getNumOperands() != 2)
             continue;
         if (type->getIdOperand(0) != type0 ||
@@ -348,33 +487,33 @@ Id Builder::makeStructResultType(Id type0, Id type1)
     members.push_back(type0);
     members.push_back(type1);
 
-    return makeStructType(members, "ResType");
+    return makeStructType(members, {}, "ResType");
 }
 
 Id Builder::makeVectorType(Id component, int size)
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypeVector].size(); ++t) {
-        type = groupedTypes[OpTypeVector][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeVector)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeVector)][t];
         if (type->getIdOperand(0) == component &&
             type->getImmediateOperand(1) == (unsigned)size)
             return type->getResultId();
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), NoType, OpTypeVector);
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeVector);
     type->reserveOperands(2);
     type->addIdOperand(component);
     type->addImmediateOperand(size);
-    groupedTypes[OpTypeVector].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeVector)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
     if (emitNonSemanticShaderDebugInfo)
     {
         auto const debugResultId = makeVectorDebugType(component, size);
-        debugId[type->getResultId()] = debugResultId;
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
@@ -388,26 +527,26 @@ Id Builder::makeMatrixType(Id component, int cols, int rows)
 
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypeMatrix].size(); ++t) {
-        type = groupedTypes[OpTypeMatrix][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeMatrix)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeMatrix)][t];
         if (type->getIdOperand(0) == column &&
             type->getImmediateOperand(1) == (unsigned)cols)
             return type->getResultId();
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), NoType, OpTypeMatrix);
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeMatrix);
     type->reserveOperands(2);
     type->addIdOperand(column);
     type->addImmediateOperand(cols);
-    groupedTypes[OpTypeMatrix].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeMatrix)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
     if (emitNonSemanticShaderDebugInfo)
     {
         auto const debugResultId = makeMatrixDebugType(column, cols);
-        debugId[type->getResultId()] = debugResultId;
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
@@ -417,8 +556,8 @@ Id Builder::makeCooperativeMatrixTypeKHR(Id component, Id scope, Id rows, Id col
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypeCooperativeMatrixKHR].size(); ++t) {
-        type = groupedTypes[OpTypeCooperativeMatrixKHR][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeCooperativeMatrixKHR)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeCooperativeMatrixKHR)][t];
         if (type->getIdOperand(0) == component &&
             type->getIdOperand(1) == scope &&
             type->getIdOperand(2) == rows &&
@@ -428,14 +567,14 @@ Id Builder::makeCooperativeMatrixTypeKHR(Id component, Id scope, Id rows, Id col
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), NoType, OpTypeCooperativeMatrixKHR);
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeCooperativeMatrixKHR);
     type->reserveOperands(5);
     type->addIdOperand(component);
     type->addIdOperand(scope);
     type->addIdOperand(rows);
     type->addIdOperand(cols);
     type->addIdOperand(use);
-    groupedTypes[OpTypeCooperativeMatrixKHR].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeCooperativeMatrixKHR)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
@@ -444,7 +583,7 @@ Id Builder::makeCooperativeMatrixTypeKHR(Id component, Id scope, Id rows, Id col
         // Find a name for one of the parameters. It can either come from debuginfo for another
         // type, or an OpName from a constant.
         auto const findName = [&](Id id) {
-            Id id2 = debugId[id];
+            Id id2 = getDebugType(id);
             for (auto &t : groupedDebugTypes[NonSemanticShaderDebugInfo100DebugTypeBasic]) {
                 if (t->getResultId() == id2) {
                     for (auto &s : strings) {
@@ -472,8 +611,8 @@ Id Builder::makeCooperativeMatrixTypeKHR(Id component, Id scope, Id rows, Id col
         debugName += std::string(findName(cols)) + ">";
         // There's no nonsemantic debug info instruction for cooperative matrix types,
         // use opaque composite instead.
-        auto const debugResultId = makeCompositeDebugType({}, debugName.c_str(), NonSemanticShaderDebugInfo100Structure, true);
-        debugId[type->getResultId()] = debugResultId;
+        auto const debugResultId = makeOpaqueDebugType(debugName.c_str());
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
@@ -483,21 +622,21 @@ Id Builder::makeCooperativeMatrixTypeNV(Id component, Id scope, Id rows, Id cols
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypeCooperativeMatrixNV].size(); ++t) {
-        type = groupedTypes[OpTypeCooperativeMatrixNV][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeCooperativeMatrixNV)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeCooperativeMatrixNV)][t];
         if (type->getIdOperand(0) == component && type->getIdOperand(1) == scope && type->getIdOperand(2) == rows &&
             type->getIdOperand(3) == cols)
             return type->getResultId();
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), NoType, OpTypeCooperativeMatrixNV);
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeCooperativeMatrixNV);
     type->reserveOperands(4);
     type->addIdOperand(component);
     type->addIdOperand(scope);
     type->addIdOperand(rows);
     type->addIdOperand(cols);
-    groupedTypes[OpTypeCooperativeMatrixNV].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeCooperativeMatrixNV)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
@@ -507,20 +646,62 @@ Id Builder::makeCooperativeMatrixTypeNV(Id component, Id scope, Id rows, Id cols
 Id Builder::makeCooperativeMatrixTypeWithSameShape(Id component, Id otherType)
 {
     Instruction* instr = module.getInstruction(otherType);
-    if (instr->getOpCode() == OpTypeCooperativeMatrixNV) {
+    if (instr->getOpCode() == Op::OpTypeCooperativeMatrixNV) {
         return makeCooperativeMatrixTypeNV(component, instr->getIdOperand(1), instr->getIdOperand(2), instr->getIdOperand(3));
     } else {
-        assert(instr->getOpCode() == OpTypeCooperativeMatrixKHR);
+        assert(instr->getOpCode() == Op::OpTypeCooperativeMatrixKHR);
         return makeCooperativeMatrixTypeKHR(component, instr->getIdOperand(1), instr->getIdOperand(2), instr->getIdOperand(3), instr->getIdOperand(4));
     }
+}
+
+Id Builder::makeCooperativeVectorTypeNV(Id componentType, Id components)
+{
+    // try to find it
+    Instruction* type;
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeCooperativeVectorNV)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeCooperativeVectorNV)][t];
+        if (type->getIdOperand(0) == componentType &&
+            type->getIdOperand(1) == components)
+            return type->getResultId();
+    }
+
+    // not found, make it
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeCooperativeVectorNV);
+    type->addIdOperand(componentType);
+    type->addIdOperand(components);
+    groupedTypes[enumCast(Op::OpTypeCooperativeVectorNV)].push_back(type);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
+    module.mapInstruction(type);
+
+    return type->getResultId();
+}
+
+Id Builder::makeTensorTypeARM(Id elementType, Id rank)
+{
+    // See if an OpTypeTensorARM with same element type and rank already exists.
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeTensorARM)].size(); ++t) {
+        const Instruction *type = groupedTypes[enumCast(Op::OpTypeTensorARM)][t];
+        if (type->getIdOperand(0) == elementType && type->getIdOperand(1) == rank)
+            return type->getResultId();
+    }
+
+    // Not found, make it.
+    std::unique_ptr<Instruction> type(new Instruction(getUniqueId(), NoType, Op::OpTypeTensorARM));
+    type->addIdOperand(elementType);
+    type->addIdOperand(rank);
+    groupedTypes[enumCast(Op::OpTypeTensorARM)].push_back(type.get());
+    module.mapInstruction(type.get());
+    Id resultID = type->getResultId();
+    constantsTypesGlobals.push_back(std::move(type));
+    return resultID;
 }
 
 Id Builder::makeGenericType(spv::Op opcode, std::vector<spv::IdImmediate>& operands)
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[opcode].size(); ++t) {
-        type = groupedTypes[opcode][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(opcode)].size(); ++t) {
+        type = groupedTypes[enumCast(opcode)][t];
         if (static_cast<size_t>(type->getNumOperands()) != operands.size())
             continue; // Number mismatch, find next
 
@@ -541,7 +722,7 @@ Id Builder::makeGenericType(spv::Op opcode, std::vector<spv::IdImmediate>& opera
         else
             type->addImmediateOperand(operands[op].word);
     }
-    groupedTypes[opcode].push_back(type);
+    groupedTypes[enumCast(opcode)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
@@ -557,27 +738,32 @@ Id Builder::makeArrayType(Id element, Id sizeId, int stride)
     Instruction* type;
     if (stride == 0) {
         // try to find existing type
-        for (int t = 0; t < (int)groupedTypes[OpTypeArray].size(); ++t) {
-            type = groupedTypes[OpTypeArray][t];
+        for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeArray)].size(); ++t) {
+            type = groupedTypes[enumCast(Op::OpTypeArray)][t];
             if (type->getIdOperand(0) == element &&
-                type->getIdOperand(1) == sizeId)
+                type->getIdOperand(1) == sizeId &&
+                explicitlyLaidOut.find(type->getResultId()) == explicitlyLaidOut.end())
                 return type->getResultId();
         }
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), NoType, OpTypeArray);
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeArray);
     type->reserveOperands(2);
     type->addIdOperand(element);
     type->addIdOperand(sizeId);
-    groupedTypes[OpTypeArray].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeArray)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
+
+    if (stride != 0) {
+        explicitlyLaidOut.insert(type->getResultId());
+    }
 
     if (emitNonSemanticShaderDebugInfo)
     {
         auto const debugResultId = makeArrayDebugType(element, sizeId);
-        debugId[type->getResultId()] = debugResultId;
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
@@ -585,7 +771,7 @@ Id Builder::makeArrayType(Id element, Id sizeId, int stride)
 
 Id Builder::makeRuntimeArray(Id element)
 {
-    Instruction* type = new Instruction(getUniqueId(), NoType, OpTypeRuntimeArray);
+    Instruction* type = new Instruction(getUniqueId(), NoType, Op::OpTypeRuntimeArray);
     type->addIdOperand(element);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
@@ -593,7 +779,7 @@ Id Builder::makeRuntimeArray(Id element)
     if (emitNonSemanticShaderDebugInfo)
     {
         auto const debugResultId = makeArrayDebugType(element, makeUintConstant(0));
-        debugId[type->getResultId()] = debugResultId;
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
@@ -603,8 +789,8 @@ Id Builder::makeFunctionType(Id returnType, const std::vector<Id>& paramTypes)
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypeFunction].size(); ++t) {
-        type = groupedTypes[OpTypeFunction][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeFunction)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeFunction)][t];
         if (type->getIdOperand(0) != returnType || (int)paramTypes.size() != type->getNumOperands() - 1)
             continue;
         bool mismatch = false;
@@ -620,12 +806,12 @@ Id Builder::makeFunctionType(Id returnType, const std::vector<Id>& paramTypes)
             // function type is created for the wrapper function. However, nonsemantic shader debug information is disabled
             // while creating the HLSL wrapper. Consequently, if we encounter another void(void) function, we need to create
             // the associated debug function type if it hasn't been created yet.
-            if(emitNonSemanticShaderDebugInfo && debugId[type->getResultId()] == 0) {
-                assert(sourceLang == spv::SourceLanguageHLSL);
-                assert(getTypeClass(returnType) == OpTypeVoid && paramTypes.size() == 0);
+            if(emitNonSemanticShaderDebugInfo && getDebugType(type->getResultId()) == NoType) {
+                assert(sourceLang == spv::SourceLanguage::HLSL);
+                assert(getTypeClass(returnType) == Op::OpTypeVoid && paramTypes.size() == 0);
 
-                Id debugTypeId = makeDebugFunctionType(returnType, {});
-                debugId[type->getResultId()] = debugTypeId;
+                Id id = makeDebugFunctionType(returnType, {});
+                debugTypeIdLookup[type->getResultId()] = id;
             }
             return type->getResultId();
         }
@@ -633,19 +819,19 @@ Id Builder::makeFunctionType(Id returnType, const std::vector<Id>& paramTypes)
 
     // not found, make it
     Id typeId = getUniqueId();
-    type = new Instruction(typeId, NoType, OpTypeFunction);
+    type = new Instruction(typeId, NoType, Op::OpTypeFunction);
     type->reserveOperands(paramTypes.size() + 1);
     type->addIdOperand(returnType);
     for (int p = 0; p < (int)paramTypes.size(); ++p)
         type->addIdOperand(paramTypes[p]);
-    groupedTypes[OpTypeFunction].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeFunction)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
     // make debug type and map it
     if (emitNonSemanticShaderDebugInfo) {
         Id debugTypeId = makeDebugFunctionType(returnType, paramTypes);
-        debugId[typeId] = debugTypeId;
+        debugTypeIdLookup[typeId] = debugTypeId;
     }
 
     return type->getResultId();
@@ -653,21 +839,21 @@ Id Builder::makeFunctionType(Id returnType, const std::vector<Id>& paramTypes)
 
 Id Builder::makeDebugFunctionType(Id returnType, const std::vector<Id>& paramTypes)
 {
-    assert(debugId[returnType] != 0);
+    assert(getDebugType(returnType) != NoType);
 
     Id typeId = getUniqueId();
-    auto type = new Instruction(typeId, makeVoidType(), OpExtInst);
+    auto type = new Instruction(typeId, makeVoidType(), Op::OpExtInst);
     type->reserveOperands(paramTypes.size() + 4);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugTypeFunction);
     type->addIdOperand(makeUintConstant(NonSemanticShaderDebugInfo100FlagIsPublic));
-    type->addIdOperand(debugId[returnType]);
+    type->addIdOperand(getDebugType(returnType));
     for (auto const paramType : paramTypes) {
         if (isPointerType(paramType) || isArrayType(paramType)) {
-            type->addIdOperand(debugId[getContainedTypeId(paramType)]);
+            type->addIdOperand(getDebugType(getContainedTypeId(paramType)));
         }
         else {
-            type->addIdOperand(debugId[paramType]);
+            type->addIdOperand(getDebugType(paramType));
         }
     }
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
@@ -676,14 +862,14 @@ Id Builder::makeDebugFunctionType(Id returnType, const std::vector<Id>& paramTyp
 }
 
 Id Builder::makeImageType(Id sampledType, Dim dim, bool depth, bool arrayed, bool ms, unsigned sampled,
-    ImageFormat format)
+    ImageFormat format, const char* debugName)
 {
     assert(sampled == 1 || sampled == 2);
 
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypeImage].size(); ++t) {
-        type = groupedTypes[OpTypeImage][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeImage)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeImage)][t];
         if (type->getIdOperand(0) == sampledType &&
             type->getImmediateOperand(1) == (unsigned int)dim &&
             type->getImmediateOperand(2) == (  depth ? 1u : 0u) &&
@@ -695,7 +881,7 @@ Id Builder::makeImageType(Id sampledType, Dim dim, bool depth, bool arrayed, boo
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), NoType, OpTypeImage);
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeImage);
     type->reserveOperands(7);
     type->addIdOperand(sampledType);
     type->addImmediateOperand(   dim);
@@ -705,40 +891,40 @@ Id Builder::makeImageType(Id sampledType, Dim dim, bool depth, bool arrayed, boo
     type->addImmediateOperand(sampled);
     type->addImmediateOperand((unsigned int)format);
 
-    groupedTypes[OpTypeImage].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeImage)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
     // deal with capabilities
     switch (dim) {
-    case DimBuffer:
+    case Dim::Buffer:
         if (sampled == 1)
-            addCapability(CapabilitySampledBuffer);
+            addCapability(Capability::SampledBuffer);
         else
-            addCapability(CapabilityImageBuffer);
+            addCapability(Capability::ImageBuffer);
         break;
-    case Dim1D:
+    case Dim::Dim1D:
         if (sampled == 1)
-            addCapability(CapabilitySampled1D);
+            addCapability(Capability::Sampled1D);
         else
-            addCapability(CapabilityImage1D);
+            addCapability(Capability::Image1D);
         break;
-    case DimCube:
+    case Dim::Cube:
         if (arrayed) {
             if (sampled == 1)
-                addCapability(CapabilitySampledCubeArray);
+                addCapability(Capability::SampledCubeArray);
             else
-                addCapability(CapabilityImageCubeArray);
+                addCapability(Capability::ImageCubeArray);
         }
         break;
-    case DimRect:
+    case Dim::Rect:
         if (sampled == 1)
-            addCapability(CapabilitySampledRect);
+            addCapability(Capability::SampledRect);
         else
-            addCapability(CapabilityImageRect);
+            addCapability(Capability::ImageRect);
         break;
-    case DimSubpassData:
-        addCapability(CapabilityInputAttachment);
+    case Dim::SubpassData:
+        addCapability(Capability::InputAttachment);
         break;
     default:
         break;
@@ -748,54 +934,44 @@ Id Builder::makeImageType(Id sampledType, Dim dim, bool depth, bool arrayed, boo
         if (sampled == 2) {
             // Images used with subpass data are not storage
             // images, so don't require the capability for them.
-            if (dim != Dim::DimSubpassData)
-                addCapability(CapabilityStorageImageMultisample);
+            if (dim != Dim::SubpassData)
+                addCapability(Capability::StorageImageMultisample);
             if (arrayed)
-                addCapability(CapabilityImageMSArray);
+                addCapability(Capability::ImageMSArray);
         }
     }
 
     if (emitNonSemanticShaderDebugInfo)
     {
-        auto TypeName = [&dim]() -> char const* {
-            switch (dim) {
-                case Dim1D: return "type.1d.image";
-                case Dim2D: return "type.2d.image";
-                case Dim3D: return "type.3d.image";
-                case DimCube: return "type.cube.image";
-                default: return "type.image";
-            }
-        };
-
-        auto const debugResultId = makeCompositeDebugType({}, TypeName(), NonSemanticShaderDebugInfo100Class, true);
-        debugId[type->getResultId()] = debugResultId;
+        auto const debugResultId = makeOpaqueDebugType(debugName);
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
 }
 
-Id Builder::makeSampledImageType(Id imageType)
+Id Builder::makeSampledImageType(Id imageType, const char* debugName)
 {
     // try to find it
     Instruction* type;
-    for (int t = 0; t < (int)groupedTypes[OpTypeSampledImage].size(); ++t) {
-        type = groupedTypes[OpTypeSampledImage][t];
+    for (int t = 0; t < (int)groupedTypes[enumCast(Op::OpTypeSampledImage)].size(); ++t) {
+        type = groupedTypes[enumCast(Op::OpTypeSampledImage)][t];
         if (type->getIdOperand(0) == imageType)
             return type->getResultId();
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), NoType, OpTypeSampledImage);
+    type = new Instruction(getUniqueId(), NoType, Op::OpTypeSampledImage);
     type->addIdOperand(imageType);
 
-    groupedTypes[OpTypeSampledImage].push_back(type);
+    groupedTypes[enumCast(Op::OpTypeSampledImage)].push_back(type);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
 
     if (emitNonSemanticShaderDebugInfo)
     {
-        auto const debugResultId = makeCompositeDebugType({}, "type.sampled.image", NonSemanticShaderDebugInfo100Class, true);
-        debugId[type->getResultId()] = debugResultId;
+        auto const debugResultId = makeOpaqueDebugType(debugName);
+        debugTypeIdLookup[type->getResultId()] = debugResultId;
     }
 
     return type->getResultId();
@@ -806,7 +982,7 @@ Id Builder::makeDebugInfoNone()
     if (debugInfoNone != 0)
         return debugInfoNone;
 
-    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     inst->reserveOperands(2);
     inst->addIdOperand(nonSemanticShaderDebugInfo);
     inst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugInfoNone);
@@ -831,7 +1007,7 @@ Id Builder::makeBoolDebugType(int const size)
             return type->getResultId();
     }
 
-    type = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    type = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     type->reserveOperands(6);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugTypeBasic);
@@ -869,7 +1045,7 @@ Id Builder::makeIntegerDebugType(int const width, bool const hasSign)
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    type = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     type->reserveOperands(6);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugTypeBasic);
@@ -909,7 +1085,7 @@ Id Builder::makeFloatDebugType(int const width)
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    type = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     type->reserveOperands(6);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugTypeBasic);
@@ -940,11 +1116,11 @@ Id Builder::makeSequentialDebugType(Id const baseType, Id const componentCount, 
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    type = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     type->reserveOperands(4);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(sequenceType);
-    type->addIdOperand(debugId[baseType]); // base type
+    type->addIdOperand(getDebugType(baseType)); // base type
     type->addIdOperand(componentCount); // component count
 
     groupedDebugTypes[sequenceType].push_back(type);
@@ -976,11 +1152,11 @@ Id Builder::makeMatrixDebugType(Id const vectorType, int const vectorCount, bool
     }
 
     // not found, make it
-    type = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    type = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     type->reserveOperands(5);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugTypeMatrix);
-    type->addIdOperand(debugId[vectorType]); // vector type id
+    type->addIdOperand(getDebugType(vectorType)); // vector type id
     type->addIdOperand(makeUintConstant(vectorCount)); // component count id
     type->addIdOperand(makeBoolConstant(columnMajor)); // column-major id
 
@@ -991,21 +1167,22 @@ Id Builder::makeMatrixDebugType(Id const vectorType, int const vectorCount, bool
     return type->getResultId();
 }
 
-Id Builder::makeMemberDebugType(Id const memberType, DebugTypeLoc const& debugTypeLoc)
+Id Builder::makeMemberDebugType(Id const memberType, StructMemberDebugInfo const& debugTypeLoc)
 {
-    assert(debugId[memberType] != 0);
+    assert(getDebugType(memberType) != NoType);
 
-    Instruction* type = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    Instruction* type = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     type->reserveOperands(10);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugTypeMember);
     type->addIdOperand(getStringId(debugTypeLoc.name)); // name id
-    type->addIdOperand(debugId[memberType]); // type id
-    type->addIdOperand(makeDebugSource(currentFileId)); // source id
-    type->addIdOperand(makeUintConstant(debugTypeLoc.line)); // line id TODO: currentLine is always zero
+    type->addIdOperand(debugTypeLoc.debugTypeOverride != 0 ? debugTypeLoc.debugTypeOverride
+                                                           : getDebugType(memberType)); // type id
+    type->addIdOperand(makeDebugSource(currentFileId));                            // source id
+    type->addIdOperand(makeUintConstant(debugTypeLoc.line));   // line id TODO: currentLine is always zero
     type->addIdOperand(makeUintConstant(debugTypeLoc.column)); // TODO: column id
-    type->addIdOperand(makeUintConstant(0)); // TODO: offset id
-    type->addIdOperand(makeUintConstant(0)); // TODO: size id
+    type->addIdOperand(makeUintConstant(0));                   // TODO: offset id
+    type->addIdOperand(makeUintConstant(0));                   // TODO: size id
     type->addIdOperand(makeUintConstant(NonSemanticShaderDebugInfo100FlagIsPublic)); // flags id
 
     groupedDebugTypes[NonSemanticShaderDebugInfo100DebugTypeMember].push_back(type);
@@ -1015,27 +1192,20 @@ Id Builder::makeMemberDebugType(Id const memberType, DebugTypeLoc const& debugTy
     return type->getResultId();
 }
 
-// Note: To represent a source language opaque type, this instruction must have no Members operands, Size operand must be
-// DebugInfoNone, and Name must start with @ to avoid clashes with user defined names.
-Id Builder::makeCompositeDebugType(std::vector<Id> const& memberTypes, char const*const name,
-    NonSemanticShaderDebugInfo100DebugCompositeType const tag, bool const isOpaqueType)
+Id Builder::makeCompositeDebugType(std::vector<Id> const& memberTypes, std::vector<StructMemberDebugInfo> const& memberDebugInfo,
+                                   char const* const name, NonSemanticShaderDebugInfo100DebugCompositeType const tag)
 {
     // Create the debug member types.
     std::vector<Id> memberDebugTypes;
-    for(auto const memberType : memberTypes) {
-        assert(debugTypeLocs.find(memberType) != debugTypeLocs.end());
-
-        // There _should_ be debug types for all the member types but currently buffer references
-        // do not have member debug info generated.
-        if (debugId[memberType])
-            memberDebugTypes.emplace_back(makeMemberDebugType(memberType, debugTypeLocs[memberType]));
-
-        // TODO: Need to rethink this method of passing location information.
-        // debugTypeLocs.erase(memberType);
+    assert(memberTypes.size() == memberDebugInfo.size());
+    for (size_t i = 0; i < memberTypes.size(); i++) {
+        if (getDebugType(memberTypes[i]) != NoType) {
+            memberDebugTypes.emplace_back(makeMemberDebugType(memberTypes[i], memberDebugInfo[i]));
+        }
     }
 
     // Create The structure debug type.
-    Instruction* type = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    Instruction* type = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     type->reserveOperands(memberDebugTypes.size() + 11);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugTypeComposite);
@@ -1045,16 +1215,9 @@ Id Builder::makeCompositeDebugType(std::vector<Id> const& memberTypes, char cons
     type->addIdOperand(makeUintConstant(currentLine)); // line id TODO: currentLine always zero?
     type->addIdOperand(makeUintConstant(0)); // TODO: column id
     type->addIdOperand(makeDebugCompilationUnit()); // scope id
-    if(isOpaqueType == true) {
-        // Prepend '@' to opaque types.
-        type->addIdOperand(getStringId('@' + std::string(name))); // linkage name id
-        type->addIdOperand(makeDebugInfoNone()); // size id
-    } else {
-        type->addIdOperand(getStringId(name)); // linkage name id
-        type->addIdOperand(makeUintConstant(0)); // TODO: size id
-    }
+    type->addIdOperand(getStringId(name)); // linkage name id
+    type->addIdOperand(makeUintConstant(0)); // TODO: size id
     type->addIdOperand(makeUintConstant(NonSemanticShaderDebugInfo100FlagIsPublic)); // flags id
-    assert(isOpaqueType == false || (isOpaqueType == true && memberDebugTypes.empty()));
     for(auto const memberDebugType : memberDebugTypes) {
         type->addIdOperand(memberDebugType);
     }
@@ -1066,9 +1229,37 @@ Id Builder::makeCompositeDebugType(std::vector<Id> const& memberTypes, char cons
     return type->getResultId();
 }
 
+// The NonSemantic Shader Debug Info doesn't really have a dedicated opcode for opaque types. Instead, we use DebugTypeComposite.
+// To represent a source language opaque type, this instruction must have no Members operands, Size operand must be
+// DebugInfoNone, and Name must start with @ to avoid clashes with user defined names.
+Id Builder::makeOpaqueDebugType(char const* const name)
+{
+    // Create The structure debug type.
+    Instruction* type = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
+    type->reserveOperands(11);
+    type->addIdOperand(nonSemanticShaderDebugInfo);
+    type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugTypeComposite);
+    type->addIdOperand(getStringId(name)); // name id
+    type->addIdOperand(makeUintConstant(NonSemanticShaderDebugInfo100Structure)); // tag id
+    type->addIdOperand(makeDebugSource(currentFileId)); // source id
+    type->addIdOperand(makeUintConstant(currentLine)); // line id TODO: currentLine always zero?
+    type->addIdOperand(makeUintConstant(0)); // TODO: column id
+    type->addIdOperand(makeDebugCompilationUnit()); // scope id
+    // Prepend '@' to opaque types.
+    type->addIdOperand(getStringId('@' + std::string(name))); // linkage name id
+    type->addIdOperand(makeDebugInfoNone()); // size id
+    type->addIdOperand(makeUintConstant(NonSemanticShaderDebugInfo100FlagIsPublic)); // flags id
+
+    groupedDebugTypes[NonSemanticShaderDebugInfo100DebugTypeComposite].push_back(type);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
+    module.mapInstruction(type);
+
+    return type->getResultId();
+}
+
 Id Builder::makePointerDebugType(StorageClass storageClass, Id const baseType)
 {
-    const Id debugBaseType = debugId[baseType];
+    const Id debugBaseType = getDebugType(baseType);
     if (!debugBaseType) {
         return makeDebugInfoNone();
     }
@@ -1080,7 +1271,7 @@ Id Builder::makePointerDebugType(StorageClass storageClass, Id const baseType)
         }
     }
 
-    Instruction* type = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    Instruction* type = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     type->reserveOperands(5);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugTypePointer);
@@ -1104,7 +1295,7 @@ Id Builder::makeForwardPointerDebugType(StorageClass storageClass)
 
     this->addExtension(spv::E_SPV_KHR_relaxed_extended_instruction);
 
-    Instruction *type = new Instruction(getUniqueId(), makeVoidType(), OpExtInstWithForwardRefsKHR);
+    Instruction *type = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInstWithForwardRefsKHR);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugTypePointer);
     type->addIdOperand(type->getResultId());
@@ -1122,29 +1313,54 @@ Id Builder::makeDebugSource(const Id fileName) {
     if (debugSourceId.find(fileName) != debugSourceId.end())
         return debugSourceId[fileName];
     spv::Id resultId = getUniqueId();
-    Instruction* sourceInst = new Instruction(resultId, makeVoidType(), OpExtInst);
+    Instruction* sourceInst = new Instruction(resultId, makeVoidType(), Op::OpExtInst);
     sourceInst->reserveOperands(3);
     sourceInst->addIdOperand(nonSemanticShaderDebugInfo);
     sourceInst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugSource);
     sourceInst->addIdOperand(fileName);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(sourceInst));
+    module.mapInstruction(sourceInst);
     if (emitNonSemanticShaderDebugSource) {
-        spv::Id sourceId = 0;
+        const int maxWordCount = 0xFFFF;
+        const int opSourceWordCount = 4;
+        const int nonNullBytesPerInstruction = 4 * (maxWordCount - opSourceWordCount) - 1;
+        auto processDebugSource = [&](std::string source) {
+            if (source.size() > 0) {
+                int nextByte = 0;
+                while ((int)source.size() - nextByte > 0) {
+                    auto subString = source.substr(nextByte, nonNullBytesPerInstruction);
+                    auto sourceId = getStringId(subString);
+                    if (nextByte == 0) {
+                        // DebugSource
+                        sourceInst->addIdOperand(sourceId);
+                    } else {
+                        // DebugSourceContinued
+                        Instruction* sourceContinuedInst = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
+                        sourceContinuedInst->reserveOperands(2);
+                        sourceContinuedInst->addIdOperand(nonSemanticShaderDebugInfo);
+                        sourceContinuedInst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugSourceContinued);
+                        sourceContinuedInst->addIdOperand(sourceId);
+                        constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(sourceContinuedInst));
+                        module.mapInstruction(sourceContinuedInst);
+                    }
+                    nextByte += nonNullBytesPerInstruction;
+                }
+            } else {
+                auto sourceId = getStringId(source);
+                sourceInst->addIdOperand(sourceId);
+            }
+        };
         if (fileName == mainFileId) {
-            sourceId = getStringId(sourceText);
+            processDebugSource(sourceText);
         } else {
             auto incItr = includeFiles.find(fileName);
             if (incItr != includeFiles.end()) {
-                sourceId = getStringId(*incItr->second);
+                processDebugSource(*incItr->second);
+            } else {
+                // We omit the optional source text item if not available in glslang
             }
         }
-
-        // We omit the optional source text item if not available in glslang
-        if (sourceId != 0) {
-            sourceInst->addIdOperand(sourceId);
-        }
     }
-    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(sourceInst));
-    module.mapInstruction(sourceInst);
     debugSourceId[fileName] = resultId;
     return resultId;
 }
@@ -1153,7 +1369,7 @@ Id Builder::makeDebugCompilationUnit() {
     if (nonSemanticShaderCompilationUnitId != 0)
         return nonSemanticShaderCompilationUnitId;
     spv::Id resultId = getUniqueId();
-    Instruction* sourceInst = new Instruction(resultId, makeVoidType(), OpExtInst);
+    Instruction* sourceInst = new Instruction(resultId, makeVoidType(), Op::OpExtInst);
     sourceInst->reserveOperands(6);
     sourceInst->addIdOperand(nonSemanticShaderDebugInfo);
     sourceInst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugCompilationUnit);
@@ -1177,7 +1393,7 @@ Id Builder::createDebugGlobalVariable(Id const type, char const*const name, Id c
 {
     assert(type != 0);
 
-    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     inst->reserveOperands(11);
     inst->addIdOperand(nonSemanticShaderDebugInfo);
     inst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugGlobalVariable);
@@ -1202,7 +1418,7 @@ Id Builder::createDebugLocalVariable(Id type, char const*const name, size_t cons
     assert(name != nullptr);
     assert(!currentDebugScopeId.empty());
 
-    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     inst->reserveOperands(9);
     inst->addIdOperand(nonSemanticShaderDebugInfo);
     inst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugLocalVariable);
@@ -1214,7 +1430,7 @@ Id Builder::createDebugLocalVariable(Id type, char const*const name, size_t cons
     inst->addIdOperand(currentDebugScopeId.top()); // scope id
     inst->addIdOperand(makeUintConstant(NonSemanticShaderDebugInfo100FlagIsLocal)); // flags id
     if(argNumber != 0) {
-        inst->addIdOperand(makeUintConstant(argNumber));
+        inst->addIdOperand(makeUintConstant(static_cast<unsigned int>(argNumber)));
     }
 
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(inst));
@@ -1228,7 +1444,7 @@ Id Builder::makeDebugExpression()
     if (debugExpression != 0)
         return debugExpression;
 
-    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     inst->reserveOperands(2);
     inst->addIdOperand(nonSemanticShaderDebugInfo);
     inst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugExpression);
@@ -1243,7 +1459,7 @@ Id Builder::makeDebugExpression()
 
 Id Builder::makeDebugDeclare(Id const debugLocalVariable, Id const pointer)
 {
-    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     inst->reserveOperands(5);
     inst->addIdOperand(nonSemanticShaderDebugInfo);
     inst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugDeclare);
@@ -1257,7 +1473,7 @@ Id Builder::makeDebugDeclare(Id const debugLocalVariable, Id const pointer)
 
 Id Builder::makeDebugValue(Id const debugLocalVariable, Id const value)
 {
-    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), OpExtInst);
+    Instruction* inst = new Instruction(getUniqueId(), makeVoidType(), Op::OpExtInst);
     inst->reserveOperands(5);
     inst->addIdOperand(nonSemanticShaderDebugInfo);
     inst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugValue);
@@ -1272,17 +1488,17 @@ Id Builder::makeDebugValue(Id const debugLocalVariable, Id const value)
 Id Builder::makeAccelerationStructureType()
 {
     Instruction *type;
-    if (groupedTypes[OpTypeAccelerationStructureKHR].size() == 0) {
-        type = new Instruction(getUniqueId(), NoType, OpTypeAccelerationStructureKHR);
-        groupedTypes[OpTypeAccelerationStructureKHR].push_back(type);
+    if (groupedTypes[enumCast(Op::OpTypeAccelerationStructureKHR)].size() == 0) {
+        type = new Instruction(getUniqueId(), NoType, Op::OpTypeAccelerationStructureKHR);
+        groupedTypes[enumCast(Op::OpTypeAccelerationStructureKHR)].push_back(type);
         constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
         module.mapInstruction(type);
         if (emitNonSemanticShaderDebugInfo) {
-            spv::Id debugType = makeCompositeDebugType({}, "accelerationStructure", NonSemanticShaderDebugInfo100Structure, true);
-            debugId[type->getResultId()] = debugType;
+            spv::Id debugType = makeOpaqueDebugType("accelerationStructure");
+            debugTypeIdLookup[type->getResultId()] = debugType;
         }
     } else {
-        type = groupedTypes[OpTypeAccelerationStructureKHR].back();
+        type = groupedTypes[enumCast(Op::OpTypeAccelerationStructureKHR)].back();
     }
 
     return type->getResultId();
@@ -1291,32 +1507,50 @@ Id Builder::makeAccelerationStructureType()
 Id Builder::makeRayQueryType()
 {
     Instruction *type;
-    if (groupedTypes[OpTypeRayQueryKHR].size() == 0) {
-        type = new Instruction(getUniqueId(), NoType, OpTypeRayQueryKHR);
-        groupedTypes[OpTypeRayQueryKHR].push_back(type);
+    if (groupedTypes[enumCast(Op::OpTypeRayQueryKHR)].size() == 0) {
+        type = new Instruction(getUniqueId(), NoType, Op::OpTypeRayQueryKHR);
+        groupedTypes[enumCast(Op::OpTypeRayQueryKHR)].push_back(type);
         constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
         module.mapInstruction(type);
         if (emitNonSemanticShaderDebugInfo) {
-            spv::Id debugType = makeCompositeDebugType({}, "rayQuery", NonSemanticShaderDebugInfo100Structure, true);
-            debugId[type->getResultId()] = debugType;
+            spv::Id debugType = makeOpaqueDebugType("rayQuery");
+            debugTypeIdLookup[type->getResultId()] = debugType;
         }
     } else {
-        type = groupedTypes[OpTypeRayQueryKHR].back();
+        type = groupedTypes[enumCast(Op::OpTypeRayQueryKHR)].back();
     }
 
     return type->getResultId();
 }
 
-Id Builder::makeHitObjectNVType()
+Id Builder::makeHitObjectEXTType()
 {
     Instruction *type;
-    if (groupedTypes[OpTypeHitObjectNV].size() == 0) {
-        type = new Instruction(getUniqueId(), NoType, OpTypeHitObjectNV);
-        groupedTypes[OpTypeHitObjectNV].push_back(type);
+    if (groupedTypes[enumCast(Op::OpTypeHitObjectEXT)].size() == 0) {
+        type = new Instruction(getUniqueId(), NoType, Op::OpTypeHitObjectEXT);
+        groupedTypes[enumCast(Op::OpTypeHitObjectEXT)].push_back(type);
         constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
         module.mapInstruction(type);
     } else {
-        type = groupedTypes[OpTypeHitObjectNV].back();
+        type = groupedTypes[enumCast(Op::OpTypeHitObjectEXT)].back();
+    }
+
+    return type->getResultId();
+}
+Id Builder::makeHitObjectNVType()
+{
+    Instruction *type;
+    if (groupedTypes[enumCast(Op::OpTypeHitObjectNV)].size() == 0) {
+        type = new Instruction(getUniqueId(), NoType, Op::OpTypeHitObjectNV);
+        groupedTypes[enumCast(Op::OpTypeHitObjectNV)].push_back(type);
+        constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
+        module.mapInstruction(type);
+        if (emitNonSemanticShaderDebugInfo) {
+            spv::Id debugType = makeOpaqueDebugType("hitObjectNV");
+            debugTypeIdLookup[type->getResultId()] = debugType;
+        }
+    } else {
+        type = groupedTypes[enumCast(Op::OpTypeHitObjectNV)].back();
     }
 
     return type->getResultId();
@@ -1337,12 +1571,12 @@ Op Builder::getMostBasicTypeClass(Id typeId) const
     Op typeClass = instr->getOpCode();
     switch (typeClass)
     {
-    case OpTypeVector:
-    case OpTypeMatrix:
-    case OpTypeArray:
-    case OpTypeRuntimeArray:
+    case Op::OpTypeVector:
+    case Op::OpTypeMatrix:
+    case Op::OpTypeArray:
+    case Op::OpTypeRuntimeArray:
         return getMostBasicTypeClass(instr->getIdOperand(0));
-    case OpTypePointer:
+    case Op::OpTypePointer:
         return getMostBasicTypeClass(instr->getIdOperand(1));
     default:
         return typeClass;
@@ -1355,23 +1589,24 @@ unsigned int Builder::getNumTypeConstituents(Id typeId) const
 
     switch (instr->getOpCode())
     {
-    case OpTypeBool:
-    case OpTypeInt:
-    case OpTypeFloat:
-    case OpTypePointer:
+    case Op::OpTypeBool:
+    case Op::OpTypeInt:
+    case Op::OpTypeFloat:
+    case Op::OpTypePointer:
         return 1;
-    case OpTypeVector:
-    case OpTypeMatrix:
+    case Op::OpTypeVector:
+    case Op::OpTypeMatrix:
         return instr->getImmediateOperand(1);
-    case OpTypeArray:
+    case Op::OpTypeCooperativeVectorNV:
+    case Op::OpTypeArray:
     {
         Id lengthId = instr->getIdOperand(1);
         return module.getInstruction(lengthId)->getImmediateOperand(0);
     }
-    case OpTypeStruct:
+    case Op::OpTypeStruct:
         return instr->getNumOperands();
-    case OpTypeCooperativeMatrixKHR:
-    case OpTypeCooperativeMatrixNV:
+    case Op::OpTypeCooperativeMatrixKHR:
+    case Op::OpTypeCooperativeMatrixNV:
         // has only one constituent when used with OpCompositeConstruct.
         return 1;
     default:
@@ -1390,17 +1625,18 @@ Id Builder::getScalarTypeId(Id typeId) const
     Op typeClass = instr->getOpCode();
     switch (typeClass)
     {
-    case OpTypeVoid:
-    case OpTypeBool:
-    case OpTypeInt:
-    case OpTypeFloat:
-    case OpTypeStruct:
+    case Op::OpTypeVoid:
+    case Op::OpTypeBool:
+    case Op::OpTypeInt:
+    case Op::OpTypeFloat:
+    case Op::OpTypeStruct:
         return instr->getResultId();
-    case OpTypeVector:
-    case OpTypeMatrix:
-    case OpTypeArray:
-    case OpTypeRuntimeArray:
-    case OpTypePointer:
+    case Op::OpTypeVector:
+    case Op::OpTypeMatrix:
+    case Op::OpTypeArray:
+    case Op::OpTypeRuntimeArray:
+    case Op::OpTypePointer:
+    case Op::OpTypeCooperativeVectorNV:
         return getScalarTypeId(getContainedTypeId(typeId));
     default:
         assert(0);
@@ -1416,16 +1652,17 @@ Id Builder::getContainedTypeId(Id typeId, int member) const
     Op typeClass = instr->getOpCode();
     switch (typeClass)
     {
-    case OpTypeVector:
-    case OpTypeMatrix:
-    case OpTypeArray:
-    case OpTypeRuntimeArray:
-    case OpTypeCooperativeMatrixKHR:
-    case OpTypeCooperativeMatrixNV:
+    case Op::OpTypeVector:
+    case Op::OpTypeMatrix:
+    case Op::OpTypeArray:
+    case Op::OpTypeRuntimeArray:
+    case Op::OpTypeCooperativeMatrixKHR:
+    case Op::OpTypeCooperativeMatrixNV:
+    case Op::OpTypeCooperativeVectorNV:
         return instr->getIdOperand(0);
-    case OpTypePointer:
+    case Op::OpTypePointer:
         return instr->getIdOperand(1);
-    case OpTypeStruct:
+    case Op::OpTypeStruct:
         return instr->getIdOperand(member);
     default:
         assert(0);
@@ -1469,21 +1706,21 @@ bool Builder::containsType(Id typeId, spv::Op typeOp, unsigned int width) const
     Op typeClass = instr.getOpCode();
     switch (typeClass)
     {
-    case OpTypeInt:
-    case OpTypeFloat:
+    case Op::OpTypeInt:
+    case Op::OpTypeFloat:
         return typeClass == typeOp && instr.getImmediateOperand(0) == width;
-    case OpTypeStruct:
+    case Op::OpTypeStruct:
         for (int m = 0; m < instr.getNumOperands(); ++m) {
             if (containsType(instr.getIdOperand(m), typeOp, width))
                 return true;
         }
         return false;
-    case OpTypePointer:
+    case Op::OpTypePointer:
         return false;
-    case OpTypeVector:
-    case OpTypeMatrix:
-    case OpTypeArray:
-    case OpTypeRuntimeArray:
+    case Op::OpTypeVector:
+    case Op::OpTypeMatrix:
+    case Op::OpTypeArray:
+    case Op::OpTypeRuntimeArray:
         return containsType(getContainedTypeId(typeId), typeOp, width);
     default:
         return typeClass == typeOp;
@@ -1499,11 +1736,11 @@ bool Builder::containsPhysicalStorageBufferOrArray(Id typeId) const
     Op typeClass = instr.getOpCode();
     switch (typeClass)
     {
-    case OpTypePointer:
-        return getTypeStorageClass(typeId) == StorageClassPhysicalStorageBufferEXT;
-    case OpTypeArray:
+    case Op::OpTypePointer:
+        return getTypeStorageClass(typeId) == StorageClass::PhysicalStorageBufferEXT;
+    case Op::OpTypeArray:
         return containsPhysicalStorageBufferOrArray(getContainedTypeId(typeId));
-    case OpTypeStruct:
+    case Op::OpTypeStruct:
         for (int m = 0; m < instr.getNumOperands(); ++m) {
             if (containsPhysicalStorageBufferOrArray(instr.getIdOperand(m)))
                 return true;
@@ -1518,32 +1755,17 @@ bool Builder::containsPhysicalStorageBufferOrArray(Id typeId) const
 // can be reused rather than duplicated.  (Required by the specification).
 Id Builder::findScalarConstant(Op typeClass, Op opcode, Id typeId, unsigned value)
 {
-    Instruction* constant;
-    for (int i = 0; i < (int)groupedConstants[typeClass].size(); ++i) {
-        constant = groupedConstants[typeClass][i];
-        if (constant->getOpCode() == opcode &&
-            constant->getTypeId() == typeId &&
-            constant->getImmediateOperand(0) == value)
-            return constant->getResultId();
-    }
-
-    return 0;
+    ScalarConstantKey key{ enumCast(typeClass), enumCast(opcode), typeId, value, 0 };
+    auto it = groupedScalarConstantResultIDs.find(key);
+    return (it != groupedScalarConstantResultIDs.end()) ? it->second : 0;
 }
 
 // Version of findScalarConstant (see above) for scalars that take two operands (e.g. a 'double' or 'int64').
 Id Builder::findScalarConstant(Op typeClass, Op opcode, Id typeId, unsigned v1, unsigned v2)
 {
-    Instruction* constant;
-    for (int i = 0; i < (int)groupedConstants[typeClass].size(); ++i) {
-        constant = groupedConstants[typeClass][i];
-        if (constant->getOpCode() == opcode &&
-            constant->getTypeId() == typeId &&
-            constant->getImmediateOperand(0) == v1 &&
-            constant->getImmediateOperand(1) == v2)
-            return constant->getResultId();
-    }
-
-    return 0;
+    ScalarConstantKey key{ enumCast(typeClass), enumCast(opcode), typeId, v1, v2 };
+    auto it = groupedScalarConstantResultIDs.find(key);
+    return (it != groupedScalarConstantResultIDs.end()) ? it->second : 0;
 }
 
 // Return true if consuming 'opcode' means consuming a constant.
@@ -1552,20 +1774,21 @@ Id Builder::findScalarConstant(Op typeClass, Op opcode, Id typeId, unsigned v1, 
 bool Builder::isConstantOpCode(Op opcode) const
 {
     switch (opcode) {
-    case OpUndef:
-    case OpConstantTrue:
-    case OpConstantFalse:
-    case OpConstant:
-    case OpConstantComposite:
-    case OpConstantCompositeReplicateEXT:
-    case OpConstantSampler:
-    case OpConstantNull:
-    case OpSpecConstantTrue:
-    case OpSpecConstantFalse:
-    case OpSpecConstant:
-    case OpSpecConstantComposite:
-    case OpSpecConstantCompositeReplicateEXT:
-    case OpSpecConstantOp:
+    case Op::OpUndef:
+    case Op::OpConstantTrue:
+    case Op::OpConstantFalse:
+    case Op::OpConstant:
+    case Op::OpConstantComposite:
+    case Op::OpConstantCompositeReplicateEXT:
+    case Op::OpConstantSampler:
+    case Op::OpConstantNull:
+    case Op::OpSpecConstantTrue:
+    case Op::OpSpecConstantFalse:
+    case Op::OpSpecConstant:
+    case Op::OpSpecConstantComposite:
+    case Op::OpSpecConstantCompositeReplicateEXT:
+    case Op::OpSpecConstantOp:
+    case Op::OpConstantSizeOfEXT:
         return true;
     default:
         return false;
@@ -1576,12 +1799,12 @@ bool Builder::isConstantOpCode(Op opcode) const
 bool Builder::isSpecConstantOpCode(Op opcode) const
 {
     switch (opcode) {
-    case OpSpecConstantTrue:
-    case OpSpecConstantFalse:
-    case OpSpecConstant:
-    case OpSpecConstantComposite:
-    case OpSpecConstantOp:
-    case OpSpecConstantCompositeReplicateEXT:
+    case Op::OpSpecConstantTrue:
+    case Op::OpSpecConstantFalse:
+    case Op::OpSpecConstant:
+    case Op::OpSpecConstantComposite:
+    case Op::OpSpecConstantOp:
+    case Op::OpSpecConstantCompositeReplicateEXT:
         return true;
     default:
         return false;
@@ -1604,7 +1827,7 @@ Id Builder::makeNullConstant(Id typeId)
         return existing;
 
     // Make it
-    Instruction* c = new Instruction(getUniqueId(), typeId, OpConstantNull);
+    Instruction* c = new Instruction(getUniqueId(), typeId, Op::OpConstantNull);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
     nullConstants.push_back(c);
     module.mapInstruction(c);
@@ -1615,19 +1838,12 @@ Id Builder::makeNullConstant(Id typeId)
 Id Builder::makeBoolConstant(bool b, bool specConstant)
 {
     Id typeId = makeBoolType();
-    Instruction* constant;
-    Op opcode = specConstant ? (b ? OpSpecConstantTrue : OpSpecConstantFalse) : (b ? OpConstantTrue : OpConstantFalse);
+    Op opcode = specConstant ? (b ? Op::OpSpecConstantTrue : Op::OpSpecConstantFalse) : (b ? Op::OpConstantTrue : Op::OpConstantFalse);
 
     // See if we already made it. Applies only to regular constants, because specialization constants
     // must remain distinct for the purpose of applying a SpecId decoration.
-    if (! specConstant) {
-        Id existing = 0;
-        for (int i = 0; i < (int)groupedConstants[OpTypeBool].size(); ++i) {
-            constant = groupedConstants[OpTypeBool][i];
-            if (constant->getTypeId() == typeId && constant->getOpCode() == opcode)
-                existing = constant->getResultId();
-        }
-
+    if (!specConstant) {
+        Id existing = findScalarConstant(Op::OpTypeBool, opcode, typeId, 0);
         if (existing)
             return existing;
     }
@@ -1635,20 +1851,24 @@ Id Builder::makeBoolConstant(bool b, bool specConstant)
     // Make it
     Instruction* c = new Instruction(getUniqueId(), typeId, opcode);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
-    groupedConstants[OpTypeBool].push_back(c);
     module.mapInstruction(c);
 
-    return c->getResultId();
+    Id resultId = c->getResultId();
+    if (!specConstant) {
+        ScalarConstantKey key{enumCast(Op::OpTypeBool), enumCast(opcode), typeId, 0, 0};
+        groupedScalarConstantResultIDs[key] = resultId;
+    }
+    return resultId;
 }
 
 Id Builder::makeIntConstant(Id typeId, unsigned value, bool specConstant)
 {
-    Op opcode = specConstant ? OpSpecConstant : OpConstant;
+    Op opcode = specConstant ? Op::OpSpecConstant : Op::OpConstant;
 
     // See if we already made it. Applies only to regular constants, because specialization constants
     // must remain distinct for the purpose of applying a SpecId decoration.
     if (! specConstant) {
-        Id existing = findScalarConstant(OpTypeInt, opcode, typeId, value);
+        Id existing = findScalarConstant(Op::OpTypeInt, opcode, typeId, value);
         if (existing)
             return existing;
     }
@@ -1656,15 +1876,19 @@ Id Builder::makeIntConstant(Id typeId, unsigned value, bool specConstant)
     Instruction* c = new Instruction(getUniqueId(), typeId, opcode);
     c->addImmediateOperand(value);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
-    groupedConstants[OpTypeInt].push_back(c);
     module.mapInstruction(c);
 
-    return c->getResultId();
+    Id resultId = c->getResultId();
+    if (!specConstant) {
+        ScalarConstantKey key{ enumCast(Op::OpTypeInt), enumCast(opcode), typeId, value, 0 };
+        groupedScalarConstantResultIDs[key] = resultId;
+    }
+    return resultId;
 }
 
 Id Builder::makeInt64Constant(Id typeId, unsigned long long value, bool specConstant)
 {
-    Op opcode = specConstant ? OpSpecConstant : OpConstant;
+    Op opcode = specConstant ? Op::OpSpecConstant : Op::OpConstant;
 
     unsigned op1 = value & 0xFFFFFFFF;
     unsigned op2 = value >> 32;
@@ -1672,7 +1896,7 @@ Id Builder::makeInt64Constant(Id typeId, unsigned long long value, bool specCons
     // See if we already made it. Applies only to regular constants, because specialization constants
     // must remain distinct for the purpose of applying a SpecId decoration.
     if (! specConstant) {
-        Id existing = findScalarConstant(OpTypeInt, opcode, typeId, op1, op2);
+        Id existing = findScalarConstant(Op::OpTypeInt, opcode, typeId, op1, op2);
         if (existing)
             return existing;
     }
@@ -1682,15 +1906,19 @@ Id Builder::makeInt64Constant(Id typeId, unsigned long long value, bool specCons
     c->addImmediateOperand(op1);
     c->addImmediateOperand(op2);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
-    groupedConstants[OpTypeInt].push_back(c);
     module.mapInstruction(c);
 
-    return c->getResultId();
+    Id resultId = c->getResultId();
+    if (!specConstant) {
+        ScalarConstantKey key{ enumCast(Op::OpTypeInt), enumCast(opcode), typeId, op1, op2 };
+        groupedScalarConstantResultIDs[key] = resultId;
+    }
+    return resultId;
 }
 
 Id Builder::makeFloatConstant(float f, bool specConstant)
 {
-    Op opcode = specConstant ? OpSpecConstant : OpConstant;
+    Op opcode = specConstant ? Op::OpSpecConstant : Op::OpConstant;
     Id typeId = makeFloatType(32);
     union { float fl; unsigned int ui; } u;
     u.fl = f;
@@ -1699,7 +1927,7 @@ Id Builder::makeFloatConstant(float f, bool specConstant)
     // See if we already made it. Applies only to regular constants, because specialization constants
     // must remain distinct for the purpose of applying a SpecId decoration.
     if (! specConstant) {
-        Id existing = findScalarConstant(OpTypeFloat, opcode, typeId, value);
+        Id existing = findScalarConstant(Op::OpTypeFloat, opcode, typeId, value);
         if (existing)
             return existing;
     }
@@ -1707,15 +1935,19 @@ Id Builder::makeFloatConstant(float f, bool specConstant)
     Instruction* c = new Instruction(getUniqueId(), typeId, opcode);
     c->addImmediateOperand(value);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
-    groupedConstants[OpTypeFloat].push_back(c);
     module.mapInstruction(c);
 
-    return c->getResultId();
+    Id resultId = c->getResultId();
+    if (!specConstant) {
+        ScalarConstantKey key{ enumCast(Op::OpTypeFloat), enumCast(opcode), typeId, value, 0 };
+        groupedScalarConstantResultIDs[key] = resultId;
+    }
+    return resultId;
 }
 
 Id Builder::makeDoubleConstant(double d, bool specConstant)
 {
-    Op opcode = specConstant ? OpSpecConstant : OpConstant;
+    Op opcode = specConstant ? Op::OpSpecConstant : Op::OpConstant;
     Id typeId = makeFloatType(64);
     union { double db; unsigned long long ull; } u;
     u.db = d;
@@ -1726,7 +1958,7 @@ Id Builder::makeDoubleConstant(double d, bool specConstant)
     // See if we already made it. Applies only to regular constants, because specialization constants
     // must remain distinct for the purpose of applying a SpecId decoration.
     if (! specConstant) {
-        Id existing = findScalarConstant(OpTypeFloat, opcode, typeId, op1, op2);
+        Id existing = findScalarConstant(Op::OpTypeFloat, opcode, typeId, op1, op2);
         if (existing)
             return existing;
     }
@@ -1736,15 +1968,19 @@ Id Builder::makeDoubleConstant(double d, bool specConstant)
     c->addImmediateOperand(op1);
     c->addImmediateOperand(op2);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
-    groupedConstants[OpTypeFloat].push_back(c);
     module.mapInstruction(c);
 
-    return c->getResultId();
+    Id resultId = c->getResultId();
+    if (!specConstant) {
+        ScalarConstantKey key{ enumCast(Op::OpTypeFloat), enumCast(opcode), typeId, op1, op2 };
+        groupedScalarConstantResultIDs[key] = resultId;
+    }
+    return resultId;
 }
 
 Id Builder::makeFloat16Constant(float f16, bool specConstant)
 {
-    Op opcode = specConstant ? OpSpecConstant : OpConstant;
+    Op opcode = specConstant ? Op::OpSpecConstant : Op::OpConstant;
     Id typeId = makeFloatType(16);
 
     spvutils::HexFloat<spvutils::FloatProxy<float>> fVal(f16);
@@ -1756,7 +1992,7 @@ Id Builder::makeFloat16Constant(float f16, bool specConstant)
     // See if we already made it. Applies only to regular constants, because specialization constants
     // must remain distinct for the purpose of applying a SpecId decoration.
     if (!specConstant) {
-        Id existing = findScalarConstant(OpTypeFloat, opcode, typeId, value);
+        Id existing = findScalarConstant(Op::OpTypeFloat, opcode, typeId, value);
         if (existing)
             return existing;
     }
@@ -1764,10 +2000,113 @@ Id Builder::makeFloat16Constant(float f16, bool specConstant)
     Instruction* c = new Instruction(getUniqueId(), typeId, opcode);
     c->addImmediateOperand(value);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
-    groupedConstants[OpTypeFloat].push_back(c);
     module.mapInstruction(c);
 
-    return c->getResultId();
+    Id resultId = c->getResultId();
+    if (!specConstant) {
+        ScalarConstantKey key{ enumCast(Op::OpTypeFloat), enumCast(opcode), typeId, value, 0 };
+        groupedScalarConstantResultIDs[key] = resultId;
+    }
+    return resultId;
+}
+
+Id Builder::makeBFloat16Constant(float bf16, bool specConstant)
+{
+    Op opcode = specConstant ? Op::OpSpecConstant : Op::OpConstant;
+    Id typeId = makeBFloat16Type();
+
+    union {
+        float f;
+        uint32_t u;
+    } un;
+    un.f = bf16;
+
+    // take high 16b of fp32 value. This is effectively round-to-zero, other than certain NaNs.
+    unsigned value = un.u >> 16;
+
+    // See if we already made it. Applies only to regular constants, because specialization constants
+    // must remain distinct for the purpose of applying a SpecId decoration.
+    if (!specConstant) {
+        Id existing = findScalarConstant(Op::OpTypeFloat, opcode, typeId, value);
+        if (existing)
+            return existing;
+    }
+
+    Instruction* c = new Instruction(getUniqueId(), typeId, opcode);
+    c->addImmediateOperand(value);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
+    module.mapInstruction(c);
+
+    Id resultId = c->getResultId();
+    if (!specConstant) {
+        ScalarConstantKey key{ enumCast(Op::OpTypeFloat), enumCast(opcode), typeId, value, 0 };
+        groupedScalarConstantResultIDs[key] = resultId;
+    }
+    return resultId;
+}
+
+Id Builder::makeFloatE5M2Constant(float fe5m2, bool specConstant)
+{
+    Op opcode = specConstant ? Op::OpSpecConstant : Op::OpConstant;
+    Id typeId = makeFloatE5M2Type();
+
+    spvutils::HexFloat<spvutils::FloatProxy<float>> fVal(fe5m2);
+    spvutils::HexFloat<spvutils::FloatProxy<spvutils::FloatE5M2>> fe5m2Val(0);
+    fVal.castTo(fe5m2Val, spvutils::kRoundToZero);
+
+    unsigned value = fe5m2Val.value().getAsFloat().get_value();
+
+    // See if we already made it. Applies only to regular constants, because specialization constants
+    // must remain distinct for the purpose of applying a SpecId decoration.
+    if (!specConstant) {
+        Id existing = findScalarConstant(Op::OpTypeFloat, opcode, typeId, value);
+        if (existing)
+            return existing;
+    }
+
+    Instruction* c = new Instruction(getUniqueId(), typeId, opcode);
+    c->addImmediateOperand(value);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
+    module.mapInstruction(c);
+
+    Id resultId = c->getResultId();
+    if (!specConstant) {
+        ScalarConstantKey key{enumCast(Op::OpTypeFloat), enumCast(opcode), typeId, value, 0};
+        groupedScalarConstantResultIDs[key] = resultId;
+    }
+    return resultId;
+}
+
+Id Builder::makeFloatE4M3Constant(float fe4m3, bool specConstant)
+{
+    Op opcode = specConstant ? Op::OpSpecConstant : Op::OpConstant;
+    Id typeId = makeFloatE4M3Type();
+
+    spvutils::HexFloat<spvutils::FloatProxy<float>> fVal(fe4m3);
+    spvutils::HexFloat<spvutils::FloatProxy<spvutils::FloatE4M3>> fe4m3Val(0);
+    fVal.castTo(fe4m3Val, spvutils::kRoundToZero);
+
+    unsigned value = fe4m3Val.value().getAsFloat().get_value();
+
+    // See if we already made it. Applies only to regular constants, because specialization constants
+    // must remain distinct for the purpose of applying a SpecId decoration.
+    if (!specConstant) {
+        Id existing = findScalarConstant(Op::OpTypeFloat, opcode, typeId, value);
+        if (existing)
+            return existing;
+    }
+
+    Instruction* c = new Instruction(getUniqueId(), typeId, opcode);
+    c->addImmediateOperand(value);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
+    module.mapInstruction(c);
+
+    Id resultId = c->getResultId();
+    if (!specConstant) {
+        ScalarConstantKey key{enumCast(Op::OpTypeFloat), enumCast(opcode), typeId, value, 0};
+        groupedScalarConstantResultIDs[key] = resultId;
+    }
+    return resultId;
 }
 
 Id Builder::makeFpConstant(Id type, double d, bool specConstant)
@@ -1804,14 +2143,21 @@ Id Builder::importNonSemanticShaderDebugInfoInstructions()
     return nonSemanticShaderDebugInfo;
 }
 
-Id Builder::findCompositeConstant(Op typeClass, Id typeId, const std::vector<Id>& comps)
+Id Builder::findCompositeConstant(Op typeClass, Op opcode, Id typeId, const std::vector<Id>& comps, size_t numMembers)
 {
     Instruction* constant = nullptr;
     bool found = false;
-    for (int i = 0; i < (int)groupedConstants[typeClass].size(); ++i) {
-        constant = groupedConstants[typeClass][i];
+    for (int i = 0; i < (int)groupedCompositeConstants[enumCast(typeClass)].size(); ++i) {
+        constant = groupedCompositeConstants[enumCast(typeClass)][i];
 
         if (constant->getTypeId() != typeId)
+            continue;
+
+        if (constant->getOpCode() != opcode) {
+            continue;
+        }
+
+        if (constant->getNumOperands() != (int)numMembers)
             continue;
 
         // same contents?
@@ -1863,35 +2209,36 @@ Id Builder::makeCompositeConstant(Id typeId, const std::vector<Id>& members, boo
 
     bool replicate = false;
     size_t numMembers = members.size();
-    if (useReplicatedComposites) {
+    if (useReplicatedComposites || typeClass == Op::OpTypeCooperativeVectorNV) {
         // use replicate if all members are the same
         replicate = numMembers > 0 &&
             std::equal(members.begin() + 1, members.end(), members.begin());
 
         if (replicate) {
             numMembers = 1;
-            addCapability(spv::CapabilityReplicatedCompositesEXT);
+            addCapability(spv::Capability::ReplicatedCompositesEXT);
             addExtension(spv::E_SPV_EXT_replicated_composites);
         }
     }
 
     Op opcode = replicate ?
-        (specConstant ? OpSpecConstantCompositeReplicateEXT : OpConstantCompositeReplicateEXT) :
-        (specConstant ? OpSpecConstantComposite : OpConstantComposite);
+        (specConstant ? Op::OpSpecConstantCompositeReplicateEXT : Op::OpConstantCompositeReplicateEXT) :
+        (specConstant ? Op::OpSpecConstantComposite : Op::OpConstantComposite);
 
     switch (typeClass) {
-    case OpTypeVector:
-    case OpTypeArray:
-    case OpTypeMatrix:
-    case OpTypeCooperativeMatrixKHR:
-    case OpTypeCooperativeMatrixNV:
+    case Op::OpTypeVector:
+    case Op::OpTypeArray:
+    case Op::OpTypeMatrix:
+    case Op::OpTypeCooperativeMatrixKHR:
+    case Op::OpTypeCooperativeMatrixNV:
+    case Op::OpTypeCooperativeVectorNV:
         if (! specConstant) {
-            Id existing = findCompositeConstant(typeClass, typeId, members);
+            Id existing = findCompositeConstant(typeClass, opcode, typeId, members, numMembers);
             if (existing)
                 return existing;
         }
         break;
-    case OpTypeStruct:
+    case Op::OpTypeStruct:
         if (! specConstant) {
             Id existing = findStructConstant(typeId, members);
             if (existing)
@@ -1908,10 +2255,10 @@ Id Builder::makeCompositeConstant(Id typeId, const std::vector<Id>& members, boo
     for (size_t op = 0; op < numMembers; ++op)
         c->addIdOperand(members[op]);
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(c));
-    if (typeClass == OpTypeStruct)
+    if (typeClass == Op::OpTypeStruct)
         groupedStructConstants[typeId].push_back(c);
     else
-        groupedConstants[typeClass].push_back(c);
+        groupedCompositeConstants[enumCast(typeClass)].push_back(c);
     module.mapInstruction(c);
 
     return c->getResultId();
@@ -1919,7 +2266,7 @@ Id Builder::makeCompositeConstant(Id typeId, const std::vector<Id>& members, boo
 
 Instruction* Builder::addEntryPoint(ExecutionModel model, Function* function, const char* name)
 {
-    Instruction* entryPoint = new Instruction(OpEntryPoint);
+    Instruction* entryPoint = new Instruction(Op::OpEntryPoint);
     entryPoint->reserveOperands(3);
     entryPoint->addImmediateOperand(model);
     entryPoint->addIdOperand(function->getId());
@@ -1937,7 +2284,7 @@ void Builder::addExecutionMode(Function* entryPoint, ExecutionMode mode, int val
     if (!entryPoint)
         return;
 
-    Instruction* instr = new Instruction(OpExecutionMode);
+    Instruction* instr = new Instruction(Op::OpExecutionMode);
     instr->reserveOperands(3);
     instr->addIdOperand(entryPoint->getId());
     instr->addImmediateOperand(mode);
@@ -1957,7 +2304,7 @@ void Builder::addExecutionMode(Function* entryPoint, ExecutionMode mode, const s
     if (!entryPoint)
         return;
 
-    Instruction* instr = new Instruction(OpExecutionMode);
+    Instruction* instr = new Instruction(Op::OpExecutionMode);
     instr->reserveOperands(literals.size() + 2);
     instr->addIdOperand(entryPoint->getId());
     instr->addImmediateOperand(mode);
@@ -1973,7 +2320,7 @@ void Builder::addExecutionModeId(Function* entryPoint, ExecutionMode mode, const
     if (!entryPoint)
         return;
 
-    Instruction* instr = new Instruction(OpExecutionModeId);
+    Instruction* instr = new Instruction(Op::OpExecutionModeId);
     instr->reserveOperands(operandIds.size() + 2);
     instr->addIdOperand(entryPoint->getId());
     instr->addImmediateOperand(mode);
@@ -1985,7 +2332,7 @@ void Builder::addExecutionModeId(Function* entryPoint, ExecutionMode mode, const
 
 void Builder::addName(Id id, const char* string)
 {
-    Instruction* name = new Instruction(OpName);
+    Instruction* name = new Instruction(Op::OpName);
     name->reserveOperands(2);
     name->addIdOperand(id);
     name->addStringOperand(string);
@@ -1995,7 +2342,7 @@ void Builder::addName(Id id, const char* string)
 
 void Builder::addMemberName(Id id, int memberNumber, const char* string)
 {
-    Instruction* name = new Instruction(OpMemberName);
+    Instruction* name = new Instruction(Op::OpMemberName);
     name->reserveOperands(3);
     name->addIdOperand(id);
     name->addImmediateOperand(memberNumber);
@@ -2006,10 +2353,10 @@ void Builder::addMemberName(Id id, int memberNumber, const char* string)
 
 void Builder::addDecoration(Id id, Decoration decoration, int num)
 {
-    if (decoration == spv::DecorationMax)
+    if (decoration == spv::Decoration::Max)
         return;
 
-    Instruction* dec = new Instruction(OpDecorate);
+    Instruction* dec = new Instruction(Op::OpDecorate);
     dec->reserveOperands(2);
     dec->addIdOperand(id);
     dec->addImmediateOperand(decoration);
@@ -2021,10 +2368,10 @@ void Builder::addDecoration(Id id, Decoration decoration, int num)
 
 void Builder::addDecoration(Id id, Decoration decoration, const char* s)
 {
-    if (decoration == spv::DecorationMax)
+    if (decoration == spv::Decoration::Max)
         return;
 
-    Instruction* dec = new Instruction(OpDecorateString);
+    Instruction* dec = new Instruction(Op::OpDecorateString);
     dec->reserveOperands(3);
     dec->addIdOperand(id);
     dec->addImmediateOperand(decoration);
@@ -2035,10 +2382,10 @@ void Builder::addDecoration(Id id, Decoration decoration, const char* s)
 
 void Builder::addDecoration(Id id, Decoration decoration, const std::vector<unsigned>& literals)
 {
-    if (decoration == spv::DecorationMax)
+    if (decoration == spv::Decoration::Max)
         return;
 
-    Instruction* dec = new Instruction(OpDecorate);
+    Instruction* dec = new Instruction(Op::OpDecorate);
     dec->reserveOperands(literals.size() + 2);
     dec->addIdOperand(id);
     dec->addImmediateOperand(decoration);
@@ -2050,10 +2397,10 @@ void Builder::addDecoration(Id id, Decoration decoration, const std::vector<unsi
 
 void Builder::addDecoration(Id id, Decoration decoration, const std::vector<const char*>& strings)
 {
-    if (decoration == spv::DecorationMax)
+    if (decoration == spv::Decoration::Max)
         return;
 
-    Instruction* dec = new Instruction(OpDecorateString);
+    Instruction* dec = new Instruction(Op::OpDecorateString);
     dec->reserveOperands(strings.size() + 2);
     dec->addIdOperand(id);
     dec->addImmediateOperand(decoration);
@@ -2064,10 +2411,10 @@ void Builder::addDecoration(Id id, Decoration decoration, const std::vector<cons
 }
 
 void Builder::addLinkageDecoration(Id id, const char* name, spv::LinkageType linkType) {
-    Instruction* dec = new Instruction(OpDecorate);
+    Instruction* dec = new Instruction(Op::OpDecorate);
     dec->reserveOperands(4);
     dec->addIdOperand(id);
-    dec->addImmediateOperand(spv::DecorationLinkageAttributes);
+    dec->addImmediateOperand(spv::Decoration::LinkageAttributes);
     dec->addStringOperand(name);
     dec->addImmediateOperand(linkType);
 
@@ -2076,10 +2423,10 @@ void Builder::addLinkageDecoration(Id id, const char* name, spv::LinkageType lin
 
 void Builder::addDecorationId(Id id, Decoration decoration, Id idDecoration)
 {
-    if (decoration == spv::DecorationMax)
+    if (decoration == spv::Decoration::Max)
         return;
 
-    Instruction* dec = new Instruction(OpDecorateId);
+    Instruction* dec = new Instruction(Op::OpDecorateId);
     dec->reserveOperands(3);
     dec->addIdOperand(id);
     dec->addImmediateOperand(decoration);
@@ -2090,10 +2437,10 @@ void Builder::addDecorationId(Id id, Decoration decoration, Id idDecoration)
 
 void Builder::addDecorationId(Id id, Decoration decoration, const std::vector<Id>& operandIds)
 {
-    if(decoration == spv::DecorationMax)
+    if(decoration == spv::Decoration::Max)
         return;
 
-    Instruction* dec = new Instruction(OpDecorateId);
+    Instruction* dec = new Instruction(Op::OpDecorateId);
     dec->reserveOperands(operandIds.size() + 2);
     dec->addIdOperand(id);
     dec->addImmediateOperand(decoration);
@@ -2104,12 +2451,29 @@ void Builder::addDecorationId(Id id, Decoration decoration, const std::vector<Id
     decorations.insert(std::unique_ptr<Instruction>(dec));
 }
 
-void Builder::addMemberDecoration(Id id, unsigned int member, Decoration decoration, int num)
+void Builder::addMemberDecorationIdEXT(Id id, unsigned int member, Decoration decoration,
+                                       const std::vector<unsigned>& operands)
 {
-    if (decoration == spv::DecorationMax)
+    if (decoration == spv::Decoration::Max)
         return;
 
-    Instruction* dec = new Instruction(OpMemberDecorate);
+    Instruction* dec = new Instruction(Op::OpMemberDecorateIdEXT);
+    dec->reserveOperands(operands.size() + 3);
+    dec->addIdOperand(id);
+    dec->addImmediateOperand(member);
+    dec->addImmediateOperand(decoration);
+    for (auto operand : operands)
+        dec->addIdOperand(operand);
+
+    decorations.insert(std::unique_ptr<Instruction>(dec));
+}
+
+void Builder::addMemberDecoration(Id id, unsigned int member, Decoration decoration, int num)
+{
+    if (decoration == spv::Decoration::Max)
+        return;
+
+    Instruction* dec = new Instruction(Op::OpMemberDecorate);
     dec->reserveOperands(3);
     dec->addIdOperand(id);
     dec->addImmediateOperand(member);
@@ -2122,10 +2486,10 @@ void Builder::addMemberDecoration(Id id, unsigned int member, Decoration decorat
 
 void Builder::addMemberDecoration(Id id, unsigned int member, Decoration decoration, const char *s)
 {
-    if (decoration == spv::DecorationMax)
+    if (decoration == spv::Decoration::Max)
         return;
 
-    Instruction* dec = new Instruction(OpMemberDecorateStringGOOGLE);
+    Instruction* dec = new Instruction(Op::OpMemberDecorateStringGOOGLE);
     dec->reserveOperands(4);
     dec->addIdOperand(id);
     dec->addImmediateOperand(member);
@@ -2137,10 +2501,10 @@ void Builder::addMemberDecoration(Id id, unsigned int member, Decoration decorat
 
 void Builder::addMemberDecoration(Id id, unsigned int member, Decoration decoration, const std::vector<unsigned>& literals)
 {
-    if (decoration == spv::DecorationMax)
+    if (decoration == spv::Decoration::Max)
         return;
 
-    Instruction* dec = new Instruction(OpMemberDecorate);
+    Instruction* dec = new Instruction(Op::OpMemberDecorate);
     dec->reserveOperands(literals.size() + 3);
     dec->addIdOperand(id);
     dec->addImmediateOperand(member);
@@ -2153,10 +2517,10 @@ void Builder::addMemberDecoration(Id id, unsigned int member, Decoration decorat
 
 void Builder::addMemberDecoration(Id id, unsigned int member, Decoration decoration, const std::vector<const char*>& strings)
 {
-    if (decoration == spv::DecorationMax)
+    if (decoration == spv::Decoration::Max)
         return;
 
-    Instruction* dec = new Instruction(OpMemberDecorateString);
+    Instruction* dec = new Instruction(Op::OpMemberDecorateString);
     dec->reserveOperands(strings.size() + 3);
     dec->addIdOperand(id);
     dec->addImmediateOperand(member);
@@ -2170,14 +2534,14 @@ void Builder::addMemberDecoration(Id id, unsigned int member, Decoration decorat
 void Builder::addInstruction(std::unique_ptr<Instruction> inst) {
     // Phis must appear first in their block, don't insert line tracking instructions
     // in front of them, just add the OpPhi and return.
-    if (inst->getOpCode() == OpPhi) {
+    if (inst->getOpCode() == Op::OpPhi) {
         buildPoint->addInstruction(std::move(inst));
         return;
     }
     // Optionally insert OpDebugScope
     if (emitNonSemanticShaderDebugInfo && dirtyScopeTracker) {
         if (buildPoint->updateDebugScope(currentDebugScopeId.top())) {
-            auto scopeInst = std::make_unique<Instruction>(getUniqueId(), makeVoidType(), OpExtInst);
+            auto scopeInst = std::make_unique<Instruction>(getUniqueId(), makeVoidType(), Op::OpExtInst);
             scopeInst->reserveOperands(3);
             scopeInst->addIdOperand(nonSemanticShaderDebugInfo);
             scopeInst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugScope);
@@ -2192,7 +2556,7 @@ void Builder::addInstruction(std::unique_ptr<Instruction> inst) {
     if (trackDebugInfo && dirtyLineTracker) {
         if (buildPoint->updateDebugSourceLocation(currentLine, 0, currentFileId)) {
             if (emitSpirvDebugInfo) {
-                auto lineInst = std::make_unique<Instruction>(OpLine);
+                auto lineInst = std::make_unique<Instruction>(Op::OpLine);
                 lineInst->reserveOperands(3);
                 lineInst->addIdOperand(currentFileId);
                 lineInst->addImmediateOperand(currentLine);
@@ -2200,7 +2564,7 @@ void Builder::addInstruction(std::unique_ptr<Instruction> inst) {
                 buildPoint->addInstruction(std::move(lineInst));
             }
             if (emitNonSemanticShaderDebugInfo) {
-                auto lineInst = std::make_unique<Instruction>(getUniqueId(), makeVoidType(), OpExtInst);
+                auto lineInst = std::make_unique<Instruction>(getUniqueId(), makeVoidType(), Op::OpExtInst);
                 lineInst->reserveOperands(7);
                 lineInst->addIdOperand(nonSemanticShaderDebugInfo);
                 lineInst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugLine);
@@ -2231,12 +2595,12 @@ Function* Builder::makeEntryPoint(const char* entryPoint)
     auto const returnType = makeVoidType();
 
     restoreNonSemanticShaderDebugInfo = emitNonSemanticShaderDebugInfo;
-    if(sourceLang == spv::SourceLanguageHLSL) {
+    if(sourceLang == spv::SourceLanguage::HLSL) {
         emitNonSemanticShaderDebugInfo = false;
     }
 
     Block* entry = nullptr;
-    entryPointFunction = makeFunctionEntry(NoPrecision, returnType, entryPoint, LinkageTypeMax, {}, {}, &entry);
+    entryPointFunction = makeFunctionEntry(NoPrecision, returnType, entryPoint, LinkageType::Max, {}, {}, &entry);
 
     emitNonSemanticShaderDebugInfo = restoreNonSemanticShaderDebugInfo;
 
@@ -2292,14 +2656,14 @@ void Builder::setupFunctionDebugInfo(Function* function, const char* name, const
 
     Id nameId = getStringId(unmangleFunctionName(name));
     Id funcTypeId = function->getFuncTypeId();
-    assert(debugId[funcTypeId] != 0);
+    assert(getDebugType(funcTypeId) != NoType);
     Id funcId = function->getId();
 
     assert(funcId != 0);
 
     // Make the debug function instruction
     Id debugFuncId = makeDebugFunction(function, nameId, funcTypeId);
-    debugId[funcId] = debugFuncId;
+    debugFuncIdLookup[funcId] = debugFuncId;
     currentDebugScopeId.push(debugFuncId);
 
     // DebugScope and DebugLine for parameter DebugDeclares
@@ -2318,9 +2682,8 @@ void Builder::setupFunctionDebugInfo(Function* function, const char* name, const
             }
 
             auto const& paramName = paramNames[p];
-            auto const debugLocalVariableId = createDebugLocalVariable(debugId[paramTypeId], paramName, p + 1);
+            auto const debugLocalVariableId = createDebugLocalVariable(getDebugType(paramTypeId), paramName, p + 1);
             auto const paramId = static_cast<Id>(firstParamId + p);
-            debugId[paramId] = debugLocalVariableId;
 
             if (passByRef) {
                 makeDebugDeclare(debugLocalVariableId, paramId);
@@ -2340,22 +2703,22 @@ Id Builder::makeDebugFunction(MAYBE_UNUSED Function* function, Id nameId, Id fun
     assert(function != nullptr);
     assert(nameId != 0);
     assert(funcTypeId != 0);
-    assert(debugId[funcTypeId] != 0);
+    assert(getDebugType(funcTypeId) != NoType);
 
     Id funcId = getUniqueId();
-    auto type = new Instruction(funcId, makeVoidType(), OpExtInst);
+    auto type = new Instruction(funcId, makeVoidType(), Op::OpExtInst);
     type->reserveOperands(11);
     type->addIdOperand(nonSemanticShaderDebugInfo);
     type->addImmediateOperand(NonSemanticShaderDebugInfo100DebugFunction);
     type->addIdOperand(nameId);
-    type->addIdOperand(debugId[funcTypeId]);
+    type->addIdOperand(getDebugType(funcTypeId));
     type->addIdOperand(makeDebugSource(currentFileId)); // TODO: This points to file of definition instead of declaration
     type->addIdOperand(makeUintConstant(currentLine)); // TODO: This points to line of definition instead of declaration
     type->addIdOperand(makeUintConstant(0)); // column
     type->addIdOperand(makeDebugCompilationUnit()); // scope
     type->addIdOperand(nameId); // linkage name
     type->addIdOperand(makeUintConstant(NonSemanticShaderDebugInfo100FlagIsPublic));
-    type->addIdOperand(makeUintConstant(currentLine)); 
+    type->addIdOperand(makeUintConstant(currentLine));
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
     module.mapInstruction(type);
     return funcId;
@@ -2365,7 +2728,7 @@ Id Builder::makeDebugLexicalBlock(uint32_t line, uint32_t column) {
     assert(!currentDebugScopeId.empty());
 
     Id lexId = getUniqueId();
-    auto lex = new Instruction(lexId, makeVoidType(), OpExtInst);
+    auto lex = new Instruction(lexId, makeVoidType(), Op::OpExtInst);
     lex->reserveOperands(6);
     lex->addIdOperand(nonSemanticShaderDebugInfo);
     lex->addImmediateOperand(NonSemanticShaderDebugInfo100DebugLexicalBlock);
@@ -2393,11 +2756,11 @@ std::string Builder::unmangleFunctionName(std::string const& name) const
 void Builder::makeReturn(bool implicit, Id retVal)
 {
     if (retVal) {
-        Instruction* inst = new Instruction(NoResult, NoType, OpReturnValue);
+        Instruction* inst = new Instruction(NoResult, NoType, Op::OpReturnValue);
         inst->addIdOperand(retVal);
         addInstruction(std::unique_ptr<Instruction>(inst));
     } else
-        addInstruction(std::unique_ptr<Instruction>(new Instruction(NoResult, NoType, OpReturn)));
+        addInstruction(std::unique_ptr<Instruction>(new Instruction(NoResult, NoType, Op::OpReturn)));
 
     if (! implicit)
         createAndSetNoPredecessorBlock("post-return");
@@ -2431,33 +2794,36 @@ void Builder::leaveLexicalBlock()
 // Comments in header
 void Builder::enterFunction(Function const* function)
 {
+    currentFunction = function;
+
     // Save and disable debugInfo for HLSL entry point function. It is a wrapper
     // function with no user code in it.
     restoreNonSemanticShaderDebugInfo = emitNonSemanticShaderDebugInfo;
-    if (sourceLang == spv::SourceLanguageHLSL && function == entryPointFunction) {
+    if (sourceLang == spv::SourceLanguage::HLSL && function == entryPointFunction) {
         emitNonSemanticShaderDebugInfo = false;
     }
 
     if (emitNonSemanticShaderDebugInfo) {
         // Initialize scope state
         Id funcId = function->getFuncId();
-        currentDebugScopeId.push(debugId[funcId]);
+        Id debugFuncId = getDebugFunction(funcId);
+        currentDebugScopeId.push(debugFuncId);
         // Create DebugFunctionDefinition
         spv::Id resultId = getUniqueId();
-        Instruction* defInst = new Instruction(resultId, makeVoidType(), OpExtInst);
+        Instruction* defInst = new Instruction(resultId, makeVoidType(), Op::OpExtInst);
         defInst->reserveOperands(4);
         defInst->addIdOperand(nonSemanticShaderDebugInfo);
         defInst->addImmediateOperand(NonSemanticShaderDebugInfo100DebugFunctionDefinition);
-        defInst->addIdOperand(debugId[funcId]);
+        defInst->addIdOperand(debugFuncId);
         defInst->addIdOperand(funcId);
         addInstruction(std::unique_ptr<Instruction>(defInst));
     }
 
     // RD Modification - remove use of new declaration-inside-if
     auto linkType = function->getLinkType();
-    if (linkType != LinkageTypeMax) {
+    if (linkType != LinkageType::Max) {
         Id funcId = function->getFuncId();
-        addCapability(CapabilityLinkage);
+        addCapability(Capability::Linkage);
         addLinkageDecoration(funcId, function->getExportName(), linkType);
     }
 }
@@ -2483,6 +2849,9 @@ void Builder::leaveFunction()
         currentDebugScopeId.pop();
 
     emitNonSemanticShaderDebugInfo = restoreNonSemanticShaderDebugInfo;
+
+    // Clear current function record
+    currentFunction = nullptr;
 }
 
 // Comments in header
@@ -2502,41 +2871,83 @@ void Builder::makeStatementTerminator(spv::Op opcode, const std::vector<Id>& ope
     createAndSetNoPredecessorBlock(name);
 }
 
+void Builder::createConstVariable(Id type, const char* name, Id constant, bool isGlobal)
+{
+    if (emitNonSemanticShaderDebugInfo) {
+        Id debugType = getDebugType(type);
+        if (isGlobal) {
+            createDebugGlobalVariable(debugType, name, constant);
+        }
+        else {
+            auto debugLocal = createDebugLocalVariable(debugType, name);
+            makeDebugValue(debugLocal, constant);
+        }
+    }
+}
+
+// Comments in header
+Id Builder::createUntypedVariable(Decoration precision, StorageClass storageClass, const char* name, Id dataType,
+                                  Id initializer)
+{
+    Id resultUntypedPointerType = makeUntypedPointer(storageClass);
+    Instruction* inst = new Instruction(getUniqueId(), resultUntypedPointerType, Op::OpUntypedVariableKHR);
+    inst->addImmediateOperand(storageClass);
+    if (dataType != NoResult) {
+        Id dataPointerType = makePointer(storageClass, dataType);
+        inst->addIdOperand(dataPointerType);
+    }
+    if (initializer != NoResult)
+        inst->addIdOperand(initializer);
+
+    switch (storageClass) {
+    case StorageClass::Function:
+        // Validation rules require the declaration in the entry block
+        buildPoint->getParent().addLocalVariable(std::unique_ptr<Instruction>(inst));
+        break;
+    default:
+        constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(inst));
+        module.mapInstruction(inst);
+        break;
+    }
+
+    if (name)
+        addName(inst->getResultId(), name);
+    setPrecision(inst->getResultId(), precision);
+
+    return inst->getResultId();
+}
+
 // Comments in header
 Id Builder::createVariable(Decoration precision, StorageClass storageClass, Id type, const char* name, Id initializer,
     bool const compilerGenerated)
 {
     Id pointerType = makePointer(storageClass, type);
-    Instruction* inst = new Instruction(getUniqueId(), pointerType, OpVariable);
+    Instruction* inst = new Instruction(getUniqueId(), pointerType, Op::OpVariable);
     inst->addImmediateOperand(storageClass);
     if (initializer != NoResult)
         inst->addIdOperand(initializer);
 
-    switch (storageClass) {
-    case StorageClassFunction:
+    if (storageClass == StorageClass::Function) {
         // Validation rules require the declaration in the entry block
         buildPoint->getParent().addLocalVariable(std::unique_ptr<Instruction>(inst));
-
-        if (emitNonSemanticShaderDebugInfo && !compilerGenerated)
-        {
-            auto const debugLocalVariableId = createDebugLocalVariable(debugId[type], name);
-            debugId[inst->getResultId()] = debugLocalVariableId;
-
-            makeDebugDeclare(debugLocalVariableId, inst->getResultId());
-        }
-
-        break;
-
-    default:
+    }
+    else {
         constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(inst));
         module.mapInstruction(inst);
+    }
 
-        if (emitNonSemanticShaderDebugInfo)
-        {
-            auto const debugResultId = createDebugGlobalVariable(debugId[type], name, inst->getResultId());
-            debugId[inst->getResultId()] = debugResultId;
+    if (emitNonSemanticShaderDebugInfo && !compilerGenerated)
+    {
+        // For debug info, we prefer respecting how the variable is declared in source code.
+        // We may emulate some local variables as global variable with private storage in SPIR-V, but we still want to
+        // treat them as local variables in debug info.
+        if (storageClass == StorageClass::Function || (currentFunction && storageClass == StorageClass::Private)) {
+            auto const debugLocalVariableId = createDebugLocalVariable(getDebugType(type), name);
+            makeDebugDeclare(debugLocalVariableId, inst->getResultId());
         }
-        break;
+        else {
+            createDebugGlobalVariable(getDebugType(type), name, inst->getResultId());
+        }
     }
 
     if (name)
@@ -2549,7 +2960,7 @@ Id Builder::createVariable(Decoration precision, StorageClass storageClass, Id t
 // Comments in header
 Id Builder::createUndefined(Id type)
 {
-  Instruction* inst = new Instruction(getUniqueId(), type, OpUndef);
+  Instruction* inst = new Instruction(getUniqueId(), type, Op::OpUndef);
   addInstruction(std::unique_ptr<Instruction>(inst));
   return inst->getResultId();
 }
@@ -2559,16 +2970,16 @@ spv::MemoryAccessMask Builder::sanitizeMemoryAccessForStorageClass(spv::MemoryAc
     const
 {
     switch (sc) {
-    case spv::StorageClassUniform:
-    case spv::StorageClassWorkgroup:
-    case spv::StorageClassStorageBuffer:
-    case spv::StorageClassPhysicalStorageBufferEXT:
+    case spv::StorageClass::Uniform:
+    case spv::StorageClass::Workgroup:
+    case spv::StorageClass::StorageBuffer:
+    case spv::StorageClass::PhysicalStorageBufferEXT:
         break;
     default:
         memoryAccess = spv::MemoryAccessMask(memoryAccess &
-                        ~(spv::MemoryAccessMakePointerAvailableKHRMask |
-                          spv::MemoryAccessMakePointerVisibleKHRMask |
-                          spv::MemoryAccessNonPrivatePointerKHRMask));
+                        ~(spv::MemoryAccessMask::MakePointerAvailableKHR |
+                          spv::MemoryAccessMask::MakePointerVisibleKHR |
+                          spv::MemoryAccessMask::NonPrivatePointerKHR));
         break;
     }
     return memoryAccess;
@@ -2578,19 +2989,24 @@ spv::MemoryAccessMask Builder::sanitizeMemoryAccessForStorageClass(spv::MemoryAc
 void Builder::createStore(Id rValue, Id lValue, spv::MemoryAccessMask memoryAccess, spv::Scope scope,
     unsigned int alignment)
 {
-    Instruction* store = new Instruction(OpStore);
-    store->reserveOperands(2);
-    store->addIdOperand(lValue);
+    Instruction* store = nullptr;
+    if (isUntypedPointer(lValue))
+        store = createDescHeapLoadStoreBaseRemap(lValue, Op::OpStore);
+    else {
+        store = new Instruction(Op::OpStore);
+        store->reserveOperands(2);
+        store->addIdOperand(lValue);
+    }
     store->addIdOperand(rValue);
 
     memoryAccess = sanitizeMemoryAccessForStorageClass(memoryAccess, getStorageClass(lValue));
 
-    if (memoryAccess != MemoryAccessMaskNone) {
+    if (memoryAccess != MemoryAccessMask::MaskNone) {
         store->addImmediateOperand(memoryAccess);
-        if (memoryAccess & spv::MemoryAccessAlignedMask) {
+        if (anySet(memoryAccess, spv::MemoryAccessMask::Aligned)) {
             store->addImmediateOperand(alignment);
         }
-        if (memoryAccess & spv::MemoryAccessMakePointerAvailableKHRMask) {
+        if (anySet(memoryAccess, spv::MemoryAccessMask::MakePointerAvailableKHR)) {
             store->addIdOperand(makeUintConstant(scope));
         }
     }
@@ -2602,17 +3018,22 @@ void Builder::createStore(Id rValue, Id lValue, spv::MemoryAccessMask memoryAcce
 Id Builder::createLoad(Id lValue, spv::Decoration precision, spv::MemoryAccessMask memoryAccess,
     spv::Scope scope, unsigned int alignment)
 {
-    Instruction* load = new Instruction(getUniqueId(), getDerefTypeId(lValue), OpLoad);
-    load->addIdOperand(lValue);
+    Instruction* load = nullptr;
+    if (isUntypedPointer(lValue))
+        load = createDescHeapLoadStoreBaseRemap(lValue, Op::OpLoad);
+    else {
+        load = new Instruction(getUniqueId(), getDerefTypeId(lValue), Op::OpLoad);
+        load->addIdOperand(lValue);
+    }
 
     memoryAccess = sanitizeMemoryAccessForStorageClass(memoryAccess, getStorageClass(lValue));
 
-    if (memoryAccess != MemoryAccessMaskNone) {
+    if (memoryAccess != MemoryAccessMask::MaskNone) {
         load->addImmediateOperand(memoryAccess);
-        if (memoryAccess & spv::MemoryAccessAlignedMask) {
+        if (anySet(memoryAccess, spv::MemoryAccessMask::Aligned)) {
             load->addImmediateOperand(alignment);
         }
-        if (memoryAccess & spv::MemoryAccessMakePointerVisibleKHRMask) {
+        if (anySet(memoryAccess, spv::MemoryAccessMask::MakePointerVisibleKHR)) {
             load->addIdOperand(makeUintConstant(scope));
         }
     }
@@ -2623,6 +3044,172 @@ Id Builder::createLoad(Id lValue, spv::Decoration precision, spv::MemoryAccessMa
     return load->getResultId();
 }
 
+Instruction* Builder::createDescHeapLoadStoreBaseRemap(Id baseId, Op op)
+{
+    // could only be untypedAccessChain or BufferPointerEXT op.
+    spv::Op instOp = module.getInstruction(baseId)->getOpCode();
+    spv::Id baseVal = baseId;
+    // base type (from run time array)
+    spv::Id resultTy = getIdOperand(baseId, 0);
+    // Descriptor heap using run time array.
+    if (accessChain.descHeapInfo.descHeapStorageClass != StorageClass::Max)
+        resultTy = getIdOperand(resultTy, 0);
+    if (instOp == Op::OpBufferPointerEXT) {
+        // get base structure type from run time array of buffer structure type.
+        // create an extra untyped access chain for buffer pointer.
+        resultTy = accessChain.descHeapInfo.descHeapBaseTy;
+        Instruction* chain = new Instruction(getUniqueId(), getTypeId(baseId), Op::OpUntypedAccessChainKHR);
+        // base type.
+        chain->addIdOperand(resultTy);
+        // base
+        chain->addIdOperand(baseId);
+        // index
+        for (int i = 0; i < (int)accessChain.indexChain.size(); ++i) {
+            chain->addIdOperand(accessChain.indexChain[i]);
+        }
+        addInstruction(std::unique_ptr<Instruction>(chain));
+        baseVal = chain->getResultId();
+        clearAccessChain();
+    } else if (instOp != Op::OpUntypedAccessChainKHR) {
+        assert(false && "Not a untyped load type");
+    }
+
+    Instruction* inst = nullptr;
+    if (op == Op::OpStore)
+        inst = new Instruction(Op::OpStore);
+    else {
+        inst = new Instruction(getUniqueId(), resultTy, Op::OpLoad);
+        accessChain.descHeapInfo.descHeapInstId.push_back(inst);
+    }
+    inst->addIdOperand(baseVal);
+    return inst;
+}
+
+uint32_t Builder::isStructureHeapMember(Id id, std::vector<Id> indexChain,
+    unsigned int idx, spv::BuiltIn* bt, uint32_t* firstArrIndex)
+{
+    unsigned currentIdx = idx;
+    // Process types, only array types could contain no constant id operands.
+    Id baseId = id;
+    if (baseId == NoType)
+        return 0;
+    if (isPointerType(baseId))
+        baseId = getContainedTypeId(baseId);
+    auto baseInst = module.getInstruction(baseId);
+    if (baseInst->getOpCode() == spv::Op::OpTypeArray ||
+        baseInst->getOpCode() == spv::Op::OpTypeRuntimeArray) {
+        if (firstArrIndex)
+            *firstArrIndex = currentIdx;
+        baseId = getContainedTypeId(baseId);
+        baseInst = module.getInstruction(baseId);
+        currentIdx++;
+    }
+    if (currentIdx >= indexChain.size())
+        return 0;
+    // Process index op.
+    auto indexInst = module.getInstruction(indexChain[currentIdx]);
+    if (indexInst->getOpCode() != spv::Op::OpConstant)
+        return 0;
+    auto index = indexInst->getImmediateOperand(0);
+    for (auto dec = decorations.begin(); dec != decorations.end(); dec++) {
+        if (dec->get()->getOpCode() == spv::Op::OpMemberDecorate && dec->get()->getIdOperand(0) == baseId &&
+            dec->get()->getImmediateOperand(1) == index &&
+            dec->get()->getImmediateOperand(2) == spv::Decoration::BuiltIn &&
+            (dec->get()->getImmediateOperand(3) == (unsigned)spv::BuiltIn::ResourceHeapEXT ||
+             dec->get()->getImmediateOperand(3) == (unsigned)spv::BuiltIn::SamplerHeapEXT)) {
+            if (bt)
+                *bt = (spv::BuiltIn)dec->get()->getImmediateOperand(3);
+            return currentIdx;
+        }
+    }
+    // New base.
+    if (baseInst->getOpCode() == spv::Op::OpTypeStruct) {
+        if (!baseInst->isIdOperand(index) || idx == indexChain.size() - 1)
+            return 0;
+        return isStructureHeapMember(baseInst->getIdOperand(index), indexChain, currentIdx + 1, bt, firstArrIndex);
+    }
+
+    return 0;
+}
+
+// Comments in header
+Id Builder::createDescHeapAccessChain()
+{
+    uint32_t rsrcOffsetIdx = accessChain.descHeapInfo.structRsrcTyOffsetCount;
+    if (rsrcOffsetIdx != 0)
+        accessChain.base = accessChain.descHeapInfo.structRemappedBase;
+    Id base = accessChain.base;
+    Id untypedResultTy = accessChain.descHeapInfo.descHeapBaseTy;
+    uint32_t explicitArrayStride = accessChain.descHeapInfo.descHeapBaseArrayStride;
+    std::vector<Id>& offsets = accessChain.indexChain;
+    uint32_t firstArrIndex = accessChain.descHeapInfo.structRsrcTyFirstArrIndex;
+    // both typeBufferEXT and UntypedPointer only contains storage class info.
+    StorageClass storageClass = (StorageClass)accessChain.descHeapInfo.descHeapStorageClass;
+    Id resultTy = makeUntypedPointer(storageClass == spv::StorageClass::StorageBuffer ? spv::StorageClass::StorageBuffer
+                                                                                      : spv::StorageClass::Uniform);
+
+    // Make the untyped access chain instruction
+    Instruction* chain = new Instruction(getUniqueId(), makeUntypedPointer(getStorageClass(base)), Op::OpUntypedAccessChainKHR);
+
+    if (storageClass == spv::StorageClass::Uniform || storageClass == spv::StorageClass::StorageBuffer) {
+        // For buffer and uniform heap, split first index as heap array index
+        // Insert BufferPointer op and construct another access chain with following indexes.
+        Id bufferTy = makeUntypedPointer(storageClass, true);
+        Id strideId = NoResult;
+        if (explicitArrayStride == 0) {
+            strideId = createConstantSizeOfEXT(bufferTy);
+        } else {
+            strideId = makeUintConstant(explicitArrayStride);
+        }
+        Id runtimeArrTy = makeRuntimeArray(bufferTy);
+        addDecorationId(runtimeArrTy, spv::Decoration::ArrayStrideIdEXT, strideId);
+        chain->addIdOperand(runtimeArrTy);
+        chain->addIdOperand(base);
+        // We would only re-target current member resource directly to resource/sampler heap base.
+        // So the previous access chain index towards final resource type is not needed?
+        // In current draft, only keep the first 'array index' into last access chain index.
+        // As those resource can't be declared as an array, in current first draft, array index will
+        // be the second index. This will be refined later.
+        chain->addIdOperand(offsets[firstArrIndex]);
+        if (rsrcOffsetIdx != 0) {
+            for (uint32_t i = 0; i < rsrcOffsetIdx + 1; i++) {
+                if (rsrcOffsetIdx + i + 1 < offsets.size())
+                    offsets[i] = offsets[i + rsrcOffsetIdx + 1];
+            }
+        } else {
+            for (uint32_t i = 0; i < offsets.size() - 1; i++) {
+                offsets[i] = offsets[i + 1];
+            }
+        }
+        for (uint32_t i = 0; i < rsrcOffsetIdx + 1; i++)
+            offsets.pop_back();
+        addInstruction(std::unique_ptr<Instruction>(chain));
+        // Create OpBufferPointer for loading target buffer descriptor.
+        Instruction* bufferUntypedDataPtr = new Instruction(getUniqueId(), resultTy, Op::OpBufferPointerEXT);
+        bufferUntypedDataPtr->addIdOperand(chain->getResultId());
+        addInstruction(std::unique_ptr<Instruction>(bufferUntypedDataPtr));
+        // Final/Second untyped access chain loading will be created during loading, current results only
+        // refer to the loading 'base'.
+        return bufferUntypedDataPtr->getResultId();
+    } else {
+        // image/sampler heap
+        Id strideId = NoResult;
+        if (explicitArrayStride == 0) {
+            strideId = createConstantSizeOfEXT(untypedResultTy);
+        } else {
+            strideId = makeUintConstant(explicitArrayStride);
+        }
+        Id runtimeArrTy = makeRuntimeArray(untypedResultTy);
+        addDecorationId(runtimeArrTy, spv::Decoration::ArrayStrideIdEXT, strideId);
+        chain->addIdOperand(runtimeArrTy);
+        chain->addIdOperand(base);
+        for (int i = 0; i < (int)offsets.size(); ++i)
+            chain->addIdOperand(offsets[i]);
+        addInstruction(std::unique_ptr<Instruction>(chain));
+        return chain->getResultId();
+    }
+}
+
 // Comments in header
 Id Builder::createAccessChain(StorageClass storageClass, Id base, const std::vector<Id>& offsets)
 {
@@ -2631,7 +3218,7 @@ Id Builder::createAccessChain(StorageClass storageClass, Id base, const std::vec
     typeId = makePointer(storageClass, typeId);
 
     // Make the instruction
-    Instruction* chain = new Instruction(getUniqueId(), typeId, OpAccessChain);
+    Instruction* chain = new Instruction(getUniqueId(), typeId, Op::OpAccessChain);
     chain->reserveOperands(offsets.size() + 1);
     chain->addIdOperand(base);
     for (int i = 0; i < (int)offsets.size(); ++i)
@@ -2641,10 +3228,10 @@ Id Builder::createAccessChain(StorageClass storageClass, Id base, const std::vec
     return chain->getResultId();
 }
 
-Id Builder::createArrayLength(Id base, unsigned int member)
+Id Builder::createArrayLength(Id base, unsigned int member, unsigned int bits)
 {
-    spv::Id intType = makeUintType(32);
-    Instruction* length = new Instruction(getUniqueId(), intType, OpArrayLength);
+    spv::Id intType = makeUintType(bits);
+    Instruction* length = new Instruction(getUniqueId(), intType, Op::OpArrayLength);
     length->reserveOperands(2);
     length->addIdOperand(base);
     length->addImmediateOperand(member);
@@ -2660,10 +3247,10 @@ Id Builder::createCooperativeMatrixLengthKHR(Id type)
     // Generate code for spec constants if in spec constant operation
     // generation mode.
     if (generatingOpCodeForSpecConst) {
-        return createSpecConstantOp(OpCooperativeMatrixLengthKHR, intType, std::vector<Id>(1, type), std::vector<Id>());
+        return createSpecConstantOp(Op::OpCooperativeMatrixLengthKHR, intType, std::vector<Id>(1, type), std::vector<Id>());
     }
 
-    Instruction* length = new Instruction(getUniqueId(), intType, OpCooperativeMatrixLengthKHR);
+    Instruction* length = new Instruction(getUniqueId(), intType, Op::OpCooperativeMatrixLengthKHR);
     length->addIdOperand(type);
     addInstruction(std::unique_ptr<Instruction>(length));
 
@@ -2677,10 +3264,10 @@ Id Builder::createCooperativeMatrixLengthNV(Id type)
     // Generate code for spec constants if in spec constant operation
     // generation mode.
     if (generatingOpCodeForSpecConst) {
-        return createSpecConstantOp(OpCooperativeMatrixLengthNV, intType, std::vector<Id>(1, type), std::vector<Id>());
+        return createSpecConstantOp(Op::OpCooperativeMatrixLengthNV, intType, std::vector<Id>(1, type), std::vector<Id>());
     }
 
-    Instruction* length = new Instruction(getUniqueId(), intType, OpCooperativeMatrixLengthNV);
+    Instruction* length = new Instruction(getUniqueId(), intType, Op::OpCooperativeMatrixLengthNV);
     length->addIdOperand(type);
     addInstruction(std::unique_ptr<Instruction>(length));
 
@@ -2692,10 +3279,10 @@ Id Builder::createCompositeExtract(Id composite, Id typeId, unsigned index)
     // Generate code for spec constants if in spec constant operation
     // generation mode.
     if (generatingOpCodeForSpecConst) {
-        return createSpecConstantOp(OpCompositeExtract, typeId, std::vector<Id>(1, composite),
+        return createSpecConstantOp(Op::OpCompositeExtract, typeId, std::vector<Id>(1, composite),
             std::vector<Id>(1, index));
     }
-    Instruction* extract = new Instruction(getUniqueId(), typeId, OpCompositeExtract);
+    Instruction* extract = new Instruction(getUniqueId(), typeId, Op::OpCompositeExtract);
     extract->reserveOperands(2);
     extract->addIdOperand(composite);
     extract->addImmediateOperand(index);
@@ -2709,9 +3296,9 @@ Id Builder::createCompositeExtract(Id composite, Id typeId, const std::vector<un
     // Generate code for spec constants if in spec constant operation
     // generation mode.
     if (generatingOpCodeForSpecConst) {
-        return createSpecConstantOp(OpCompositeExtract, typeId, std::vector<Id>(1, composite), indexes);
+        return createSpecConstantOp(Op::OpCompositeExtract, typeId, std::vector<Id>(1, composite), indexes);
     }
-    Instruction* extract = new Instruction(getUniqueId(), typeId, OpCompositeExtract);
+    Instruction* extract = new Instruction(getUniqueId(), typeId, Op::OpCompositeExtract);
     extract->reserveOperands(indexes.size() + 1);
     extract->addIdOperand(composite);
     for (int i = 0; i < (int)indexes.size(); ++i)
@@ -2723,7 +3310,7 @@ Id Builder::createCompositeExtract(Id composite, Id typeId, const std::vector<un
 
 Id Builder::createCompositeInsert(Id object, Id composite, Id typeId, unsigned index)
 {
-    Instruction* insert = new Instruction(getUniqueId(), typeId, OpCompositeInsert);
+    Instruction* insert = new Instruction(getUniqueId(), typeId, Op::OpCompositeInsert);
     insert->reserveOperands(3);
     insert->addIdOperand(object);
     insert->addIdOperand(composite);
@@ -2735,7 +3322,7 @@ Id Builder::createCompositeInsert(Id object, Id composite, Id typeId, unsigned i
 
 Id Builder::createCompositeInsert(Id object, Id composite, Id typeId, const std::vector<unsigned>& indexes)
 {
-    Instruction* insert = new Instruction(getUniqueId(), typeId, OpCompositeInsert);
+    Instruction* insert = new Instruction(getUniqueId(), typeId, Op::OpCompositeInsert);
     insert->reserveOperands(indexes.size() + 2);
     insert->addIdOperand(object);
     insert->addIdOperand(composite);
@@ -2748,7 +3335,7 @@ Id Builder::createCompositeInsert(Id object, Id composite, Id typeId, const std:
 
 Id Builder::createVectorExtractDynamic(Id vector, Id typeId, Id componentIndex)
 {
-    Instruction* extract = new Instruction(getUniqueId(), typeId, OpVectorExtractDynamic);
+    Instruction* extract = new Instruction(getUniqueId(), typeId, Op::OpVectorExtractDynamic);
     extract->reserveOperands(2);
     extract->addIdOperand(vector);
     extract->addIdOperand(componentIndex);
@@ -2759,7 +3346,7 @@ Id Builder::createVectorExtractDynamic(Id vector, Id typeId, Id componentIndex)
 
 Id Builder::createVectorInsertDynamic(Id vector, Id typeId, Id component, Id componentIndex)
 {
-    Instruction* insert = new Instruction(getUniqueId(), typeId, OpVectorInsertDynamic);
+    Instruction* insert = new Instruction(getUniqueId(), typeId, Op::OpVectorInsertDynamic);
     insert->reserveOperands(3);
     insert->addIdOperand(vector);
     insert->addIdOperand(component);
@@ -2811,7 +3398,7 @@ void Builder::createNoResultOp(Op opCode, const std::vector<IdImmediate>& operan
 
 void Builder::createControlBarrier(Scope execution, Scope memory, MemorySemanticsMask semantics)
 {
-    Instruction* op = new Instruction(OpControlBarrier);
+    Instruction* op = new Instruction(Op::OpControlBarrier);
     op->reserveOperands(3);
     op->addIdOperand(makeUintConstant(execution));
     op->addIdOperand(makeUintConstant(memory));
@@ -2819,12 +3406,12 @@ void Builder::createControlBarrier(Scope execution, Scope memory, MemorySemantic
     addInstruction(std::unique_ptr<Instruction>(op));
 }
 
-void Builder::createMemoryBarrier(unsigned executionScope, unsigned memorySemantics)
+void Builder::createMemoryBarrier(Scope executionScope, MemorySemanticsMask memorySemantics)
 {
-    Instruction* op = new Instruction(OpMemoryBarrier);
+    Instruction* op = new Instruction(Op::OpMemoryBarrier);
     op->reserveOperands(2);
-    op->addIdOperand(makeUintConstant(executionScope));
-    op->addIdOperand(makeUintConstant(memorySemantics));
+    op->addIdOperand(makeUintConstant((unsigned)executionScope));
+    op->addIdOperand(makeUintConstant((unsigned)memorySemantics));
     addInstruction(std::unique_ptr<Instruction>(op));
 }
 
@@ -2912,7 +3499,7 @@ Id Builder::createOp(Op opCode, Id typeId, const std::vector<IdImmediate>& opera
 Id Builder::createSpecConstantOp(Op opCode, Id typeId, const std::vector<Id>& operands,
     const std::vector<unsigned>& literals)
 {
-    Instruction* op = new Instruction(getUniqueId(), typeId, OpSpecConstantOp);
+    Instruction* op = new Instruction(getUniqueId(), typeId, Op::OpSpecConstantOp);
     op->reserveOperands(operands.size() + literals.size() + 1);
     op->addImmediateOperand((unsigned) opCode);
     for (auto it = operands.cbegin(); it != operands.cend(); ++it)
@@ -2923,19 +3510,19 @@ Id Builder::createSpecConstantOp(Op opCode, Id typeId, const std::vector<Id>& op
     constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(op));
 
     // OpSpecConstantOp's using 8 or 16 bit types require the associated capability
-    if (containsType(typeId, OpTypeInt, 8))
-        addCapability(CapabilityInt8);
-    if (containsType(typeId, OpTypeInt, 16))
-        addCapability(CapabilityInt16);
-    if (containsType(typeId, OpTypeFloat, 16))
-        addCapability(CapabilityFloat16);
+    if (containsType(typeId, Op::OpTypeInt, 8))
+        addCapability(Capability::Int8);
+    if (containsType(typeId, Op::OpTypeInt, 16))
+        addCapability(Capability::Int16);
+    if (containsType(typeId, Op::OpTypeFloat, 16))
+        addCapability(Capability::Float16);
 
     return op->getResultId();
 }
 
 Id Builder::createFunctionCall(spv::Function* function, const std::vector<spv::Id>& args)
 {
-    Instruction* op = new Instruction(getUniqueId(), function->getReturnType(), OpFunctionCall);
+    Instruction* op = new Instruction(getUniqueId(), function->getReturnType(), Op::OpFunctionCall);
     op->reserveOperands(args.size() + 1);
     op->addIdOperand(function->getId());
     for (int a = 0; a < (int)args.size(); ++a)
@@ -2954,9 +3541,9 @@ Id Builder::createRvalueSwizzle(Decoration precision, Id typeId, Id source, cons
     if (generatingOpCodeForSpecConst) {
         std::vector<Id> operands(2);
         operands[0] = operands[1] = source;
-        return setPrecision(createSpecConstantOp(OpVectorShuffle, typeId, operands, channels), precision);
+        return setPrecision(createSpecConstantOp(Op::OpVectorShuffle, typeId, operands, channels), precision);
     }
-    Instruction* swizzle = new Instruction(getUniqueId(), typeId, OpVectorShuffle);
+    Instruction* swizzle = new Instruction(getUniqueId(), typeId, Op::OpVectorShuffle);
     assert(isVector(source));
     swizzle->reserveOperands(channels.size() + 2);
     swizzle->addIdOperand(source);
@@ -2974,7 +3561,7 @@ Id Builder::createLvalueSwizzle(Id typeId, Id target, Id source, const std::vect
     if (channels.size() == 1 && getNumComponents(source) == 1)
         return createCompositeInsert(source, target, typeId, channels.front());
 
-    Instruction* swizzle = new Instruction(getUniqueId(), typeId, OpVectorShuffle);
+    Instruction* swizzle = new Instruction(getUniqueId(), typeId, Op::OpVectorShuffle);
 
     assert(isVector(target));
     swizzle->reserveOperands(2);
@@ -3006,12 +3593,21 @@ Id Builder::createLvalueSwizzle(Id typeId, Id target, Id source, const std::vect
 // Comments in header
 void Builder::promoteScalar(Decoration precision, Id& left, Id& right)
 {
-    int direction = getNumComponents(right) - getNumComponents(left);
+    // choose direction of promotion (+1 for left to right, -1 for right to left)
+    int direction = !isScalar(right) - !isScalar(left);
+
+    auto const &makeVec = [&](Id component, Id other) {
+        if (isCooperativeVector(other)) {
+            return makeCooperativeVectorTypeNV(getTypeId(component), getCooperativeVectorNumComponents(getTypeId(other)));
+        } else {
+            return makeVectorType(getTypeId(component), getNumComponents(other));
+        }
+    };
 
     if (direction > 0)
-        left = smearScalar(precision, left, makeVectorType(getTypeId(left), getNumComponents(right)));
+        left = smearScalar(precision, left, makeVec(left, right));
     else if (direction < 0)
-        right = smearScalar(precision, right, makeVectorType(getTypeId(right), getNumComponents(left)));
+        right = smearScalar(precision, right, makeVec(right, left));
 
     return;
 }
@@ -3023,7 +3619,7 @@ Id Builder::smearScalar(Decoration precision, Id scalar, Id vectorType)
     assert(getTypeId(scalar) == getScalarTypeId(vectorType));
 
     int numComponents = getNumTypeComponents(vectorType);
-    if (numComponents == 1)
+    if (numComponents == 1 && !isCooperativeVectorType(vectorType) && !isVectorType(vectorType))
         return scalar;
 
     Instruction* smear = nullptr;
@@ -3040,15 +3636,15 @@ Id Builder::smearScalar(Decoration precision, Id scalar, Id vectorType)
         auto result_id = makeCompositeConstant(vectorType, members, isSpecConstant(scalar));
         smear = module.getInstruction(result_id);
     } else {
-        bool replicate = useReplicatedComposites && (numComponents > 0);
+        bool replicate = (useReplicatedComposites || isCooperativeVectorType(vectorType)) && (numComponents > 0);
 
         if (replicate) {
             numComponents = 1;
-            addCapability(spv::CapabilityReplicatedCompositesEXT);
+            addCapability(spv::Capability::ReplicatedCompositesEXT);
             addExtension(spv::E_SPV_EXT_replicated_composites);
         }
 
-        Op opcode = replicate ? OpCompositeConstructReplicateEXT : OpCompositeConstruct;
+        Op opcode = replicate ? Op::OpCompositeConstructReplicateEXT : Op::OpCompositeConstruct;
 
         smear = new Instruction(getUniqueId(), vectorType, opcode);
         smear->reserveOperands(numComponents);
@@ -3063,7 +3659,7 @@ Id Builder::smearScalar(Decoration precision, Id scalar, Id vectorType)
 // Comments in header
 Id Builder::createBuiltinCall(Id resultType, Id builtins, int entryPoint, const std::vector<Id>& args)
 {
-    Instruction* inst = new Instruction(getUniqueId(), resultType, OpExtInst);
+    Instruction* inst = new Instruction(getUniqueId(), resultType, Op::OpExtInst);
     inst->reserveOperands(args.size() + 2);
     inst->addIdOperand(builtins);
     inst->addImmediateOperand(entryPoint);
@@ -3102,132 +3698,139 @@ Id Builder::createTextureCall(Decoration precision, Id resultType, bool sparse, 
     // Set up the optional arguments
     //
     size_t optArgNum = texArgs.size(); // the position of the mask for the optional arguments, if any.
-    ImageOperandsMask mask = ImageOperandsMaskNone; // the mask operand
+    ImageOperandsMask mask = ImageOperandsMask::MaskNone; // the mask operand
     if (parameters.bias) {
-        mask = (ImageOperandsMask)(mask | ImageOperandsBiasMask);
+        mask = (ImageOperandsMask)(mask | ImageOperandsMask::Bias);
         texArgs.push_back(parameters.bias);
     }
     if (parameters.lod) {
-        mask = (ImageOperandsMask)(mask | ImageOperandsLodMask);
+        mask = (ImageOperandsMask)(mask | ImageOperandsMask::Lod);
         texArgs.push_back(parameters.lod);
         explicitLod = true;
     } else if (parameters.gradX) {
-        mask = (ImageOperandsMask)(mask | ImageOperandsGradMask);
+        mask = (ImageOperandsMask)(mask | ImageOperandsMask::Grad);
         texArgs.push_back(parameters.gradX);
         texArgs.push_back(parameters.gradY);
         explicitLod = true;
     } else if (noImplicitLod && ! fetch && ! gather) {
         // have to explicitly use lod of 0 if not allowed to have them be implicit, and
         // we would otherwise be about to issue an implicit instruction
-        mask = (ImageOperandsMask)(mask | ImageOperandsLodMask);
+        mask = (ImageOperandsMask)(mask | ImageOperandsMask::Lod);
         texArgs.push_back(makeFloatConstant(0.0));
         explicitLod = true;
     }
     if (parameters.offset) {
         if (isConstant(parameters.offset))
-            mask = (ImageOperandsMask)(mask | ImageOperandsConstOffsetMask);
+            mask = (ImageOperandsMask)(mask | ImageOperandsMask::ConstOffset);
         else {
-            addCapability(CapabilityImageGatherExtended);
-            mask = (ImageOperandsMask)(mask | ImageOperandsOffsetMask);
+            addCapability(Capability::ImageGatherExtended);
+            mask = (ImageOperandsMask)(mask | ImageOperandsMask::Offset);
         }
         texArgs.push_back(parameters.offset);
     }
     if (parameters.offsets) {
-        addCapability(CapabilityImageGatherExtended);
-        mask = (ImageOperandsMask)(mask | ImageOperandsConstOffsetsMask);
+        if (!isConstant(parameters.offsets) && sourceLang == spv::SourceLanguage::GLSL) {
+            mask = (ImageOperandsMask)(mask | ImageOperandsMask::Offsets);
+        } else {
+            addCapability(Capability::ImageGatherExtended);
+            mask = (ImageOperandsMask)(mask | ImageOperandsMask::ConstOffsets);
+        }
         texArgs.push_back(parameters.offsets);
     }
     if (parameters.sample) {
-        mask = (ImageOperandsMask)(mask | ImageOperandsSampleMask);
+        mask = (ImageOperandsMask)(mask | ImageOperandsMask::Sample);
         texArgs.push_back(parameters.sample);
     }
     if (parameters.lodClamp) {
         // capability if this bit is used
-        addCapability(CapabilityMinLod);
+        addCapability(Capability::MinLod);
 
-        mask = (ImageOperandsMask)(mask | ImageOperandsMinLodMask);
+        mask = (ImageOperandsMask)(mask | ImageOperandsMask::MinLod);
         texArgs.push_back(parameters.lodClamp);
     }
     if (parameters.nonprivate) {
-        mask = mask | ImageOperandsNonPrivateTexelKHRMask;
+        mask = mask | ImageOperandsMask::NonPrivateTexelKHR;
     }
     if (parameters.volatil) {
-        mask = mask | ImageOperandsVolatileTexelKHRMask;
+        mask = mask | ImageOperandsMask::VolatileTexelKHR;
+    }
+    if (parameters.nontemporal) {
+        mask = mask | ImageOperandsMask::Nontemporal;
     }
     mask = mask | signExtensionMask;
     // insert the operand for the mask, if any bits were set.
-    if (mask != ImageOperandsMaskNone)
-        texArgs.insert(texArgs.begin() + optArgNum, mask);
+    if (mask != ImageOperandsMask::MaskNone)
+        texArgs.insert(texArgs.begin() + optArgNum, (Id)mask);
 
     //
     // Set up the instruction
     //
-    Op opCode = OpNop;  // All paths below need to set this
+    Op opCode = Op::OpNop;  // All paths below need to set this
     if (fetch) {
         if (sparse)
-            opCode = OpImageSparseFetch;
+            opCode = Op::OpImageSparseFetch;
         else
-            opCode = OpImageFetch;
+            opCode = Op::OpImageFetch;
     } else if (parameters.granularity && parameters.coarse) {
-        opCode = OpImageSampleFootprintNV;
+        opCode = Op::OpImageSampleFootprintNV;
     } else if (gather) {
         if (parameters.Dref)
             if (sparse)
-                opCode = OpImageSparseDrefGather;
+                opCode = Op::OpImageSparseDrefGather;
             else
-                opCode = OpImageDrefGather;
+                opCode = Op::OpImageDrefGather;
         else
             if (sparse)
-                opCode = OpImageSparseGather;
+                opCode = Op::OpImageSparseGather;
             else
-                opCode = OpImageGather;
+                opCode = Op::OpImageGather;
     } else if (explicitLod) {
         if (parameters.Dref) {
             if (proj)
                 if (sparse)
-                    opCode = OpImageSparseSampleProjDrefExplicitLod;
+                    opCode = Op::OpImageSparseSampleProjDrefExplicitLod;
                 else
-                    opCode = OpImageSampleProjDrefExplicitLod;
+                    opCode = Op::OpImageSampleProjDrefExplicitLod;
             else
                 if (sparse)
-                    opCode = OpImageSparseSampleDrefExplicitLod;
+                    opCode = Op::OpImageSparseSampleDrefExplicitLod;
                 else
-                    opCode = OpImageSampleDrefExplicitLod;
+                    opCode = Op::OpImageSampleDrefExplicitLod;
         } else {
             if (proj)
                 if (sparse)
-                    opCode = OpImageSparseSampleProjExplicitLod;
+                    opCode = Op::OpImageSparseSampleProjExplicitLod;
                 else
-                    opCode = OpImageSampleProjExplicitLod;
+                    opCode = Op::OpImageSampleProjExplicitLod;
             else
                 if (sparse)
-                    opCode = OpImageSparseSampleExplicitLod;
+                    opCode = Op::OpImageSparseSampleExplicitLod;
                 else
-                    opCode = OpImageSampleExplicitLod;
+                    opCode = Op::OpImageSampleExplicitLod;
         }
     } else {
         if (parameters.Dref) {
             if (proj)
                 if (sparse)
-                    opCode = OpImageSparseSampleProjDrefImplicitLod;
+                    opCode = Op::OpImageSparseSampleProjDrefImplicitLod;
                 else
-                    opCode = OpImageSampleProjDrefImplicitLod;
+                    opCode = Op::OpImageSampleProjDrefImplicitLod;
             else
                 if (sparse)
-                    opCode = OpImageSparseSampleDrefImplicitLod;
+                    opCode = Op::OpImageSparseSampleDrefImplicitLod;
                 else
-                    opCode = OpImageSampleDrefImplicitLod;
+                    opCode = Op::OpImageSampleDrefImplicitLod;
         } else {
             if (proj)
                 if (sparse)
-                    opCode = OpImageSparseSampleProjImplicitLod;
+                    opCode = Op::OpImageSparseSampleProjImplicitLod;
                 else
-                    opCode = OpImageSampleProjImplicitLod;
+                    opCode = Op::OpImageSampleProjImplicitLod;
             else
                 if (sparse)
-                    opCode = OpImageSparseSampleImplicitLod;
+                    opCode = Op::OpImageSparseSampleImplicitLod;
                 else
-                    opCode = OpImageSampleImplicitLod;
+                    opCode = Op::OpImageSampleImplicitLod;
         }
     }
 
@@ -3237,10 +3840,10 @@ Id Builder::createTextureCall(Decoration precision, Id resultType, bool sparse, 
     Id smearedType = resultType;
     if (! isScalarType(resultType)) {
         switch (opCode) {
-        case OpImageSampleDrefImplicitLod:
-        case OpImageSampleDrefExplicitLod:
-        case OpImageSampleProjDrefImplicitLod:
-        case OpImageSampleProjDrefExplicitLod:
+        case Op::OpImageSampleDrefImplicitLod:
+        case Op::OpImageSampleDrefExplicitLod:
+        case Op::OpImageSampleProjDrefImplicitLod:
+        case Op::OpImageSampleProjDrefExplicitLod:
             resultType = getScalarTypeId(resultType);
             break;
         default:
@@ -3273,7 +3876,7 @@ Id Builder::createTextureCall(Decoration precision, Id resultType, bool sparse, 
 
     if (sparse) {
         // set capability
-        addCapability(CapabilitySparseResidency);
+        addCapability(Capability::SparseResidency);
 
         // Decode the return type that was a special structure
         createStore(createCompositeExtract(resultId, typeId1, 1), parameters.texelOut);
@@ -3295,22 +3898,22 @@ Id Builder::createTextureQueryCall(Op opCode, const TextureParameters& parameter
     // Figure out the result type
     Id resultType = 0;
     switch (opCode) {
-    case OpImageQuerySize:
-    case OpImageQuerySizeLod:
+    case Op::OpImageQuerySize:
+    case Op::OpImageQuerySizeLod:
     {
         int numComponents = 0;
         switch (getTypeDimensionality(getImageType(parameters.sampler))) {
-        case Dim1D:
-        case DimBuffer:
+        case Dim::Dim1D:
+        case Dim::Buffer:
             numComponents = 1;
             break;
-        case Dim2D:
-        case DimCube:
-        case DimRect:
-        case DimSubpassData:
+        case Dim::Dim2D:
+        case Dim::Cube:
+        case Dim::Rect:
+        case Dim::SubpassData:
             numComponents = 2;
             break;
-        case Dim3D:
+        case Dim::Dim3D:
             numComponents = 3;
             break;
 
@@ -3329,11 +3932,11 @@ Id Builder::createTextureQueryCall(Op opCode, const TextureParameters& parameter
 
         break;
     }
-    case OpImageQueryLod:
+    case Op::OpImageQueryLod:
         resultType = makeVectorType(getScalarTypeId(getTypeId(parameters.coords)), 2);
         break;
-    case OpImageQueryLevels:
-    case OpImageQuerySamples:
+    case Op::OpImageQueryLevels:
+    case Op::OpImageQuerySamples:
         resultType = isUnsignedResult ? makeUintType(32) : makeIntType(32);
         break;
     default:
@@ -3348,7 +3951,7 @@ Id Builder::createTextureQueryCall(Op opCode, const TextureParameters& parameter
     if (parameters.lod)
         query->addIdOperand(parameters.lod);
     addInstruction(std::unique_ptr<Instruction>(query));
-    addCapability(CapabilityImageQuery);
+    addCapability(Capability::ImageQuery);
 
     return query->getResultId();
 }
@@ -3372,15 +3975,15 @@ Id Builder::createCompositeCompare(Decoration precision, Id value1, Id value2, b
         // to figure out what it is.
         Op op;
         switch (getMostBasicTypeClass(valueType)) {
-        case OpTypeFloat:
-            op = equal ? OpFOrdEqual : OpFUnordNotEqual;
+        case Op::OpTypeFloat:
+            op = equal ? Op::OpFOrdEqual : Op::OpFUnordNotEqual;
             break;
-        case OpTypeInt:
+        case Op::OpTypeInt:
         default:
-            op = equal ? OpIEqual : OpINotEqual;
+            op = equal ? Op::OpIEqual : Op::OpINotEqual;
             break;
-        case OpTypeBool:
-            op = equal ? OpLogicalEqual : OpLogicalNotEqual;
+        case Op::OpTypeBool:
+            op = equal ? Op::OpLogicalEqual : Op::OpLogicalNotEqual;
             precision = NoPrecision;
             break;
         }
@@ -3393,7 +3996,7 @@ Id Builder::createCompositeCompare(Decoration precision, Id value1, Id value2, b
             resultId = createBinOp(op, makeVectorType(boolType, numConstituents), value1, value2);
             setPrecision(resultId, precision);
             // reduce vector compares...
-            resultId = createUnaryOp(equal ? OpAll : OpAny, boolType, resultId);
+            resultId = createUnaryOp(equal ? Op::OpAll : Op::OpAny, boolType, resultId);
         }
 
         return setPrecision(resultId, precision);
@@ -3416,7 +4019,7 @@ Id Builder::createCompositeCompare(Decoration precision, Id value1, Id value2, b
         if (constituent == 0)
             resultId = subResultId;
         else
-            resultId = setPrecision(createBinOp(equal ? OpLogicalAnd : OpLogicalOr, boolType, resultId, subResultId),
+            resultId = setPrecision(createBinOp(equal ? Op::OpLogicalAnd : Op::OpLogicalOr, boolType, resultId, subResultId),
                                     precision);
     }
 
@@ -3427,7 +4030,8 @@ Id Builder::createCompositeCompare(Decoration precision, Id value1, Id value2, b
 Id Builder::createCompositeConstruct(Id typeId, const std::vector<Id>& constituents)
 {
     assert(isAggregateType(typeId) || (getNumTypeConstituents(typeId) > 1 &&
-           getNumTypeConstituents(typeId) == constituents.size()));
+           getNumTypeConstituents(typeId) == constituents.size()) ||
+           ((isCooperativeVectorType(typeId) || isVectorType(typeId)) && constituents.size() == 1));
 
     if (generatingOpCodeForSpecConst) {
         // Sometime, even in spec-constant-op mode, the constant composite to be
@@ -3446,18 +4050,18 @@ Id Builder::createCompositeConstruct(Id typeId, const std::vector<Id>& constitue
     bool replicate = false;
     size_t numConstituents = constituents.size();
 
-    if (useReplicatedComposites) {
+    if (useReplicatedComposites || isCooperativeVectorType(typeId)) {
         replicate = numConstituents > 0 &&
             std::equal(constituents.begin() + 1, constituents.end(), constituents.begin());
     }
 
     if (replicate) {
         numConstituents = 1;
-        addCapability(spv::CapabilityReplicatedCompositesEXT);
+        addCapability(spv::Capability::ReplicatedCompositesEXT);
         addExtension(spv::E_SPV_EXT_replicated_composites);
     }
 
-    Op opcode = replicate ? OpCompositeConstructReplicateEXT : OpCompositeConstruct;
+    Op opcode = replicate ? Op::OpCompositeConstructReplicateEXT : Op::OpCompositeConstruct;
 
     Instruction* op = new Instruction(getUniqueId(), typeId, opcode);
     op->reserveOperands(constituents.size());
@@ -3471,7 +4075,7 @@ Id Builder::createCompositeConstruct(Id typeId, const std::vector<Id>& constitue
 // coopmat conversion
 Id Builder::createCooperativeMatrixConversion(Id typeId, Id source)
 {
-    Instruction* op = new Instruction(getUniqueId(), typeId, OpCooperativeMatrixConvertNV);
+    Instruction* op = new Instruction(getUniqueId(), typeId, Op::OpCooperativeMatrixConvertNV);
     op->addIdOperand(source);
     addInstruction(std::unique_ptr<Instruction>(op));
 
@@ -3493,7 +4097,7 @@ Id Builder::createCooperativeMatrixReduce(Op opcode, Id typeId, Id source, unsig
 // coopmat per-element operation
 Id Builder::createCooperativeMatrixPerElementOp(Id typeId, const std::vector<Id>& operands)
 {
-    Instruction* op = new Instruction(getUniqueId(), typeId, spv::OpCooperativeMatrixPerElementOpNV);
+    Instruction* op = new Instruction(getUniqueId(), typeId, spv::Op::OpCooperativeMatrixPerElementOpNV);
     // skip operand[0], which is where the result is stored
     for (uint32_t i = 1; i < operands.size(); ++i) {
         op->addIdOperand(operands[i]);
@@ -3512,13 +4116,20 @@ Id Builder::createConstructor(Decoration precision, const std::vector<Id>& sourc
 
     // Special case: when calling a vector constructor with a single scalar
     // argument, smear the scalar
-    if (sources.size() == 1 && isScalar(sources[0]) && numTargetComponents > 1)
+    if (sources.size() == 1 && isScalar(sources[0]) && (numTargetComponents > 1 || isCooperativeVectorType(resultTypeId)))
         return smearScalar(precision, sources[0], resultTypeId);
 
     // Special case: 2 vectors of equal size
-    if (sources.size() == 1 && isVector(sources[0]) && numTargetComponents == getNumComponents(sources[0])) {
-        assert(resultTypeId == getTypeId(sources[0]));
-        return sources[0];
+    if (sources.size() == 1 &&
+        (isVector(sources[0]) || isCooperativeVector(sources[0])) &&
+        numTargetComponents == getNumComponents(sources[0])) {
+        if (isCooperativeVector(sources[0]) != isCooperativeVectorType(resultTypeId)) {
+            assert(isVector(sources[0]) != isVectorType(resultTypeId));
+            return createUnaryOp(spv::Op::OpBitcast, resultTypeId, sources[0]);
+        } else {
+            assert(resultTypeId == getTypeId(sources[0]));
+            return sources[0];
+        }
     }
 
     // accumulate the arguments for OpCompositeConstruct
@@ -3527,7 +4138,7 @@ Id Builder::createConstructor(Decoration precision, const std::vector<Id>& sourc
 
     // lambda to store the result of visiting an argument component
     const auto latchResult = [&](Id comp) {
-        if (numTargetComponents > 1)
+        if (numTargetComponents > 1 || isVectorType(resultTypeId))
             constituents.push_back(comp);
         else
             result = comp;
@@ -3576,7 +4187,7 @@ Id Builder::createConstructor(Decoration precision, const std::vector<Id>& sourc
 
         if (isScalar(sources[i]) || isPointer(sources[i]))
             latchResult(sources[i]);
-        else if (isVector(sources[i]))
+        else if (isVector(sources[i]) || isCooperativeVector(sources[i]))
             accumulateVectorConstituents(sources[i]);
         else if (isMatrix(sources[i]))
             accumulateMatrixConstituents(sources[i]);
@@ -3728,7 +4339,7 @@ Id Builder::createMatrixConstructor(Decoration precision, const std::vector<Id>&
 }
 
 // Comments in header
-Builder::If::If(Id cond, unsigned int ctrl, Builder& gb) :
+Builder::If::If(Id cond, SelectionControlMask ctrl, Builder& gb) :
     builder(gb),
     condition(cond),
     control(ctrl),
@@ -3784,7 +4395,7 @@ void Builder::If::makeEndIf()
 }
 
 // Comments in header
-void Builder::makeSwitch(Id selector, unsigned int control, int numSegments, const std::vector<int>& caseValues,
+void Builder::makeSwitch(Id selector, SelectionControlMask control, int numSegments, const std::vector<int>& caseValues,
                          const std::vector<int>& valueIndexToSegment, int defaultSegment,
                          std::vector<Block*>& segmentBlocks)
 {
@@ -3800,7 +4411,7 @@ void Builder::makeSwitch(Id selector, unsigned int control, int numSegments, con
     createSelectionMerge(mergeBlock, control);
 
     // make the switch instruction
-    Instruction* switchInst = new Instruction(NoResult, NoType, OpSwitch);
+    Instruction* switchInst = new Instruction(NoResult, NoType, Op::OpSwitch);
     switchInst->reserveOperands((caseValues.size() * 2) + 2);
     switchInst->addIdOperand(selector);
     auto defaultOrMerge = (defaultSegment >= 0) ? segmentBlocks[defaultSegment] : mergeBlock;
@@ -3905,6 +4516,13 @@ void Builder::clearAccessChain()
     accessChain.isRValue = false;
     accessChain.coherentFlags.clear();
     accessChain.alignment = 0;
+    accessChain.descHeapInfo.descHeapBaseTy = NoResult;
+    accessChain.descHeapInfo.descHeapStorageClass = StorageClass::Max;
+    accessChain.descHeapInfo.descHeapInstId.clear();
+    accessChain.descHeapInfo.descHeapBaseArrayStride = NoResult;
+    accessChain.descHeapInfo.structRemappedBase = NoResult;
+    accessChain.descHeapInfo.structRsrcTyOffsetCount = 0;
+    accessChain.descHeapInfo.structRsrcTyFirstArrIndex = 0;
 }
 
 // Comments in header
@@ -3941,10 +4559,13 @@ void Builder::accessChainStore(Id rvalue, Decoration nonUniform, spv::MemoryAcce
 
     transferAccessChainSwizzle(true);
 
+    // MeshShadingEXT outputs don't support loads, so split swizzled stores
+    bool isMeshOutput = getStorageClass(accessChain.base) == StorageClass::Output &&
+                        capabilities.find(spv::Capability::MeshShadingEXT) != capabilities.end();
+
     // If a swizzle exists and is not full and is not dynamic, then the swizzle will be broken into individual stores.
     if (accessChain.swizzle.size() > 0 &&
-        getNumTypeComponents(getResultingAccessChainType()) != accessChain.swizzle.size() &&
-        accessChain.component == NoResult) {
+        ((getNumTypeComponents(getResultingAccessChainType()) != accessChain.swizzle.size() && accessChain.component == NoResult) || isMeshOutput)) {
         for (unsigned int i = 0; i < accessChain.swizzle.size(); ++i) {
             accessChain.indexChain.push_back(makeUintConstant(accessChain.swizzle[i]));
             accessChain.instr = NoResult;
@@ -3962,8 +4583,8 @@ void Builder::accessChainStore(Id rvalue, Decoration nonUniform, spv::MemoryAcce
 
             // take LSB of alignment
             alignment = alignment & ~(alignment & (alignment-1));
-            if (getStorageClass(base) == StorageClassPhysicalStorageBufferEXT) {
-                memoryAccess = (spv::MemoryAccessMask)(memoryAccess | spv::MemoryAccessAlignedMask);
+            if (getStorageClass(base) == StorageClass::PhysicalStorageBufferEXT) {
+                memoryAccess = (spv::MemoryAccessMask)(memoryAccess | spv::MemoryAccessMask::Aligned);
             }
 
             createStore(source, base, memoryAccess, scope, alignment);
@@ -3987,8 +4608,8 @@ void Builder::accessChainStore(Id rvalue, Decoration nonUniform, spv::MemoryAcce
 
         // take LSB of alignment
         alignment = alignment & ~(alignment & (alignment-1));
-        if (getStorageClass(base) == StorageClassPhysicalStorageBufferEXT) {
-            memoryAccess = (spv::MemoryAccessMask)(memoryAccess | spv::MemoryAccessAlignedMask);
+        if (getStorageClass(base) == StorageClass::PhysicalStorageBufferEXT) {
+            memoryAccess = (spv::MemoryAccessMask)(memoryAccess | spv::MemoryAccessMask::Aligned);
         }
 
         createStore(source, base, memoryAccess, scope, alignment);
@@ -4023,17 +4644,20 @@ Id Builder::accessChainLoad(Decoration precision, Decoration l_nonUniform,
             if (constant) {
                 id = createCompositeExtract(accessChain.base, swizzleBase, indexes);
                 setPrecision(id, precision);
+            } else if (isVector(accessChain.base) || isCooperativeVector(accessChain.base)) {
+                assert(accessChain.indexChain.size() == 1);
+                id = createVectorExtractDynamic(accessChain.base, resultType, accessChain.indexChain[0]);
             } else {
                 Id lValue = NoResult;
                 if (spvVersion >= Spv_1_4 && isValidInitializer(accessChain.base)) {
                     // make a new function variable for this r-value, using an initializer,
                     // and mark it as NonWritable so that downstream it can be detected as a lookup
                     // table
-                    lValue = createVariable(NoPrecision, StorageClassFunction, getTypeId(accessChain.base),
+                    lValue = createVariable(NoPrecision, StorageClass::Function, getTypeId(accessChain.base),
                         "indexable", accessChain.base);
-                    addDecoration(lValue, DecorationNonWritable);
+                    addDecoration(lValue, Decoration::NonWritable);
                 } else {
-                    lValue = createVariable(NoPrecision, StorageClassFunction, getTypeId(accessChain.base),
+                    lValue = createVariable(NoPrecision, StorageClass::Function, getTypeId(accessChain.base),
                         "indexable");
                     // store into it
                     createStore(accessChain.base, lValue);
@@ -4052,8 +4676,8 @@ Id Builder::accessChainLoad(Decoration precision, Decoration l_nonUniform,
 
         // take LSB of alignment
         alignment = alignment & ~(alignment & (alignment-1));
-        if (getStorageClass(accessChain.base) == StorageClassPhysicalStorageBufferEXT) {
-            memoryAccess = (spv::MemoryAccessMask)(memoryAccess | spv::MemoryAccessAlignedMask);
+        if (getStorageClass(accessChain.base) == StorageClass::PhysicalStorageBufferEXT) {
+            memoryAccess = (spv::MemoryAccessMask)(memoryAccess | spv::MemoryAccessMask::Aligned);
         }
 
         // load through the access chain
@@ -4109,10 +4733,13 @@ Id Builder::accessChainGetLValue()
 Id Builder::accessChainGetInferredType()
 {
     // anything to operate on?
-    if (accessChain.base == NoResult)
+    // for untyped pointer, it may be remapped to a descriptor heap.
+    // for descriptor heap, its base data type will be determined later,
+    // according to load/store results' types.
+    if (accessChain.base == NoResult || isUntypedPointer(accessChain.base) ||
+        isStructureHeapMember(getTypeId(accessChain.base), accessChain.indexChain, 0) != 0)
         return NoType;
     Id type = getTypeId(accessChain.base);
-
     // do initial dereference
     if (! accessChain.isRValue)
         type = getContainedTypeId(type);
@@ -4149,19 +4776,19 @@ void Builder::dump(std::vector<unsigned int>& out) const
 
     // Capabilities
     for (auto it = capabilities.cbegin(); it != capabilities.cend(); ++it) {
-        Instruction capInst(0, 0, OpCapability);
+        Instruction capInst(0, 0, Op::OpCapability);
         capInst.addImmediateOperand(*it);
         capInst.dump(out);
     }
 
     for (auto it = extensions.cbegin(); it != extensions.cend(); ++it) {
-        Instruction extInst(0, 0, OpExtension);
+        Instruction extInst(0, 0, Op::OpExtension);
         extInst.addStringOperand(it->c_str());
         extInst.dump(out);
     }
 
     dumpInstructions(out, imports);
-    Instruction memInst(0, 0, OpMemoryModel);
+    Instruction memInst(0, 0, Op::OpMemoryModel);
     memInst.addImmediateOperand(addressModel);
     memInst.addImmediateOperand(memoryModel);
     memInst.dump(out);
@@ -4174,7 +4801,7 @@ void Builder::dump(std::vector<unsigned int>& out) const
     dumpInstructions(out, strings);
     dumpSourceInstructions(out);
     for (int e = 0; e < (int)sourceExtensions.size(); ++e) {
-        Instruction sourceExtInst(0, 0, OpSourceExtension);
+        Instruction sourceExtInst(0, 0, Op::OpSourceExtension);
         sourceExtInst.addStringOperand(sourceExtensions[e]);
         sourceExtInst.dump(out);
     }
@@ -4230,7 +4857,13 @@ Id Builder::collapseAccessChain()
 
     // emit the access chain
     StorageClass storageClass = (StorageClass)module.getStorageClass(getTypeId(accessChain.base));
-    accessChain.instr = createAccessChain(storageClass, accessChain.base, accessChain.indexChain);
+    // when descHeap info is set, use another access chain process.
+    if ((isUntypedPointer(accessChain.base) || accessChain.descHeapInfo.structRsrcTyOffsetCount!= 0) &&
+        accessChain.descHeapInfo.descHeapStorageClass != StorageClass::Max) {
+        accessChain.instr = createDescHeapAccessChain();
+    } else {
+        accessChain.instr = createAccessChain(storageClass, accessChain.base, accessChain.indexChain);
+    }
 
     return accessChain.instr;
 }
@@ -4328,7 +4961,7 @@ void Builder::createAndSetNoPredecessorBlock(const char* /*name*/)
 // Comments in header
 void Builder::createBranch(bool implicit, Block* block)
 {
-    Instruction* branch = new Instruction(OpBranch);
+    Instruction* branch = new Instruction(Op::OpBranch);
     branch->addIdOperand(block->getId());
     if (implicit) {
         addInstructionNoDebugInfo(std::unique_ptr<Instruction>(branch));
@@ -4339,19 +4972,29 @@ void Builder::createBranch(bool implicit, Block* block)
     block->addPredecessor(buildPoint);
 }
 
-void Builder::createSelectionMerge(Block* mergeBlock, unsigned int control)
+// Create OpConstantSizeOfEXT
+Id Builder::createConstantSizeOfEXT(Id typeId)
 {
-    Instruction* merge = new Instruction(OpSelectionMerge);
+    Instruction* inst = new Instruction(getUniqueId(), makeIntType(32), Op::OpConstantSizeOfEXT);
+    inst->addIdOperand(typeId);
+    constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(inst));
+    module.mapInstruction(inst);
+    return inst->getResultId();
+}
+
+void Builder::createSelectionMerge(Block* mergeBlock, SelectionControlMask control)
+{
+    Instruction* merge = new Instruction(Op::OpSelectionMerge);
     merge->reserveOperands(2);
     merge->addIdOperand(mergeBlock->getId());
     merge->addImmediateOperand(control);
     addInstruction(std::unique_ptr<Instruction>(merge));
 }
 
-void Builder::createLoopMerge(Block* mergeBlock, Block* continueBlock, unsigned int control,
+void Builder::createLoopMerge(Block* mergeBlock, Block* continueBlock, LoopControlMask control,
                               const std::vector<unsigned int>& operands)
 {
-    Instruction* merge = new Instruction(OpLoopMerge);
+    Instruction* merge = new Instruction(Op::OpLoopMerge);
     merge->reserveOperands(operands.size() + 3);
     merge->addIdOperand(mergeBlock->getId());
     merge->addIdOperand(continueBlock->getId());
@@ -4363,7 +5006,7 @@ void Builder::createLoopMerge(Block* mergeBlock, Block* continueBlock, unsigned 
 
 void Builder::createConditionalBranch(Id condition, Block* thenBlock, Block* elseBlock)
 {
-    Instruction* branch = new Instruction(OpBranchConditional);
+    Instruction* branch = new Instruction(Op::OpBranchConditional);
     branch->reserveOperands(3);
     branch->addIdOperand(condition);
     branch->addIdOperand(thenBlock->getId());
@@ -4386,9 +5029,9 @@ void Builder::dumpSourceInstructions(const spv::Id fileId, const std::string& te
     const int opSourceWordCount = 4;
     const int nonNullBytesPerInstruction = 4 * (maxWordCount - opSourceWordCount) - 1;
 
-    if (sourceLang != SourceLanguageUnknown) {
+    if (sourceLang != SourceLanguage::Unknown) {
         // OpSource Language Version File Source
-        Instruction sourceInst(NoResult, NoType, OpSource);
+        Instruction sourceInst(NoResult, NoType, Op::OpSource);
         sourceInst.reserveOperands(3);
         sourceInst.addImmediateOperand(sourceLang);
         sourceInst.addImmediateOperand(sourceVersion);
@@ -4407,7 +5050,7 @@ void Builder::dumpSourceInstructions(const spv::Id fileId, const std::string& te
                         sourceInst.dump(out);
                     } else {
                         // OpSourcContinued
-                        Instruction sourceContinuedInst(OpSourceContinued);
+                        Instruction sourceContinuedInst(Op::OpSourceContinued);
                         sourceContinuedInst.addStringOperand(subString.c_str());
                         sourceContinuedInst.dump(out);
                     }
@@ -4439,7 +5082,7 @@ template <class Range> void Builder::dumpInstructions(std::vector<unsigned int>&
 void Builder::dumpModuleProcesses(std::vector<unsigned int>& out) const
 {
     for (int i = 0; i < (int)moduleProcesses.size(); ++i) {
-        Instruction moduleProcessed(OpModuleProcessed);
+        Instruction moduleProcessed(Op::OpModuleProcessed);
         moduleProcessed.addStringOperand(moduleProcesses[i]);
         moduleProcessed.dump(out);
     }

@@ -262,6 +262,10 @@ void DummyDriver::ClearReplayCache()
 {
 }
 
+void DummyDriver::ReloadShaderDebugInformation()
+{
+}
+
 rdcarray<GPUCounter> DummyDriver::EnumerateCounters()
 {
   return {};

@@ -113,6 +113,7 @@ enum ReplayProxyPacket
   eReplayProxy_GetDescriptorStores,
 
   eReplayProxy_ClearReplayCache,
+  eReplayProxy_ReloadShaderDebugInformation,
 };
 
 DECLARE_REFLECTION_ENUM(ReplayProxyPacket);
@@ -561,6 +562,7 @@ public:
   IMPLEMENT_FUNCTION_PROXIED(void, ReplaceResource, ResourceId from, ResourceId to);
   IMPLEMENT_FUNCTION_PROXIED(void, RemoveReplacement, ResourceId id);
   IMPLEMENT_FUNCTION_PROXIED(void, ClearReplayCache);
+  IMPLEMENT_FUNCTION_PROXIED(void, ReloadShaderDebugInformation);
 
   // these functions are not part of the replay driver interface - they are similar to GetBufferData
   // and GetTextureData, but they do extra work to try and optimise transfer by delta-encoding the

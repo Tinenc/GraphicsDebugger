@@ -185,20 +185,6 @@ private:
   // the list is reset, and each time the list is submitted the queue takes an additional reference
   rdcarray<PatchedRayDispatch::Resources> m_RayDispatches;
 
-  struct OutstandingQuery
-  {
-    ID3D12QueryHeap *heap;
-    D3D12_QUERY_TYPE Type;
-    UINT Index;
-
-    bool operator==(const OutstandingQuery &q) const
-    {
-      return heap == q.heap && Type == q.Type && Index == q.Index;
-    }
-  };
-
-  rdcarray<OutstandingQuery> m_OutstandingQueries;
-
   CaptureState &m_State;
 
   WrappedID3D12DebugCommandList m_WrappedDebug;

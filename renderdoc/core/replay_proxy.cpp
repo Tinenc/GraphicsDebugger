@@ -1370,6 +1370,37 @@ void ReplayProxy::ClearReplayCache()
 }
 
 template <typename ParamSerialiser, typename ReturnSerialiser>
+void ReplayProxy::Proxied_ReloadShaderDebugInformation(ParamSerialiser &paramser,
+                                                       ReturnSerialiser &retser)
+{
+  const ReplayProxyPacket expectedPacket = eReplayProxy_ReloadShaderDebugInformation;
+  ReplayProxyPacket packet = eReplayProxy_ReloadShaderDebugInformation;
+
+  // Clear the shader refleciton cache
+  for(auto it = m_ShaderReflectionCache.begin(); it != m_ShaderReflectionCache.end(); ++it)
+    delete it->second;
+  m_ShaderReflectionCache.clear();
+
+  {
+    BEGIN_PARAMS();
+    END_PARAMS();
+  }
+
+  {
+    REMOTE_EXECUTION();
+    if(paramser.IsReading() && !paramser.IsErrored() && !m_IsErrored)
+      m_Remote->ReloadShaderDebugInformation();
+  }
+
+  SERIALISE_RETURN_VOID();
+}
+
+void ReplayProxy::ReloadShaderDebugInformation()
+{
+  PROXY_FUNCTION(ReloadShaderDebugInformation);
+}
+
+template <typename ParamSerialiser, typename ReturnSerialiser>
 rdcarray<ShaderEncoding> ReplayProxy::Proxied_GetTargetShaderEncodings(ParamSerialiser &paramser,
                                                                        ReturnSerialiser &retser)
 {
@@ -3135,6 +3166,7 @@ bool ReplayProxy::Tick(int type)
     case eReplayProxy_ReplaceResource: ReplaceResource(ResourceId(), ResourceId()); break;
     case eReplayProxy_RemoveReplacement: RemoveReplacement(ResourceId()); break;
     case eReplayProxy_ClearReplayCache: ClearReplayCache(); break;
+    case eReplayProxy_ReloadShaderDebugInformation: ReloadShaderDebugInformation(); break;
     case eReplayProxy_DebugVertex: DebugVertex(0, 0, 0, 0, 0); break;
     case eReplayProxy_DebugPixel: DebugPixel(0, 0, 0, DebugPixelInputs()); break;
     case eReplayProxy_DebugThread:

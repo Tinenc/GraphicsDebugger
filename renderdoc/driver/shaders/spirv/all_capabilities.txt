@@ -129,6 +129,7 @@
 5116 BFloat16TypeKHR
 5117 BFloat16DotProductKHR
 5118 BFloat16CooperativeMatrixKHR
+5128 DescriptorHeapEXT
 5249 SampleMaskOverrideCoverageNV
 5251 GeometryShaderPassthroughNV
 5254 ShaderViewportIndexLayerEXT
@@ -142,7 +143,7 @@
 5284 FragmentBarycentricKHR
 5288 ComputeDerivativeGroupQuadsKHR
 5291 FragmentDensityEXT
-5297 GroupNonUniformPartitionedNV
+5297 GroupNonUniformPartitionedEXT
 5301 ShaderNonUniform
 5302 RuntimeDescriptorArray
 5303 InputAttachmentArrayDynamicIndexing
@@ -172,6 +173,7 @@
 5380 DisplacementMicromapNV
 5381 RayTracingOpacityMicromapEXT
 5383 ShaderInvocationReorderNV
+5388 ShaderInvocationReorderEXT
 5390 BindlessTextureNV
 5391 RayQueryPositionFetchKHR
 5394 CooperativeVectorNV
@@ -180,6 +182,8 @@
 5414 RawAccessChainsNV
 5418 RayTracingSpheresGeometryNV
 5419 RayTracingLinearSweptSpheresGeometryNV
+5423 PushConstantBanksNV
+5425 LongVectorEXT
 5426 Shader64BitIndexingEXT
 5430 CooperativeMatrixReductionsNV
 5431 CooperativeMatrixConversionsNV

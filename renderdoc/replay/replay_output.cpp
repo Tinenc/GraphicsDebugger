@@ -1031,10 +1031,6 @@ void ReplayOutput::DisplayMesh()
   m_pController->FatalErrorCheck();
 
   MeshDisplay mesh = m_RenderData.meshDisplay;
-  mesh.position.vertexResourceId = mesh.position.vertexResourceId;
-  mesh.position.indexResourceId = mesh.position.indexResourceId;
-  mesh.second.vertexResourceId = mesh.second.vertexResourceId;
-  mesh.second.indexResourceId = mesh.second.indexResourceId;
 
   rdcarray<MeshFormat> secondaryDraws;
 

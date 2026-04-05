@@ -261,8 +261,9 @@ void DoSerialise(SerialiserType &ser, ShaderDebugInfo &el)
   SERIALISE_MEMBER(debuggable);
   SERIALISE_MEMBER(sourceDebugInformation);
   SERIALISE_MEMBER(debugStatus);
+  SERIALISE_MEMBER(debugInfoLoadingLog);
 
-  SIZE_CHECK(136);
+  SIZE_CHECK(160);
 }
 
 template <typename SerialiserType>
@@ -299,7 +300,7 @@ void DoSerialise(SerialiserType &ser, ShaderReflection &el)
   SERIALISE_MEMBER(rayPayload);
   SERIALISE_MEMBER(rayAttributes);
 
-  SIZE_CHECK(632);
+  SIZE_CHECK(656);
 }
 
 template <typename SerialiserType>
@@ -946,9 +947,8 @@ void DoSerialise(SerialiserType &ser, EventUsage &el)
 {
   SERIALISE_MEMBER(eventId);
   SERIALISE_MEMBER(usage);
-  SERIALISE_MEMBER(view);
 
-  SIZE_CHECK(16);
+  SIZE_CHECK(8);
 }
 
 template <typename SerialiserType>

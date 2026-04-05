@@ -1976,6 +1976,12 @@ shader is not supported for debugging
 :type: str
 )");
   rdcstr debugStatus;
+
+  DOCUMENT(R"(Contains a log of the debug shader loading process i.e. searching for shader PDB.
+
+:type: str
+)");
+  rdcstr debugInfoLoadingLog;
 };
 
 DECLARE_REFLECTION_STRUCT(ShaderDebugInfo);

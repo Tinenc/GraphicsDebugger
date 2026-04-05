@@ -203,12 +203,14 @@ public:
     uint32_t Major = 0, Minor = 0;
   } m_Version;
 
+  const bytebuf &GetInitialShaderBlob() const { return m_InitialShaderBlob; }
   const bytebuf &GetShaderBlob() const { return m_ShaderBlob; }
   const IDebugInfo *GetDebugInfo() const { return m_DebugInfo; }
   const Reflection *GetReflection() const { return m_Reflection; }
   void CacheOutputTopology();
   D3D_PRIMITIVE_TOPOLOGY GetOutputTopology() const { return m_OutputTopology; }
   ThreadScope GetThreadScope() const { return m_Threadscope; }
+  const rdcstr &GetDebugInfoLoadingLog() const { return m_DebugInfoLoadingLog; }
 
   CBufferVariableType GetRayPayload(const ShaderEntryPoint &entry)
   {
@@ -283,8 +285,11 @@ private:
 
   bytebuf m_DebugShaderBlob;
   bytebuf m_ShaderBlob;
+  // Only set when separate debug data is found
+  bytebuf m_InitialShaderBlob;
 
   rdcstr m_Disassembly;
+  rdcstr m_DebugInfoLoadingLog;
   bool m_DXCStyle = false;
 
   D3D_PRIMITIVE_TOPOLOGY m_OutputTopology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;

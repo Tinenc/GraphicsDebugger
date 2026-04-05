@@ -637,6 +637,24 @@ void WrappedID3D12PipelineState::ShaderEntry::BuildReflection()
   m_Details->resourceId = GetResourceID();
 }
 
+void WrappedID3D12PipelineState::ShaderEntry::ReloadShaderDebugInformation()
+{
+  for(auto it = m_Shaders.begin(); it != m_Shaders.end(); ++it)
+  {
+    ShaderEntry *shad = it->second;
+    if(ResourceIDGen::IsReplayOnlyID(shad->GetResourceID()))
+      continue;
+    shad->Reload();
+  }
+}
+
+void WrappedID3D12PipelineState::ShaderEntry::Reload()
+{
+  m_Built = false;
+  *m_Details = ShaderReflection();
+  SAFE_DELETE(m_DXBCFile);
+}
+
 rdcpair<uint32_t, uint32_t> FindMatchingRootParameter(const D3D12RootSignature &sig,
                                                       D3D12_SHADER_VISIBILITY visibility,
                                                       D3D12_DESCRIPTOR_RANGE_TYPE rangeType,

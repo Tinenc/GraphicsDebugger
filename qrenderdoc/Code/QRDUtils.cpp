@@ -3563,10 +3563,8 @@ void LambdaThread::windowsSetName()
       GetModuleHandleA("kernel32.dll"), "SetThreadDescription");
 
   if(setThreadDesc)
-  {
     setThreadDesc(GetCurrentThread(), m_Name.toStdWString().c_str());
-  }
-  else
+
   {
     // don't throw the exception if there's no debugger present
     if(!IsDebuggerPresent())

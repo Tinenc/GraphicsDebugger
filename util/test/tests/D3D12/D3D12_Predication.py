@@ -54,3 +54,11 @@ class D3D12_Predication(rdtest.TestCase):
         self.check(self.controller.GetD3D12PipelineState().predication.offset > 0)
 
         rdtest.log.success("Failing predicated triangle is correct")
+
+        for eid in range(self.get_last_action().eventId):
+            self.controller.SetFrameEvent(eid, False)
+
+        if not self.controller.GetFatalErrorStatus().OK():
+            raise rdtest.TestFailureException(self.controller.GetFatalErrorStatus().Message())
+
+        rdtest.log.success("All events replay correctly")

@@ -1335,7 +1335,8 @@ RDResult WrappedID3D12CommandQueue::ReplayLog(CaptureState readType, uint32_t st
     // boundaries, the event IDs would no longer match up).
     if(m_Cmd.m_LastCmdListID == ResourceId() || startEventID > 1)
     {
-      m_Cmd.m_RootEventID++;
+      if(context != D3D12Chunk::SetCommandAnnotation)
+        m_Cmd.m_RootEventID++;
 
       if(startEventID > 1)
         ser.GetReader()->SetOffset(GetEvent(m_Cmd.m_RootEventID).fileOffset);

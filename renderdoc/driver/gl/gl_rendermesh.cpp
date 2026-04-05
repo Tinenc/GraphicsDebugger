@@ -48,7 +48,9 @@ void GLReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secondar
 {
   WrappedOpenGL &drv = *m_pDriver;
 
-  if(cfg.position.vertexResourceId == ResourceId())
+  if(cfg.position.vertexResourceId == ResourceId() ||
+     !m_pDriver->GetResourceManager()->HasResource(cfg.position.vertexResourceId) ||
+     cfg.position.numIndices == 0)
     return;
 
   MakeCurrentReplayContext(m_DebugCtx);

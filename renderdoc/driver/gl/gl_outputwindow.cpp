@@ -339,7 +339,7 @@ void GLReplay::GetOutputWindowData(uint64_t id, bytebuf &retData)
   {
     for(int32_t x = 0; x < outw.width; x++)
     {
-      memcpy(dst, src, 3);
+      memmove(dst, src, 3);
       dst += 3;
       src += 4;
     }

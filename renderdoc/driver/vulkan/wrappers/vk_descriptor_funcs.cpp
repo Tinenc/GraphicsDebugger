@@ -474,6 +474,11 @@ BufferDescriptorFormat WrappedVulkan::EstimateBufferDescriptor(VkDescriptorType 
       outFormat = BufferDescriptorFormat::UnknownBufferDescriptor;
     }
   }
+  else if(descSize == 8 && descriptorU64[0] == ((bufinfo.address >> 6) | ((byteSize >> 4) << 51)))
+  {
+    outFormat = BufferDescriptorFormat::Packed_5113_Aligned16_8;
+    DescriptorTrieNode::rangeToleranceMask &= 0xFULL;
+  }
   else if(descSize == 16)
   {
     if((descriptorU64[0] & ptrMask) == (bufinfo.address & ptrMask) &&
@@ -1099,6 +1104,13 @@ void WrappedVulkan::GetPointerAndSizeForDescriptor(byte *descriptorBytes, size_t
     uint64_t packed = *(uint64_t *)descriptorBytes;
     address = (packed & ((1ULL << 45) - 1)) << 4;
     size = (packed >> 45) << 4;
+  }
+  else if(format == BufferDescriptorFormat::Packed_5113_Aligned16_8 &&
+          descriptorSize == sizeof(uint64_t))
+  {
+    uint64_t packed = *(uint64_t *)descriptorBytes;
+    address = (packed & ((1ULL << 51) - 1)) << 6;
+    size = (packed >> 51) << 4;
   }
   else if(format == BufferDescriptorFormat::Pointer_ElemSize_16 &&
           descriptorSize == sizeof(uint64_t) * 2)
@@ -3109,6 +3121,10 @@ bool WrappedVulkan::Serialise_vkUpdateDescriptorSetWithTemplate(
   {
     // decode while capturing.
     GetRecord(descriptorUpdateTemplate)->descTemplateInfo->Apply(pData, apply);
+
+    // set the descriptor set now so serialisation can tell what parameters are valid
+    for(VkWriteDescriptorSet &writeDesc : apply.writes)
+      writeDesc.dstSet = descriptorSet;
   }
 
   SERIALISE_ELEMENT(apply.writes).Named("Decoded Writes"_lit);
@@ -3149,6 +3165,29 @@ void WrappedVulkan::vkUpdateDescriptorSetWithTemplate(
       byte *dst = memory + entry.offset;
       const byte *src = (const byte *)pData + entry.offset;
 
+      bool hasImmutable = false;
+
+      if(IsCaptureMode(m_State))
+      {
+        VkResourceRecord *record = GetRecord(descriptorSet);
+        RDCASSERT(record->descInfo && record->descInfo->layout);
+        const DescSetLayout &layout = *record->descInfo->layout;
+
+        RDCASSERT(entry.dstBinding < record->descInfo->data.binds.size());
+        const DescSetLayout::Binding *layoutBinding = &layout.bindings[entry.dstBinding];
+
+        hasImmutable = layoutBinding->immutableSampler != NULL;
+      }
+      else
+      {
+        const DescSetLayout &layout =
+            m_CreationInfo.m_DescSetLayout[m_DescriptorSetState[GetResID(descriptorSet)].layout];
+
+        const DescSetLayout::Binding *layoutBinding = &layout.bindings[entry.dstBinding];
+
+        hasImmutable = layoutBinding->immutableSampler != NULL;
+      }
+
       if(entry.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER ||
          entry.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
       {
@@ -3171,7 +3210,8 @@ void WrappedVulkan::vkUpdateDescriptorSetWithTemplate(
               entry.descriptorType == VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT)
       {
         bool hasSampler = (entry.descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER ||
-                           entry.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+                           entry.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) &&
+                          !hasImmutable;
         bool hasImage = (entry.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
                          entry.descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ||
                          entry.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ||

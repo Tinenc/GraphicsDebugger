@@ -1,4 +1,8 @@
-cmake_minimum_required(VERSION 2.8.12)
+if (NOT CMAKE_VERSION VERSION_LESS "4.0")
+  cmake_minimum_required(VERSION 3.5)
+else()
+  cmake_minimum_required(VERSION 2.8.12)
+endif()
 
 if(APPLE)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/../bin")
@@ -120,6 +124,7 @@ set(VULKAN_SRC
         vk/vk_dynamic_rendering.cpp
         vk/vk_empty_capture.cpp
         vk/vk_ext_buffer_address.cpp
+        vk/vk_custom_resolve.cpp
         vk/vk_extended_dyn_state.cpp
         vk/vk_graphics_pipeline.cpp
         vk/vk_groupshared.cpp
@@ -149,6 +154,7 @@ set(VULKAN_SRC
         vk/vk_ray_query.cpp
         vk/vk_read_before_overwrite.cpp
         vk/vk_resource_lifetimes.cpp
+        vk/vk_resource_usage.cpp
         vk/vk_robustness2.cpp
         vk/vk_sample_locations.cpp
         vk/vk_secondary_cmdbuf.cpp
@@ -310,7 +316,7 @@ if(APPLE)
     find_library(QUARTZCORE_LIBRARY QuartzCore)
     find_library(METAL_LIBRARY Metal)
     target_compile_definitions(demos PRIVATE
-        -DVK_USE_PLATFORM_MACOS_MVK=1)
+        -DVK_USE_PLATFORM_METAL_EXT=1)
     set(LIBS ${COCOA_LIBRARY} ${QUARTZCORE_LIBRARY} ${METAL_LIBRARY})
 elseif(BUILD_ANDROID)
     target_compile_definitions(demos PRIVATE -DVK_USE_PLATFORM_ANDROID_KHR=1)

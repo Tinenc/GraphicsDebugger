@@ -25,6 +25,7 @@
 #include "d3d12_device.h"
 #include "core/settings.h"
 #include "driver/dxgi/dxgi_common.h"
+#include "driver/ihv/nv/nv_aftermath.h"
 #include "d3d12_resources.h"
 
 RDOC_EXTERN_CONFIG(bool, Replay_Debug_SingleThreadedCompilation);
@@ -163,6 +164,9 @@ bool WrappedID3D12Device::Serialise_CreatePipelineState(SerialiserType &ser,
         WrappedID3D12Shader *entry =
             WrappedID3D12Shader::AddShader(InlineShaderIDs[i], *shaders[i], this);
         entry->AddRef();
+
+        NVAftermath_Shader(ShaderEncoding::DXBC, shaders[i]->pShaderBytecode,
+                           shaders[i]->BytecodeLength);
 
         shaders[i]->pShaderBytecode = entry;
 

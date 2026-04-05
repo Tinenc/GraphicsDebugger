@@ -558,12 +558,19 @@ void WrappedVulkan::FreeAllMemory(MemoryScope scope)
   rdcarray<MemoryAllocation> allocs;
   allocs.swap(allocList);
 
-  m_MemoryFreeThread = Threading::CreateThread([this, d, allocs]() {
-    for(const MemoryAllocation &alloc : allocs)
-    {
-      ObjDisp(d)->FreeMemory(Unwrap(d), Unwrap(alloc.mem), NULL);
-      GetResourceManager()->ReleaseWrappedResource(alloc.mem);
-    }
+  rdcarray<VkDeviceMemory> mems;
+  mems.reserve(allocs.size());
+
+  // clean up resource manager book-keeping as this is not thread safe and is fast anyway
+  for(const MemoryAllocation &alloc : allocs)
+  {
+    mems.push_back(Unwrap(alloc.mem));
+    GetResourceManager()->ReleaseWrappedResource(alloc.mem);
+  }
+
+  m_MemoryFreeThread = Threading::CreateThread([d, mems]() {
+    for(VkDeviceMemory mem : mems)
+      ObjDisp(d)->FreeMemory(Unwrap(d), mem, NULL);
   });
 }
 

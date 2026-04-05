@@ -49,7 +49,10 @@ static uint32_t VisModeToMeshDisplayFormat(const MeshDisplay &cfg)
 void D3D11Replay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secondaryDraws,
                              const MeshDisplay &cfg)
 {
-  if(cfg.position.vertexResourceId == ResourceId() || cfg.position.numIndices == 0)
+  if(cfg.position.vertexResourceId == ResourceId() ||
+     WrappedID3D11Buffer::m_BufferList.find(cfg.position.vertexResourceId) ==
+         WrappedID3D11Buffer::m_BufferList.end() ||
+     cfg.position.numIndices == 0)
     return;
 
   D3D11MarkerRegion renderMesh(
@@ -199,15 +202,15 @@ void D3D11Replay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secon
       {
         const MeshFormat &fmt = secondaryDraws[i];
 
-        if(fmt.vertexResourceId != ResourceId())
+        auto it = WrappedID3D11Buffer::m_BufferList.find(fmt.vertexResourceId);
+
+        if(fmt.vertexResourceId != ResourceId() && it != WrappedID3D11Buffer::m_BufferList.end())
         {
           pixelData.MeshColour = Vec3f(fmt.meshColor.x, fmt.meshColor.y, fmt.meshColor.z);
           GetDebugManager()->FillCBuffer(psCBuf, &pixelData, sizeof(pixelData));
           m_pImmediateContext->PSSetConstantBuffers(0, 1, &psCBuf);
 
           m_pImmediateContext->IASetPrimitiveTopology(MakeD3DPrimitiveTopology(fmt.topology));
-
-          auto it = WrappedID3D11Buffer::m_BufferList.find(fmt.vertexResourceId);
 
           ID3D11Buffer *buf = it->second.m_Buffer;
           m_pImmediateContext->IASetVertexBuffers(0, 1, &buf, (UINT *)&fmt.vertexByteStride,

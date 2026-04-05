@@ -153,7 +153,9 @@ AppleWindow::~AppleWindow()
 AppleWindow::AppleWindow(int width, int height, const char *title) : GraphicsWindow(title)
 {
   pAppDelegate->CreateWindow(width, height, title);
-  view = pAppDelegate->GetContentView();
+  NS::View *nsView = pAppDelegate->GetContentView();
+  view = nsView;
+  layer = nsView->layer();
 }
 
 bool AppleWindow::Init()

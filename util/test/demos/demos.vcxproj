@@ -333,6 +333,7 @@
     <ClCompile Include="vk\vk_dynamic_rendering.cpp" />
     <ClCompile Include="vk\vk_empty_capture.cpp" />
     <ClCompile Include="vk\vk_extended_dyn_state.cpp" />
+    <ClCompile Include="vk\vk_custom_resolve.cpp" />
     <ClCompile Include="vk\vk_graphics_pipeline.cpp" />
     <ClCompile Include="vk\vk_groupshared.cpp" />
     <ClCompile Include="vk\vk_khr_buffer_address.cpp" />
@@ -357,6 +358,7 @@
     <ClCompile Include="vk\vk_query_pool.cpp" />
     <ClCompile Include="vk\vk_ray_query.cpp" />
     <ClCompile Include="vk\vk_read_before_overwrite.cpp" />
+    <ClCompile Include="vk\vk_resource_usage.cpp" />
     <ClCompile Include="vk\vk_robustness2.cpp" />
     <ClCompile Include="vk\vk_separate_depth_stencil_layouts.cpp" />
     <ClCompile Include="vk\vk_shader_debug_zoo.cpp" />

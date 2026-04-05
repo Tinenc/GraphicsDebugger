@@ -27,6 +27,7 @@
 #include "driver/dxgi/dxgi_common.h"
 #include "driver/ihv/amd/official/DXExt/AmdExtD3D.h"
 #include "driver/ihv/amd/official/DXExt/AmdExtD3DCommandListMarkerApi.h"
+#include "driver/ihv/nv/nv_aftermath.h"
 #include "d3d12_command_list.h"
 #include "d3d12_command_queue.h"
 #include "d3d12_replay.h"
@@ -596,6 +597,9 @@ bool WrappedID3D12Device::Serialise_CreateGraphicsPipelineState(
             WrappedID3D12Shader::AddShader(InlineShaderIDs[i], *shaders[i], this);
         entry->AddRef();
 
+        NVAftermath_Shader(ShaderEncoding::DXBC, shaders[i]->pShaderBytecode,
+                           shaders[i]->BytecodeLength);
+
         shaders[i]->pShaderBytecode = entry;
 
         if(m_GlobalEXTUAV != ~0U)
@@ -893,6 +897,9 @@ bool WrappedID3D12Device::Serialise_CreateComputePipelineState(
     WrappedID3D12Shader *entry =
         WrappedID3D12Shader::AddShader(InlineShaderID, wrapped->compute->CS, this);
     entry->AddRef();
+
+    NVAftermath_Shader(ShaderEncoding::DXBC, wrapped->compute->CS.pShaderBytecode,
+                       wrapped->compute->CS.BytecodeLength);
 
     if(m_GlobalEXTUAV != ~0U)
       entry->SetShaderExtSlot(m_GlobalEXTUAV, m_GlobalEXTUAVSpace);
@@ -1203,26 +1210,30 @@ bool WrappedID3D12Device::Serialise_CreateRootSignature(SerialiserType &ser, UIN
     }
     else
     {
+      // we deduplicated during capture but this could alias one of ours in theory
       if(GetResourceManager()->HasWrapper(ret))
       {
         ret->Release();
         ret = (ID3D12RootSignature *)GetResourceManager()->GetWrapper(ret);
-        ret->AddRef();
+
+        GetResourceManager()->ReplaceResource(pRootSignature, GetResID(ret));
       }
       else
       {
         ret = new WrappedID3D12RootSignature(pRootSignature, ret, this);
+
+        WrappedID3D12RootSignature *wrapped = (WrappedID3D12RootSignature *)ret;
+
+        wrapped->sig = DecodeRootSig(pBlobWithRootSignature, (size_t)blobLengthInBytes);
+
+        if(wrapped->sig.Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE)
+          wrapped->localRootSigIdx =
+              GetResourceManager()->GetRTManager()->RegisterLocalRootSig(wrapped->sig);
       }
 
-      WrappedID3D12RootSignature *wrapped = (WrappedID3D12RootSignature *)ret;
-
-      wrapped->sig = DecodeRootSig(pBlobWithRootSignature, (size_t)blobLengthInBytes);
-
-      if(wrapped->sig.Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE)
-        wrapped->localRootSigIdx =
-            GetResourceManager()->GetRTManager()->RegisterLocalRootSig(wrapped->sig);
-
       {
+        WrappedID3D12RootSignature *wrapped = (WrappedID3D12RootSignature *)ret;
+
         StructuredSerialiser structuriser(ser.GetStructuredFile().chunks.back(), &GetChunkName);
         structuriser.SetUserData(GetResourceManager());
 
@@ -1325,6 +1336,18 @@ HRESULT WrappedID3D12Device::CreateRootSignature(UINT nodeMask, const void *pBlo
 
             if(m_BindlessResourceUseActive)
               break;
+          }
+        }
+
+        if(m_BindlessResourceUseActive)
+        {
+          SCOPED_READLOCK(m_CapTransitionLock);
+          if(IsActiveCapturing(m_State))
+          {
+            SCOPED_LOCK(m_ResourceStatesLock);
+
+            for(auto it = m_BindlessFrameRefs.begin(); it != m_BindlessFrameRefs.end(); ++it)
+              GetResourceManager()->MarkResourceFrameReferenced(it->first, it->second);
           }
         }
       }
@@ -1880,7 +1903,8 @@ HRESULT WrappedID3D12Device::CreateQueryHeap(const D3D12_QUERY_HEAP_DESC *pDesc,
 
       record->AddChunk(scope.Get());
 
-      GetResourceManager()->MarkDirtyResource(wrapped->GetResourceID());
+      if(pDesc->Type == D3D12_QUERY_HEAP_TYPE_OCCLUSION)
+        GetResourceManager()->MarkDirtyResource(wrapped->GetResourceID());
     }
 
     *ppvHeap = (ID3D12QueryHeap *)wrapped;

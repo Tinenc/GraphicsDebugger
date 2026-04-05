@@ -49,3 +49,4 @@ Code should be formatted using **clang-format 15.0**. The reason we fix a specif
 
 For more information, check the section about [code formatting](CONTRIBUTING/Preparing-Commits.md#code-formatting).
 
+**DO NOT** create "draft" pull requests ever. These are a pointless anti-feature from github and provide zero value and have zero purpose. If your code is not ready to merge, do not create a pull request at all.

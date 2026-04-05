@@ -765,6 +765,34 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
         break;
       }
 
+      // SPV_EXT_shader_invocation_reorder
+      case Capability::ShaderInvocationReorderEXT:
+      {
+        supported = false;
+        break;
+      }
+
+      // SPV_EXT_shader_subgroup_partitioned
+      case Capability::GroupNonUniformPartitionedEXT:
+      {
+        supported = false;
+        break;
+      }
+
+      // SPV_EXT_long_vector
+      case Capability::LongVectorEXT:
+      {
+        supported = false;
+        break;
+      }
+
+      // SPV_EXT_descriptor_heap
+      case Capability::DescriptorHeapEXT:
+      {
+        supported = false;
+        break;
+      }
+
       // no plans to support these - mostly Kernel/OpenCL related or vendor extensions
       case Capability::Addresses:
       case Capability::Linkage:
@@ -792,7 +820,6 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::PerViewAttributesNV:
       case Capability::MeshShadingNV:
       case Capability::ImageFootprintNV:
-      case Capability::GroupNonUniformPartitionedNV:
       case Capability::CooperativeMatrixNV:
       case Capability::ShaderSMBuiltinsNV:
       case Capability::SubgroupShuffleINTEL:
@@ -899,6 +926,7 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::BindlessImagesINTEL:
       case Capability::RayTracingNV:
       case Capability::ShaderInvocationReorderNV:
+      case Capability::PushConstantBanksNV:
       case Capability::Max:
       case Capability::Invalid:
       {
@@ -5324,6 +5352,7 @@ void Debugger::ProcessQueuedDeviceThreadSteps()
   }
 }
 
+// Can be called from any thread
 void Debugger::FillInputValue(ShaderVariable &var, ShaderBuiltin builtin, uint32_t threadIndex) const
 {
   apiWrapper->FillInputValue(var, builtin, threadIndex, 0, 0);

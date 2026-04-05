@@ -100,8 +100,8 @@ def make_c_type(ret: str, pattern: bool, typelist: List[str]):
         ret = 'rdcstrpairs'
     elif ret == 'Tuple[str,str]': # special case
         ret = 'rdcstrpair'
-    elif ret == 'Callable[[], None]': # callbacks with parameters or return type should have a *Callback typedef
-        ret = 'std::function<void\(\)>' if pattern else 'std::function'
+    elif ret[0:9] == 'Callable[':
+        ret = '(std::function<void\(\)>|[A-Za-z_]+Callback)' if pattern else 'std::function/NamedCallback'
     elif ret[0:5] == 'List[':
         inner = make_c_type(ret[5:-1], pattern, typelist)
         ret = '(const )?rdcarray<{}> ?[&*]?'.format(inner) if pattern else 'rdcarray<{}>'.format(inner)
@@ -133,6 +133,7 @@ def make_c_type(ret: str, pattern: bool, typelist: List[str]):
 RTYPE_PATTERN = re.compile(r":rtype: (.*)")
 PARAM_PATTERN = re.compile(r":param ([^:]*) ([^: ]*):")
 TYPE_PATTERN = re.compile(r":type: (.*)")
+DATA_PATTERN = re.compile(r"\.\. data:: (.*)")
 
 count = 0
 
@@ -233,7 +234,8 @@ def check_used_types(objname, module, used_types):
                 print("  - Maybe missing namespace to refer to renderdoc.{}?".format(type_name))
             break
 
-for mod_name in ['renderdoc', 'qrenderdoc']:
+check_mods = ['renderdoc', 'qrenderdoc']
+for mod_name in check_mods:
     mod = sys.modules[mod_name]
     if args.verbose:
         print("===== Checks for {} =====".format(mod_name))
@@ -296,6 +298,14 @@ for mod_name in ['renderdoc', 'qrenderdoc']:
             except TypeError:
                 pass
 
+            # a couple of manual cases that need parameters
+            if qualname == 'renderdoc.SDObject' and instance is None:
+                instance = obj("", "")
+            if qualname == 'renderdoc.SDChunk' and instance is None:
+                instance = obj("")
+
+            instance_warned = False
+
             for member_name in obj.__dict__.keys():
                 if '__' in member_name or member_name in ['this', 'thisown']:
                     continue
@@ -341,7 +351,15 @@ for mod_name in ['renderdoc', 'qrenderdoc']:
                     type_name = re.sub('StructuredObjectList', 'List[SDObject]', type_name)
                     type_name = re.sub('StructuredChunkList', 'List[SDChunk]', type_name)
                     type_name = re.sub('^builtins.', '', type_name)
-                    type_name = re.sub('^importlib._bootstrap.', '', type_name)
+
+                    if 'importlib._bootstrap' in type_name:
+                        type_name = re.sub('^importlib._bootstrap.', '', type_name)
+                        real_module = [
+                            m for m in check_mods if type_name in sys.modules[m].__dict__
+                        ][0]
+                        if real_module != mod_name:
+                            type_name = f"{real_module}.{type_name}"
+
                     type_name = re.sub('datetime.datetime', 'datetime', type_name)
 
                     if type_name == 'NoneType':
@@ -371,6 +389,17 @@ for mod_name in ['renderdoc', 'qrenderdoc']:
                         if type_decl != type_name:
                             count += 1
                             print("Error {:3}: {}.{} has wrong :type: declaration {}, should be {}".format(count, qualname, member_name, type_decl, type_name))
+                elif instance is None and '__get__' in dir(member):
+                    if not instance_warned:
+                        print(f"WARNING: Couldn't create a {qualname} to check some members")
+                        instance_warned = True
+                elif type(member) == int:
+                    datas = DATA_PATTERN.findall(docstring)
+
+                    if member_name not in datas:
+                        count += 1
+                        print("Error {:3}: {}.{} is missing a .. data: declaration in object docstring".format(count, qualname, member_name))
+
         elif callable(obj):
             used_types = []
 

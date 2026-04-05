@@ -52,9 +52,9 @@ class Annotations(rdtest.TestCase):
             self.check_eq(annot("basic.object.__offset").AsInt(), 64)
             self.check_eq(annot("basic.object.__size").AsInt(), 32)
             
-            self.check(rdtest.value_compare(annot("basic.vec3.x").AsFloat(), 1.1))
-            self.check(rdtest.value_compare(annot("basic.vec3.y").AsFloat(), 2.2))
-            self.check(rdtest.value_compare(annot("basic.vec3.z").AsFloat(), 3.3))
+            self.check(rdtest.value_compare(annot("basic.vec3.1").AsFloat(), 1.1))
+            self.check(rdtest.value_compare(annot("basic.vec3.2").AsFloat(), 2.2))
+            self.check(rdtest.value_compare(annot("basic.vec3.3").AsFloat(), 3.3))
             
             self.check_eq(annot("deep.nested.path.to.annotation").AsInt(), -4)
             self.check_eq(annot("deep.nested.path.to.annotation2").AsInt(), -5)

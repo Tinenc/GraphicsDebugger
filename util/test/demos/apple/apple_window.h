@@ -40,4 +40,5 @@ struct AppleWindow : GraphicsWindow
 
   static MyAppDelegate *pAppDelegate;
   void *view;
+  void *layer;
 };

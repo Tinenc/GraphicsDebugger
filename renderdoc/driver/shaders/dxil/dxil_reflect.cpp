@@ -2091,7 +2091,8 @@ void Program::GetLineInfo(size_t instruction, uintptr_t offset, LineColumnInfo &
         RDCASSERT(!shaderFilePath.empty());
         for(int32_t iFile = 0; iFile < Files.count(); iFile++)
         {
-          rdcstr filePath = Files[iFile].filename;
+          // Files[] might come from DXIL or DXBC data : ensure the path separator is standardised in all cases
+          rdcstr filePath = standardise_directory_separator(Files[iFile].filename);
           if(filePath == shaderFilePath)
           {
             fileIndex = iFile;

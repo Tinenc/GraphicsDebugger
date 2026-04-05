@@ -585,7 +585,10 @@ class Pixel_History(rdtest.TestCase):
         x, y = self.relative_xy(60, 130)
         rdtest.log.print("Testing pixel {}, {}".format(x, y))
         modifs = self.controller.PixelHistory(tex, x, y, sub, comp)
-        self.check_final_colour(tex, x, y, modifs, sub, comp)
+        
+        if not self.is_secondary:
+            self.check_final_colour(tex, x, y, modifs, sub, comp)
+
         countEvents = 1 + 300
         if len(modifs) != countEvents:
             self.error("Expected {} events, got {}".format(countEvents, len(modifs)))
@@ -596,7 +599,8 @@ class Pixel_History(rdtest.TestCase):
         x, y = self.relative_xy(60, 50)
         rdtest.log.print("Testing pixel {}, {}".format(x, y))
         modifs = self.controller.PixelHistory(tex, x, y, sub, comp)
-        self.check_final_colour(tex, x, y, modifs, sub, comp)
+        if not self.is_secondary:
+            self.check_final_colour(tex, x, y, modifs, sub, comp)
 
         countEvents = 1 + 255
         # secondaries can't count fragment events, so we only get 1 for the draw
@@ -921,8 +925,8 @@ class Pixel_History(rdtest.TestCase):
         if not self.is_secondary:
             self.check_modifs_consistent(modifs)
 
-        self.check_final_colour(self.tex, self.x, self.y,
-                                modifs, self.sub, self.comp)
+            self.check_final_colour(self.tex, self.x, self.y,
+                                    modifs, self.sub, self.comp)
 
         for i, m in enumerate(modifs):
             m = modifs[i]

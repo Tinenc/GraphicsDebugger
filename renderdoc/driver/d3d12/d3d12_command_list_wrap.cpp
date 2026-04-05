@@ -67,15 +67,15 @@ bool WrappedID3D12GraphicsCommandList::Serialise_Close(SerialiserType &ser)
                  ToStr(BakedCommandList).c_str());
 #endif
 
-        int &markerCount = m_Cmd->m_BakedCmdListInfo[BakedCommandList].markerCount;
+        BakedCmdListInfo &bakedInfo = m_Cmd->m_BakedCmdListInfo[BakedCommandList];
 
-        for(int i = 0; i < markerCount; i++)
+        for(int i = 0; i < bakedInfo.markerCount; i++)
           D3D12MarkerRegion::End(list);
 
-        for(OutstandingQuery &q : m_OutstandingQueries)
+        for(BakedCmdListInfo::OutstandingQuery &q : bakedInfo.m_OutstandingQueries)
           Unwrap(list)->EndQuery(Unwrap(q.heap), q.Type, q.Index);
 
-        m_OutstandingQueries.clear();
+        bakedInfo.m_OutstandingQueries.clear();
 
         if(m_Cmd->m_ActionCallback)
           m_Cmd->m_ActionCallback->PreCloseCommandList(list);
@@ -2851,7 +2851,8 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BeginQuery(SerialiserType &ser,
           Unwrap(m_Cmd->RerecordCmdList(m_Cmd->m_LastCmdListID))
               ->BeginQuery(Unwrap(pQueryHeap), Type, Index);
 
-          m_OutstandingQueries.push_back({pQueryHeap, Type, Index});
+          m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID].m_OutstandingQueries.push_back(
+              {pQueryHeap, Type, Index});
         }
       }
     }
@@ -2912,7 +2913,8 @@ bool WrappedID3D12GraphicsCommandList::Serialise_EndQuery(SerialiserType &ser,
           Unwrap(m_Cmd->RerecordCmdList(m_Cmd->m_LastCmdListID))
               ->EndQuery(Unwrap(pQueryHeap), Type, Index);
 
-          m_OutstandingQueries.removeOne({pQueryHeap, Type, Index});
+          m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID].m_OutstandingQueries.removeOne(
+              {pQueryHeap, Type, Index});
         }
       }
     }

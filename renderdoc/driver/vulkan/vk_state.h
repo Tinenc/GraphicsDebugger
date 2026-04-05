@@ -353,6 +353,8 @@ struct VulkanRenderState
 
       localRead = o.localRead;
 
+      beginCustomResolve = o.beginCustomResolve;
+
       // this will deep copy from the incoming object
       CopyAttachmentNexts();
 
@@ -384,6 +386,9 @@ struct VulkanRenderState
 
     // VK_KHR_dynamic_rendering_local_read
     DynamicRenderingLocalRead localRead;
+
+    // VK_EXT_custom_resolve
+    bool beginCustomResolve = false;
 
   private:
     // VK_KHR_unified_image_layouts

@@ -146,6 +146,31 @@ void WrappedShader::ShaderEntry::BuildReflection()
   }
 }
 
+void WrappedShader::ReloadShaderDebugInformation()
+{
+  SCOPED_LOCK(m_ShaderListLock);
+  for(auto it = m_ShaderList.begin(); it != m_ShaderList.end(); ++it)
+  {
+    if(ResourceIDGen::IsReplayOnlyID(it->first))
+      continue;
+    it->second->Reload();
+  }
+}
+
+void WrappedShader::ShaderEntry::Reload()
+{
+  m_Built = false;
+  *m_Details = ShaderReflection();
+  m_Access.clear();
+  if(m_Bytecode.empty() && m_DXBCFile)
+  {
+    m_Bytecode = m_DXBCFile->GetInitialShaderBlob();
+    if(m_Bytecode.empty())
+      m_Bytecode = m_DXBCFile->GetShaderBlob();
+  }
+  SAFE_DELETE(m_DXBCFile);
+}
+
 UINT GetSubresourceCount(ID3D11Resource *res)
 {
   D3D11_RESOURCE_DIMENSION dim;

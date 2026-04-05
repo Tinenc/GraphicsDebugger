@@ -214,6 +214,20 @@ struct BakedCmdListInfo
 
   rdcflatmap<uint32_t, PatchRaytracing> m_patchRaytracingInfo;
 
+  struct OutstandingQuery
+  {
+    ID3D12QueryHeap *heap;
+    D3D12_QUERY_TYPE Type;
+    UINT Index;
+
+    bool operator==(const OutstandingQuery &q) const
+    {
+      return heap == q.heap && Type == q.Type && Index == q.Index;
+    }
+  };
+
+  rdcarray<OutstandingQuery> m_OutstandingQueries;
+
   ResourceId allocator;
   D3D12_COMMAND_LIST_TYPE type;
   UINT nodeMask;

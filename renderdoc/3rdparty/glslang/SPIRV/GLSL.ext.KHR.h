@@ -63,5 +63,9 @@ static const char* const E_SPV_KHR_subgroup_rotate              = "SPV_KHR_subgr
 static const char* const E_SPV_KHR_expect_assume                = "SPV_KHR_expect_assume";
 static const char* const E_SPV_EXT_replicated_composites        = "SPV_EXT_replicated_composites";
 static const char* const E_SPV_KHR_relaxed_extended_instruction = "SPV_KHR_relaxed_extended_instruction";
-
+static const char* const E_SPV_KHR_integer_dot_product          = "SPV_KHR_integer_dot_product";
+static const char* const E_SPV_NV_cooperative_vector            = "SPV_NV_cooperative_vector";
+static const char* const E_SPV_KHR_bfloat16                     = "SPV_KHR_bfloat16";
+static const char* const E_SPV_EXT_descriptor_heap              = "SPV_EXT_descriptor_heap";
+static const char* const E_SPV_KHR_untyped_pointers             = "SPV_KHR_untyped_pointers";
 #endif  // #ifndef GLSLextKHR_H

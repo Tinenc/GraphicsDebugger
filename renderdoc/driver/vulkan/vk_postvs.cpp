@@ -1109,12 +1109,12 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl, const SPIRV
           {
             if(action->flags & ActionFlags::Indexed)
             {
-              valueID = editor.AddConstantImmediate<uint32_t>(action->vertexOffset);
+              valueID = editor.AddConstantImmediate<int32_t>(action->baseVertex);
+              compType = CompType::SInt;
             }
             else
             {
-              valueID = editor.AddConstantImmediate<int32_t>(action->baseVertex);
-              compType = CompType::SInt;
+              valueID = editor.AddConstantImmediate<uint32_t>(action->vertexOffset);
             }
           }
           else if(builtin == ShaderBuiltin::BaseInstance)
@@ -2235,16 +2235,10 @@ static void AddMeshShaderOutputStores(const ShaderReflection &refl,
 
   newGlobals.push_back(outSlotAddr);
 
-  rdcspv::Id indextype;
   uint32_t indexCount = 3;
   for(const SigParameter &sig : refl.outputSignature)
-  {
     if(sig.systemValue == ShaderBuiltin::OutputIndices)
-    {
       indexCount = sig.compCount;
-      indextype = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<float>(), sig.compCount));
-    }
-  }
 
   rdcspv::Id entryID;
   rdcarray<rdcspv::Id> entryInterface;

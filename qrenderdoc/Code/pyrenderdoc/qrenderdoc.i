@@ -14,6 +14,24 @@
 %}
 
 %begin %{
+
+#include <Python.h>
+
+#if PY_VERSION_HEX >= 0x030d0000
+inline PyObject *PyWeakref_GetObject_emu(PyObject *ref)
+{
+  PyObject *ret = NULL;
+  if(PyWeakref_GetRef(ref, &ret) > 0)
+    Py_DECREF(ret);
+  return ret;
+}
+#undef PyWeakref_GET_OBJECT
+#define PyWeakref_GET_OBJECT(x) PyWeakref_GetObject_emu(x)
+#endif
+
+%}
+
+%begin %{
 #undef slots
 
 #ifndef SWIG_GENERATED

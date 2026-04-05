@@ -258,6 +258,13 @@ float4 main(v2f IN) : SV_Target0
     tests.push_back(BuildTestCase({{false, VarType::UInt, 3, 1, "TEXCOORD0", true}}));
     tests.push_back(BuildTestCase({{false, VarType::UInt, 4, 1, "TEXCOORD0", true}}));
 
+    // something that looks like an array but isn't
+    tests.push_back(BuildTestCase({
+        {false, VarType::Float, 2, 1, "TEXCOORD0", true},
+        {false, VarType::Float, 2, 1, "OTHER", true},
+        {false, VarType::Float, 2, 1, "TEXCOORD1", true},
+    }));
+
     // float2 array with an extra float2
     tests.push_back(BuildTestCase({{false, VarType::Float, 2, 5, "TEXCOORD0", true},
                                    {false, VarType::Float, 2, 0, "OTHER", true}}));

@@ -2164,6 +2164,13 @@ void ReplayController::ClearReplayCache()
   m_pDevice->ClearReplayCache();
 }
 
+void ReplayController::ReloadShaderDebugInformation()
+{
+  CHECK_REPLAY_THREAD();
+
+  m_pDevice->ReloadShaderDebugInformation();
+}
+
 RDResult ReplayController::CreateDevice(RDCFile *rdc, const ReplayOptions &opts)
 {
   CHECK_REPLAY_THREAD();

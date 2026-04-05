@@ -206,7 +206,12 @@ public:
   }
   rdcarray<ResourceDescription> GetResources() { return m_Resources; }
   rdcarray<TextureDescription> GetTextures() { return {m_TexDetails}; }
-  TextureDescription GetTexture(ResourceId id) { return m_TexDetails; }
+  TextureDescription GetTexture(ResourceId id)
+  {
+    if(id != m_CustomTexID)
+      return m_TexDetails;
+    return m_Proxy->GetTexture(id);
+  }
   void GetTextureData(ResourceId tex, const Subresource &sub, const GetTextureDataParams &params,
                       bytebuf &data)
   {
@@ -368,6 +373,7 @@ public:
   }
   void ReplaceResource(ResourceId from, ResourceId to) {}
   void ClearReplayCache() {}
+  void ReloadShaderDebugInformation() {}
   void RemoveReplacement(ResourceId id) {}
   // these are proxy functions, and will never be used
   ResourceId CreateProxyTexture(const TextureDescription &templateTex)

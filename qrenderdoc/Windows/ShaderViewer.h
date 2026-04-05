@@ -44,6 +44,7 @@ class QTableWidgetItem;
 class QKeyEvent;
 class QMouseEvent;
 class QComboBox;
+class QTextEdit;
 
 // from Scintilla
 typedef intptr_t sptr_t;
@@ -189,6 +190,7 @@ private slots:
   void on_intView_clicked();
   void on_floatView_clicked();
   void on_debugToggle_clicked();
+  void on_toggleLog_clicked();
 
   void on_resources_sortByStep_clicked();
   void on_resources_sortByResource_clicked();
@@ -357,6 +359,8 @@ private:
   static const int BOOKMARK_MAX_MENU_ENTRY_LENGTH = 40;    // max length of bookmark names in menu
   static const int BOOKMARK_MAX_MENU_ENTRY_COUNT = 30;     // max number of bookmarks listed in menu
   QMap<ScintillaEdit *, QList<sptr_t>> m_Bookmarks;
+
+  QTextEdit *debugInfoLog = NULL;
 
   static const int CURRENT_MARKER = 0;
   static const int BREAKPOINT_MARKER = 2;

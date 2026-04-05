@@ -1268,7 +1268,6 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
 
           if(ia)
             ia->topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
-          state.primitiveTopology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
 
           // thankfully, primitive restart is always supported! This makes the index buffer a bit
           // more
@@ -1276,9 +1275,11 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
           // three lines, instead we have a single restart index after each triangle.
           if(ia)
             ia->primitiveRestartEnable = true;
-          state.primRestartEnable = true;
 
           GetDebugManager()->PatchLineStripIndexBuffer(mainDraw, patchedIB, patchedIndexCount);
+
+          state.primitiveTopology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+          state.primRestartEnable = true;
 
           if(m_pDriver->ShaderObject())
             state.dynamicStates[VkDynamicLineWidth] = true;
@@ -1330,6 +1331,8 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
 
       // don't use dynamic rendering
       RemoveNextStruct(&pipeCreateInfo, VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO);
+      // don't use custom resolve
+      RemoveNextStruct(&pipeCreateInfo, VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT);
 
       if(!state.graphics.shaderObject)
       {
@@ -1376,6 +1379,7 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
       state.SetRenderPass(GetResID(m_Overlay.NoDepthRP));
       state.subpass = 0;
       state.SetFramebuffer(m_pDriver, GetResID(m_Overlay.NoDepthFB));
+      state.dynamicRendering.beginCustomResolve = false;
 
       state.subpassContents = VK_SUBPASS_CONTENTS_INLINE;
       state.dynamicRendering.flags &= ~VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT;
@@ -1433,6 +1437,7 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
         action.numIndices = patchedIndexCount;
         action.baseVertex = 0;
         action.indexOffset = 0;
+        action.flags |= ActionFlags::Indexed;
         m_pDriver->ReplayDraw(cmd, action);
         state.EndRenderPass(cmd);
 
@@ -1571,6 +1576,8 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
 
         // don't use dynamic rendering
         RemoveNextStruct(&pipeCreateInfo, VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO);
+        // don't use custom resolve
+        RemoveNextStruct(&pipeCreateInfo, VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT);
 
         VkPipelineShaderStageCreateInfo *fragShader = NULL;
         for(uint32_t i = 0; i < pipeCreateInfo.stageCount; i++)
@@ -1638,6 +1645,7 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
       state.SetRenderPass(GetResID(m_Overlay.NoDepthRP));
       state.subpass = 0;
       state.SetFramebuffer(m_pDriver, GetResID(m_Overlay.NoDepthFB));
+      state.dynamicRendering.beginCustomResolve = false;
 
       state.graphics.pipeline = GetResID(pipe[0]);
       state.scissors = prevstate.scissors;
@@ -1927,6 +1935,8 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
 
         // don't use dynamic rendering
         RemoveNextStruct(&pipeCreateInfo, VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO);
+        // don't use custom resolve
+        RemoveNextStruct(&pipeCreateInfo, VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT);
 
         VkPipelineShaderStageCreateInfo *fragShader = NULL;
 
@@ -1996,6 +2006,7 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
       state.SetRenderPass(GetResID(m_Overlay.NoDepthRP));
       state.subpass = 0;
       state.SetFramebuffer(m_pDriver, GetResID(m_Overlay.NoDepthFB));
+      state.dynamicRendering.beginCustomResolve = false;
 
       state.graphics.pipeline = GetResID(pipe[0]);
 
@@ -2578,6 +2589,8 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
 
         // don't use dynamic rendering
         RemoveNextStruct(&pipeCreateInfo, VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO);
+        // don't use custom resolve
+        RemoveNextStruct(&pipeCreateInfo, VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT);
 
         vkr = m_pDriver->vkCreateGraphicsPipelines(m_Device, VK_NULL_HANDLE, 1, &pipeCreateInfo,
                                                    NULL, &passpipe);
@@ -2640,6 +2653,7 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
       state.SetRenderPass(GetResID(m_Overlay.NoDepthRP));
       state.subpass = 0;
       state.SetFramebuffer(m_pDriver, GetResID(m_Overlay.NoDepthFB));
+      state.dynamicRendering.beginCustomResolve = false;
 
       state.graphics.pipeline = GetResID(failpipe);
 
@@ -3619,6 +3633,8 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
 
         // don't use dynamic rendering
         RemoveNextStruct(&pipeCreateInfo, VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO);
+        // don't use custom resolve
+        RemoveNextStruct(&pipeCreateInfo, VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT);
 
         if(pipeCreateInfo.pDynamicState)
         {
@@ -4387,6 +4403,11 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
           if(shaders[i] != VK_NULL_HANDLE)
             m_pDriver->vkDestroyShaderEXT(m_Device, shaders[i], NULL);
         }
+      }
+      else
+      {
+        vkr = vt->EndCommandBuffer(Unwrap(cmd));
+        CHECK_VKR(m_pDriver, vkr);
       }
 
       // restore back to normal

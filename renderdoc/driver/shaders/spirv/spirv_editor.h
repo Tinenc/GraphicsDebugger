@@ -140,6 +140,8 @@ public:
   Id AddConstant(const Operation &op);
   void AddFunction(const OperationList &ops);
 
+  void FlattenSpecConstants(const rdcarray<SpecConstant> &userSpec);
+
   Iter GetID(Id id);
   // the entry point has 'two' opcodes, the entrypoint declaration and the function.
   // This returns the first, GetID returns the second.

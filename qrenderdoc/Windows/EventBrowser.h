@@ -80,7 +80,7 @@ struct FilterExpression
 
   QString printName() const
   {
-    if(name == lit("$any$"))
+    if(name == lit("$subexp$"))
       return lit("(...)");
     if(function)
       return QFormatStr("$%1(%2)").arg(name).arg(params);

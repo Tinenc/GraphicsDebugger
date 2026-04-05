@@ -280,6 +280,17 @@ static rdcstr GenerateJSON(const rdcstr &sopath)
     idx = json.find(enableVarString);
   }
 
+  const char layerNameString[] = "@VULKAN_LAYER_NAME@";
+
+  idx = json.find(layerNameString);
+  while(idx >= 0)
+  {
+    json = json.substr(0, idx) + "VK_LAYER_" + strupper(VulkanLayerJSONBasename) + "_Capture" +
+           json.substr(idx + sizeof(layerNameString) - 1);
+
+    idx = json.find(layerNameString);
+  }
+
   return json;
 }
 

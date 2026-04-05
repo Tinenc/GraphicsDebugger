@@ -6,7 +6,7 @@ unix2dos -q all_exts.txt
 
 # sorted by enum value
 sed -n '/kind.*"Capability",$/,/"category"/p' spirv.core.grammar.json |
-	grep 'enumerant\>\|value' | paste -sd ' \n' | awk '{print $6" "$3}' |
+	grep 'enumerant\>\|value' | sed -e '{s#": #" : #g}' | paste -sd ' \n' | awk '{print $6" "$3}' |
 	tr -d '",' | sort -n > all_capabilities.txt
 unix2dos -q all_capabilities.txt
 

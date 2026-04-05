@@ -3747,6 +3747,11 @@ void GLReplay::ClearReplayCache()
   ClearPostVSCache();
 }
 
+void GLReplay::ReloadShaderDebugInformation()
+{
+  // Nop : GL does not have seperate debug information
+}
+
 ResourceId GLReplay::CreateProxyTexture(const TextureDescription &templateTex)
 {
   WrappedOpenGL &drv = *m_pDriver;

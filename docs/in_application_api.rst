@@ -495,7 +495,7 @@ The path follows the template set in :cpp:func:`SetCaptureFilePathTemplate` so i
 
     Added in API version 1.2.0
 
-.. cpp:function:: void SetObjectAnnotation(RENDERDOC_DevicePointer device, void* object, const char *key, RENDERDOC_AnnotationType valueType, uint32_t valueVectorWidth, const RENDERDOC_AnnotationValue* value)
+.. cpp:function:: uint32_t SetObjectAnnotation(RENDERDOC_DevicePointer device, void* object, const char *key, RENDERDOC_AnnotationType valueType, uint32_t valueVectorWidth, const RENDERDOC_AnnotationValue* value)
 
     This function allows associating custom rich annotations with API objects. These annotations can be examined in the :doc:`window/resource_inspector`.
     
@@ -581,7 +581,7 @@ The path follows the template set in :cpp:func:`SetCaptureFilePathTemplate` so i
 
     ``eRENDERDOC_APIObject`` indicates that the ``apiObject`` member of ``RENDERDOC_AnnotationValue`` is valid.
  
-.. cpp:function:: void SetCommandAnnotation(RENDERDOC_DevicePointer device, void* queueOrCommandBuffer, const char* key, RENDERDOC_AnnotationType valueType, uint32_t valueVectorWidth, const RENDERDOC_AnnotationValue* value)
+.. cpp:function:: uint32_t SetCommandAnnotation(RENDERDOC_DevicePointer device, void* queueOrCommandBuffer, const char* key, RENDERDOC_AnnotationType valueType, uint32_t valueVectorWidth, const RENDERDOC_AnnotationValue* value)
 
     This function allows adding custom rich annotations to command streams. These annotations can be examined in the :doc:`window/annotation_viewer` which has more information on the annotation system.
 

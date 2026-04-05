@@ -57,7 +57,7 @@ Maintainers can update this file by updating vk.xml in this folder and running `
 * `VK_EXT_filter_cubic`
 * `VK_EXT_fragment_density_map`
 * `VK_EXT_fragment_density_map2`
-* `VK_EXT_fragment_density_offset`
+* `VK_EXT_fragment_density_map_offset`
 * `VK_EXT_fragment_shader_interlock`
 * `VK_EXT_full_screen_exclusive`
 * `VK_EXT_global_priority_query`
@@ -282,7 +282,12 @@ KHR extensions will definitely be implemented at some point, though KHR extensio
 ## KHR Extensions
 
 * `VK_KHR_cooperative_matrix`
+* `VK_KHR_copy_memory_indirect`
+* `VK_KHR_internally_synchronized_queues`
+* `VK_KHR_maintenance10`
 * `VK_KHR_pipeline_binary`
+* `VK_KHR_shader_fma`
+* `VK_KHR_shader_untyped_pointers`
 
 ## KHR Portability
 
@@ -294,8 +299,10 @@ The portability subset is only relevant on mac, which is not a supported platfor
 ## EXT Extensions
 
 * `VK_EXT_blend_operation_advanced`
+* `VK_EXT_custom_resolve`
 * `VK_EXT_depth_bias_control`
 * `VK_EXT_depth_clamp_control`
+* `VK_EXT_descriptor_heap`
 * `VK_EXT_device_address_binding_report`
 * `VK_EXT_device_fault`
 * `VK_EXT_device_generated_commands`
@@ -308,16 +315,24 @@ The portability subset is only relevant on mac, which is not a supported platfor
 * `VK_EXT_legacy_dithering`
 * `VK_EXT_legacy_vertex_attributes`
 * `VK_EXT_map_memory_placed`
+* `VK_EXT_memory_decompression`
 * `VK_EXT_metal_objects`
 * `VK_EXT_multi_draw`
 * `VK_EXT_opacity_micromap`
 * `VK_EXT_physical_device_drm`
 * `VK_EXT_pipeline_library_group_handles`
+* `VK_EXT_present_timing`
+* `VK_EXT_ray_tracing_invocation_reorder`
+* `VK_EXT_shader_64bit_indexing`
 * `VK_EXT_shader_float8`
+* `VK_EXT_shader_long_vector`
 * `VK_EXT_shader_module_identifier`
 * `VK_EXT_shader_replicated_composites`
+* `VK_EXT_shader_subgroup_partitioned`
 * `VK_EXT_shader_tile_image`
+* `VK_EXT_shader_uniform_buffer_unsized_array`
 * `VK_EXT_subpass_merge_feedback`
+* `VK_EXT_texture_compression_astc_3d`
 * `VK_EXT_zero_initialize_device_memory`
 
 ## Platform/IHV Extensions
@@ -330,6 +345,7 @@ The portability subset is only relevant on mac, which is not a supported platfor
 
 * `VK_ARM_data_graph`
 * `VK_ARM_format_pack`
+* `VK_ARM_performance_counters_by_region`
 * `VK_ARM_pipeline_opacity_micromap`
 * `VK_ARM_rasterization_order_attachment_access`
 * `VK_ARM_render_pass_striped`
@@ -382,6 +398,7 @@ The portability subset is only relevant on mac, which is not a supported platfor
 * `VK_NV_clip_space_w_scaling`
 * `VK_NV_cluster_acceleration_structure`
 * `VK_NV_command_buffer_inheritance`
+* `VK_NV_compute_occupancy_priority`
 * `VK_NV_cooperative_matrix`
 * `VK_NV_cooperative_matrix2`
 * `VK_NV_cooperative_vector`
@@ -413,6 +430,7 @@ The portability subset is only relevant on mac, which is not a supported platfor
 * `VK_NV_optical_flow`
 * `VK_NV_partitioned_acceleration_structure`
 * `VK_NV_per_stage_descriptor_set`
+* `VK_NV_push_constant_bank`
 * `VK_NV_present_barrier`
 * `VK_NV_present_metering`
 * `VK_NV_raw_access_chains`
@@ -429,6 +447,8 @@ The portability subset is only relevant on mac, which is not a supported platfor
 
 ### Qualcomm
 
+* `VK_QCOM_cooperative_matrix_conversion`
+* `VK_QCOM_data_graph_model`
 * `VK_QCOM_filter_cubic_clamp`
 * `VK_QCOM_filter_cubic_weights`
 * `VK_QCOM_image_processing`
@@ -445,10 +465,12 @@ The portability subset is only relevant on mac, which is not a supported platfor
 
 * `VK_SEC_amigo_profiling`
 * `VK_SEC_pipeline_cache_incremental_mode`
+* `VK_SEC_ubm_surface`
 
 ### Valve
 
 * `VK_VALVE_descriptor_set_host_mapping`
+* `VK_VALVE_video_encode_rgb_conversion`
 
 ## WSI for other platforms
 
@@ -506,3 +528,4 @@ These are expected to never be implemented in their current form.
 * `VK_NVX_multiview_per_view_attributes`
 * `VK_NVX_image_view_handle`
 * `VK_OHOS_surface`
+* `VK_OHOS_external_memory`

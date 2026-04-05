@@ -304,6 +304,9 @@ class VK_Parameter_Zoo(rdtest.TestCase):
         action = self.get_action(action.eventId + 1)
         self.check("vkQueueSubmit" in action.GetName(sdfile))
         self.check("No Command Buffers" in action.GetName(sdfile))
+        action = self.get_action(action.eventId + 1)
+        self.check("vkQueueSubmit2" in action.GetName(sdfile))
+        self.check("No Command Buffers" in action.GetName(sdfile))
         self.check(a != action.GetName(sdfile))
 
         action = self.get_action(action.eventId + 1)

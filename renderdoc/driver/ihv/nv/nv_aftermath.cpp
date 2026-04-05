@@ -24,6 +24,7 @@
 
 #include "nv_aftermath.h"
 
+#include <map>
 #include <unordered_map>
 #include "common/formatting.h"
 #include "common/threading.h"
@@ -46,6 +47,8 @@ RDOC_CONFIG(bool, Replay_Debug_EnableNVRTValidation, false,
 
 #endif
 
+#include "driver/vulkan/official/vulkan.h"
+
 #include "driver/ihv/nv/official/aftermath/GFSDK_Aftermath.h"
 #include "driver/ihv/nv/official/aftermath/GFSDK_Aftermath_GpuCrashDump.h"
 #include "driver/ihv/nv/official/aftermath/GFSDK_Aftermath_GpuCrashDumpDecoding.h"
@@ -54,8 +57,6 @@ RDOC_CONFIG(bool, Replay_Debug_EnableNVRTValidation, false,
 #if defined(GFSDK_AFTERMATH_CALL) && ENABLED(RDOC_WIN32)
 
 #include "official/nvapi/nvapi.h"
-
-#include "driver/vulkan/official/vulkan_core.h"
 
 namespace
 {
@@ -78,12 +79,14 @@ typedef void *(*PFN_nvapi_QueryInterface)(NvU32 id);
 
 namespace
 {
-#define AFTERMATH_FUNCS(x) \
-  x(DX12_Initialize);      \
-  x(DisableGpuCrashDumps); \
-  x(EnableGpuCrashDumps);  \
-  x(GetCrashDumpStatus);   \
-  x(GetShaderDebugInfoIdentifier);
+#define AFTERMATH_FUNCS(x)         \
+  x(DX12_Initialize);              \
+  x(DisableGpuCrashDumps);         \
+  x(EnableGpuCrashDumps);          \
+  x(GetCrashDumpStatus);           \
+  x(GetShaderDebugInfoIdentifier); \
+  x(GetShaderHashSpirv);           \
+  x(GetShaderHash);
 
 struct aftermath_table
 {
@@ -105,24 +108,39 @@ struct aftermath_table
 aftermath_table table = {};
 uint32_t dumpNumber = 0;
 
+std::unordered_map<uint64_t, bytebuf> spvShaders;
+std::unordered_map<uint64_t, bytebuf> dxShaders;
+
 void GpuCrashDumpCallback(const void *pGpuCrashDump, const uint32_t gpuCrashDumpSize, void *)
 {
-  FileIO::WriteAll(StringFormat::sntimef(Timing::GetUTCTime(), "aftermath_dump-%y%m%d%H%M%S-") +
-                       StringFormat::Fmt("%u-%u.nv-gpudmp", Process::GetCurrentPID(), dumpNumber++),
-                   pGpuCrashDump, gpuCrashDumpSize);
+  rdcstr outName = StringFormat::sntimef(Timing::GetUTCTime(), "aftermath_dump-%y%m%d%H%M%S-") +
+                   StringFormat::Fmt("%u-%u", Process::GetCurrentPID(), dumpNumber++);
+  FileIO::WriteAll(outName + ".nv-gpudmp", pGpuCrashDump, gpuCrashDumpSize);
 }
 
 void GpuShaderDebugInfoCallback(const void *pShaderDebugInfo, const uint32_t shaderDebugInfoSize,
                                 void *)
 {
-  RDCLOG("shader info %p %zu", pShaderDebugInfo, shaderDebugInfoSize);
-
   GFSDK_Aftermath_ShaderDebugInfoIdentifier ident;
   table.GetShaderDebugInfoIdentifier(GFSDK_Aftermath_Version_API, pShaderDebugInfo,
                                      shaderDebugInfoSize, &ident);
 
-  FileIO::WriteAll(StringFormat::Fmt("shader-%08x-%08x.nvdbg", ident.id[0], ident.id[1]),
+  FileIO::WriteAll(StringFormat::Fmt("shader-%016llx-%016llx.nvdbg", ident.id[0], ident.id[1]),
                    pShaderDebugInfo, shaderDebugInfoSize);
+
+  {
+    auto it = spvShaders.find(ident.id[0]);
+    if(it != spvShaders.end())
+      FileIO::WriteAll(StringFormat::Fmt("shader-%016llx.spv", ident.id[0]), it->second.data(),
+                       it->second.size());
+  }
+
+  {
+    auto it = dxShaders.find(ident.id[0]);
+    if(it != dxShaders.end())
+      FileIO::WriteAll(StringFormat::Fmt("shader-%016llx.cso", ident.id[0]), it->second.data(),
+                       it->second.size());
+  }
 }
 
 void DescriptionCB(PFN_GFSDK_Aftermath_AddGpuCrashDumpDescription addDescription, void *pUserData)
@@ -187,6 +205,25 @@ void NVAftermath_Init()
 }
 
 // on shutdown we could call GFSDK_Aftermath_DisableGpuCrashDumps
+void NVAftermath_Shader(ShaderEncoding encoding, const void *shader, size_t len)
+{
+  GFSDK_Aftermath_ShaderBinaryHash shaderHash;
+
+  if(encoding == ShaderEncoding::SPIRV && table.GetShaderHashSpirv)
+  {
+    GFSDK_Aftermath_SpirvCode spv_data = {shader, (uint32_t)len};
+    table.GetShaderHashSpirv(GFSDK_Aftermath_Version_API, &spv_data, &shaderHash);
+
+    spvShaders[shaderHash.hash] = bytebuf((const byte *)shader, len);
+  }
+  else if(table.GetShaderHash)
+  {
+    D3D12_SHADER_BYTECODE shad_data = {shader, (uint32_t)len};
+    table.GetShaderHash(GFSDK_Aftermath_Version_API, &shad_data, &shaderHash);
+
+    dxShaders[shaderHash.hash] = bytebuf((const byte *)shader, len);
+  }
+}
 
 void NVAftermath_EnableVK(const std::set<rdcstr> &supportedExtensions, rdcarray<rdcstr> &Extensions,
                           const void **deviceCreateNext)
@@ -461,6 +498,10 @@ void NVAftermath_Init()
   {
     RDCLOG("NV Aftermath support unavailable in this build");
   }
+}
+
+void NVAftermath_Shader(ShaderEncoding encoding, const void *shader, size_t len)
+{
 }
 
 void NVAftermath_EnableVK(const std::set<rdcstr> &supportedExtensions, rdcarray<rdcstr> &Extensions,

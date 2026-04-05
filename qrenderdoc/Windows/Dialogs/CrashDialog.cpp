@@ -488,8 +488,22 @@ void CrashDialog::sendReport()
       m_Request, OverloadedSlot<QNetworkReply::NetworkError>::of(&QNetworkReply::error),
       [this](QNetworkReply::NetworkError err) {
         ui->progressBar->setValue(0);
-        ui->progressText->setText(tr("Network error uploading:\n%1").arg(m_Request->errorString()));
-        ui->uploadRetry->setEnabled(true);
+        if(m_Request->error() == QNetworkReply::ProtocolInvalidOperationError)
+        {
+          ui->progressText->setText(
+              tr("Server reported that the crash report is corrupted.\n\n"
+                 "Check that your program is not passing garbage/corrupted strings to "
+                 "the API in e.g. names or messages.\n\n"
+                 "This could also be caused by disk I/O corruption leading to garbage bytes."));
+          ui->uploadRetry->setEnabled(false);
+          ui->uploadCancel->setText(tr("Close"));
+          m_Corrupted = true;
+        }
+        else
+        {
+          ui->progressText->setText(tr("Network error uploading:\n%1").arg(m_Request->errorString()));
+          ui->uploadRetry->setEnabled(true);
+        }
       });
 
   ui->progressBar->setValue(0);
@@ -507,7 +521,7 @@ void CrashDialog::sendReport()
 
   QObject::connect(m_Request, &QNetworkReply::finished, [this]() {
     // don't do anything if we're finished after an error
-    if(ui->uploadRetry->isEnabled())
+    if(ui->uploadRetry->isEnabled() || m_Corrupted)
       return;
 
     QString text = tr("<p>Your report has been uploaded, thank you for your help!</p>");
@@ -538,6 +552,13 @@ void CrashDialog::on_cancel_clicked()
 
 void CrashDialog::on_uploadCancel_clicked()
 {
+  // if the report is corrupt don't bother checking with the user - there is nothing they can do
+  if(m_Corrupted)
+  {
+    reject();
+    return;
+  }
+
   // check that it wasn't an accident
   QMessageBox::StandardButton result = RDDialog::question(
       this, tr("Cancel upload?"), tr("Are you sure you want to cancel the bug report upload?"));

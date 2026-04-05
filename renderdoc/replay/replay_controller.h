@@ -179,6 +179,7 @@ public:
   void RemoveReplacement(ResourceId id);
   void FreeTargetResource(ResourceId id);
   void ClearReplayCache();
+  void ReloadShaderDebugInformation();
 
   FrameDescription GetFrameInfo();
   const SDFile &GetStructuredFile();

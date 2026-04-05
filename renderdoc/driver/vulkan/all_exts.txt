@@ -109,6 +109,7 @@
 132    VK_KHR_storage_buffer_storage_class
 133    VK_AMD_gpu_shader_int16
 135    VK_AMDX_shader_enqueue
+136    VK_EXT_descriptor_heap
 137    VK_AMD_mixed_attachment_samples
 138    VK_AMD_shader_fragment_mask
 139    VK_EXT_inline_uniform_block
@@ -139,6 +140,7 @@
 170    VK_KHR_draw_indirect_count
 171    VK_EXT_filter_cubic
 172    VK_QCOM_render_pass_shader_resolve
+173    VK_QCOM_cooperative_matrix_conversion
 175    VK_EXT_global_priority
 176    VK_KHR_shader_subgroup_extended_types
 178    VK_KHR_8bit_storage
@@ -167,6 +169,7 @@
 206    VK_NV_scissor_exclusive
 207    VK_NV_device_diagnostic_checkpoints
 208    VK_KHR_timeline_semaphore
+209    VK_EXT_present_timing
 210    VK_INTEL_shader_integer_functions2
 211    VK_INTEL_performance_query
 212    VK_KHR_vulkan_memory_model
@@ -230,6 +233,7 @@
 286    VK_EXT_acquire_drm_display
 287    VK_EXT_robustness2
 288    VK_EXT_custom_border_color
+289    VK_EXT_texture_compression_astc_3d
 290    VK_GOOGLE_user_type
 291    VK_KHR_pipeline_library
 293    VK_NV_present_barrier
@@ -292,7 +296,9 @@
 382    VK_EXT_color_write_enable
 383    VK_EXT_primitives_generated_query
 387    VK_KHR_ray_tracing_maintenance1
+388    VK_KHR_shader_untyped_pointers
 389    VK_EXT_global_priority_query
+391    VK_VALVE_video_encode_rgb_conversion
 392    VK_EXT_image_view_min_lod
 393    VK_EXT_multi_draw
 394    VK_EXT_image_2d_view_of_3d
@@ -324,6 +330,7 @@
 438    VK_EXT_image_compression_control_swapchain
 441    VK_QCOM_image_processing
 452    VK_EXT_nested_command_buffer
+453    VK_OHOS_external_memory
 454    VK_EXT_external_memory_acquire_unmodified
 456    VK_EXT_extended_dynamic_state3
 459    VK_EXT_subpass_merge_feedback
@@ -357,6 +364,7 @@
 498    VK_ARM_shader_core_builtins
 499    VK_EXT_pipeline_library_group_handles
 500    VK_EXT_dynamic_rendering_unused_attachments
+505    VK_KHR_internally_synchronized_queues
 506    VK_NV_low_latency2
 507    VK_KHR_cooperative_matrix
 508    VK_ARM_data_graph
@@ -385,6 +393,8 @@
 546    VK_KHR_maintenance6
 547    VK_NV_descriptor_pool_overallocation
 548    VK_QCOM_tile_memory_heap
+550    VK_KHR_copy_memory_indirect
+551    VK_EXT_memory_decompression
 552    VK_NV_display_stereo
 553    VK_KHR_video_encode_intra_refresh
 554    VK_KHR_video_encode_quantization_map
@@ -402,6 +412,9 @@
 573    VK_EXT_device_generated_commands
 575    VK_KHR_maintenance8
 576    VK_MESA_image_alignment_control
+580    VK_KHR_shader_fma
+581    VK_NV_push_constant_bank
+582    VK_EXT_ray_tracing_invocation_reorder
 583    VK_EXT_depth_clamp_control
 585    VK_KHR_maintenance9
 587    VK_KHR_video_maintenance2
@@ -411,6 +424,7 @@
 597    VK_ARM_pipeline_opacity_micromap
 603    VK_EXT_external_memory_metal
 605    VK_KHR_depth_clamp_zero_one
+606    VK_ARM_performance_counters_by_region
 609    VK_EXT_vertex_attribute_robustness
 610    VK_ARM_format_pack
 612    VK_VALVE_fragment_density_map_layered
@@ -419,4 +433,13 @@
 620    VK_EXT_fragment_density_map_offset
 621    VK_EXT_zero_initialize_device_memory
 622    VK_KHR_present_mode_fifo_latest_ready
+628    VK_EXT_shader_64bit_indexing
+629    VK_EXT_custom_resolve
+630    VK_QCOM_data_graph_model
+631    VK_KHR_maintenance10
+636    VK_EXT_shader_long_vector
 638    VK_SEC_pipeline_cache_incremental_mode
+643    VK_EXT_shader_uniform_buffer_unsized_array
+646    VK_NV_compute_occupancy_priority
+663    VK_EXT_shader_subgroup_partitioned
+665    VK_SEC_ubm_surface

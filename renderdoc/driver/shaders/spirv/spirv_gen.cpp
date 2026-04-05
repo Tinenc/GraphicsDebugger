@@ -461,8 +461,8 @@ rdcstr DoStringise(const rdcspv::StorageClass &el)
     STRINGISE_ENUM_CLASS(IncomingRayPayloadKHR);
     STRINGISE_ENUM_CLASS(ShaderRecordBufferKHR);
     STRINGISE_ENUM_CLASS(PhysicalStorageBuffer);
-    STRINGISE_ENUM_CLASS(HitObjectAttributeNV);
     STRINGISE_ENUM_CLASS(TaskPayloadWorkgroupEXT);
+    STRINGISE_ENUM_CLASS(HitObjectAttributeEXT);
     STRINGISE_ENUM_CLASS(CodeSectionINTEL);
     STRINGISE_ENUM_CLASS(DeviceOnlyALTERA);
     STRINGISE_ENUM_CLASS(HostOnlyALTERA);
@@ -814,6 +814,8 @@ rdcstr DoStringise(const rdcspv::Decoration &el)
     STRINGISE_ENUM_CLASS(PayloadNodeSparseArrayAMDX);
     STRINGISE_ENUM_CLASS(PayloadNodeArraySizeAMDX);
     STRINGISE_ENUM_CLASS(PayloadDispatchIndirectAMDX);
+    STRINGISE_ENUM_CLASS(ArrayStrideIdEXT);
+    STRINGISE_ENUM_CLASS(OffsetIdEXT);
     STRINGISE_ENUM_CLASS(OverrideCoverageNV);
     STRINGISE_ENUM_CLASS(PassthroughNV);
     STRINGISE_ENUM_CLASS(ViewportRelativeNV);
@@ -825,7 +827,9 @@ rdcstr DoStringise(const rdcspv::Decoration &el)
     STRINGISE_ENUM_CLASS(NonUniform);
     STRINGISE_ENUM_CLASS(RestrictPointer);
     STRINGISE_ENUM_CLASS(AliasedPointer);
-    STRINGISE_ENUM_CLASS(HitObjectShaderRecordBufferNV);
+    STRINGISE_ENUM_CLASS(MemberOffsetNV);
+    STRINGISE_ENUM_CLASS(HitObjectShaderRecordBufferEXT);
+    STRINGISE_ENUM_CLASS(BankNV);
     STRINGISE_ENUM_CLASS(BindlessSamplerNV);
     STRINGISE_ENUM_CLASS(BindlessImageNV);
     STRINGISE_ENUM_CLASS(BoundSamplerNV);
@@ -975,6 +979,8 @@ rdcstr DoStringise(const rdcspv::BuiltIn &el)
     STRINGISE_ENUM_CLASS(FragStencilRefEXT);
     STRINGISE_ENUM_CLASS(RemainingRecursionLevelsAMDX);
     STRINGISE_ENUM_CLASS(ShaderIndexAMDX);
+    STRINGISE_ENUM_CLASS(SamplerHeapEXT);
+    STRINGISE_ENUM_CLASS(ResourceHeapEXT);
     STRINGISE_ENUM_CLASS(ViewportMaskNV);
     STRINGISE_ENUM_CLASS(SecondaryPositionNV);
     STRINGISE_ENUM_CLASS(SecondaryViewportMaskNV);
@@ -1059,9 +1065,9 @@ rdcstr DoStringise(const rdcspv::GroupOperation &el)
     STRINGISE_ENUM_CLASS(InclusiveScan);
     STRINGISE_ENUM_CLASS(ExclusiveScan);
     STRINGISE_ENUM_CLASS(ClusteredReduce);
-    STRINGISE_ENUM_CLASS(PartitionedReduceNV);
-    STRINGISE_ENUM_CLASS(PartitionedInclusiveScanNV);
-    STRINGISE_ENUM_CLASS(PartitionedExclusiveScanNV);
+    STRINGISE_ENUM_CLASS(PartitionedReduceEXT);
+    STRINGISE_ENUM_CLASS(PartitionedInclusiveScanEXT);
+    STRINGISE_ENUM_CLASS(PartitionedExclusiveScanEXT);
   }
   END_ENUM_STRINGISE();
 }
@@ -1214,6 +1220,7 @@ rdcstr DoStringise(const rdcspv::Capability &el)
     STRINGISE_ENUM_CLASS(BFloat16TypeKHR);
     STRINGISE_ENUM_CLASS(BFloat16DotProductKHR);
     STRINGISE_ENUM_CLASS(BFloat16CooperativeMatrixKHR);
+    STRINGISE_ENUM_CLASS(DescriptorHeapEXT);
     STRINGISE_ENUM_CLASS(SampleMaskOverrideCoverageNV);
     STRINGISE_ENUM_CLASS(GeometryShaderPassthroughNV);
     STRINGISE_ENUM_CLASS(ShaderViewportIndexLayerEXT);
@@ -1226,7 +1233,7 @@ rdcstr DoStringise(const rdcspv::Capability &el)
     STRINGISE_ENUM_CLASS(FragmentBarycentricKHR);
     STRINGISE_ENUM_CLASS(ComputeDerivativeGroupQuadsKHR);
     STRINGISE_ENUM_CLASS(FragmentDensityEXT);
-    STRINGISE_ENUM_CLASS(GroupNonUniformPartitionedNV);
+    STRINGISE_ENUM_CLASS(GroupNonUniformPartitionedEXT);
     STRINGISE_ENUM_CLASS(ShaderNonUniform);
     STRINGISE_ENUM_CLASS(RuntimeDescriptorArray);
     STRINGISE_ENUM_CLASS(InputAttachmentArrayDynamicIndexing);
@@ -1253,7 +1260,7 @@ rdcstr DoStringise(const rdcspv::Capability &el)
     STRINGISE_ENUM_CLASS(DemoteToHelperInvocation);
     STRINGISE_ENUM_CLASS(DisplacementMicromapNV);
     STRINGISE_ENUM_CLASS(RayTracingOpacityMicromapEXT);
-    STRINGISE_ENUM_CLASS(ShaderInvocationReorderNV);
+    STRINGISE_ENUM_CLASS(ShaderInvocationReorderEXT);
     STRINGISE_ENUM_CLASS(BindlessTextureNV);
     STRINGISE_ENUM_CLASS(RayQueryPositionFetchKHR);
     STRINGISE_ENUM_CLASS(CooperativeVectorNV);
@@ -1262,6 +1269,8 @@ rdcstr DoStringise(const rdcspv::Capability &el)
     STRINGISE_ENUM_CLASS(RawAccessChainsNV);
     STRINGISE_ENUM_CLASS(RayTracingSpheresGeometryNV);
     STRINGISE_ENUM_CLASS(RayTracingLinearSweptSpheresGeometryNV);
+    STRINGISE_ENUM_CLASS(PushConstantBanksNV);
+    STRINGISE_ENUM_CLASS(LongVectorEXT);
     STRINGISE_ENUM_CLASS(Shader64BitIndexingEXT);
     STRINGISE_ENUM_CLASS(CooperativeMatrixReductionsNV);
     STRINGISE_ENUM_CLASS(CooperativeMatrixConversionsNV);
@@ -2063,6 +2072,11 @@ rdcstr DoStringise(const rdcspv::Op &el)
     STRINGISE_ENUM_CLASS(SpecConstantStringAMDX);
     STRINGISE_ENUM_CLASS(GroupNonUniformQuadAllKHR);
     STRINGISE_ENUM_CLASS(GroupNonUniformQuadAnyKHR);
+    STRINGISE_ENUM_CLASS(TypeBufferEXT);
+    STRINGISE_ENUM_CLASS(BufferPointerEXT);
+    STRINGISE_ENUM_CLASS(UntypedImageTexelPointerEXT);
+    STRINGISE_ENUM_CLASS(MemberDecorateIdEXT);
+    STRINGISE_ENUM_CLASS(ConstantSizeOfEXT);
     STRINGISE_ENUM_CLASS(HitObjectRecordHitMotionNV);
     STRINGISE_ENUM_CLASS(HitObjectRecordHitWithIndexMotionNV);
     STRINGISE_ENUM_CLASS(HitObjectRecordMissMotionNV);
@@ -2097,7 +2111,7 @@ rdcstr DoStringise(const rdcspv::Op &el)
     STRINGISE_ENUM_CLASS(ReorderThreadWithHintNV);
     STRINGISE_ENUM_CLASS(TypeHitObjectNV);
     STRINGISE_ENUM_CLASS(ImageSampleFootprintNV);
-    STRINGISE_ENUM_CLASS(TypeCooperativeVectorNV);
+    STRINGISE_ENUM_CLASS(TypeVectorIdEXT);
     STRINGISE_ENUM_CLASS(CooperativeVectorMatrixMulNV);
     STRINGISE_ENUM_CLASS(CooperativeVectorOuterProductAccumulateNV);
     STRINGISE_ENUM_CLASS(CooperativeVectorReduceSumAccumulateNV);
@@ -2105,12 +2119,42 @@ rdcstr DoStringise(const rdcspv::Op &el)
     STRINGISE_ENUM_CLASS(CooperativeMatrixConvertNV);
     STRINGISE_ENUM_CLASS(EmitMeshTasksEXT);
     STRINGISE_ENUM_CLASS(SetMeshOutputsEXT);
-    STRINGISE_ENUM_CLASS(GroupNonUniformPartitionNV);
+    STRINGISE_ENUM_CLASS(GroupNonUniformPartitionEXT);
     STRINGISE_ENUM_CLASS(WritePackedPrimitiveIndices4x8NV);
     STRINGISE_ENUM_CLASS(FetchMicroTriangleVertexPositionNV);
     STRINGISE_ENUM_CLASS(FetchMicroTriangleVertexBarycentricNV);
     STRINGISE_ENUM_CLASS(CooperativeVectorLoadNV);
     STRINGISE_ENUM_CLASS(CooperativeVectorStoreNV);
+    STRINGISE_ENUM_CLASS(HitObjectRecordFromQueryEXT);
+    STRINGISE_ENUM_CLASS(HitObjectRecordMissEXT);
+    STRINGISE_ENUM_CLASS(HitObjectRecordMissMotionEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetIntersectionTriangleVertexPositionsEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetRayFlagsEXT);
+    STRINGISE_ENUM_CLASS(HitObjectSetShaderBindingTableRecordIndexEXT);
+    STRINGISE_ENUM_CLASS(HitObjectReorderExecuteShaderEXT);
+    STRINGISE_ENUM_CLASS(HitObjectTraceReorderExecuteEXT);
+    STRINGISE_ENUM_CLASS(HitObjectTraceMotionReorderExecuteEXT);
+    STRINGISE_ENUM_CLASS(TypeHitObjectEXT);
+    STRINGISE_ENUM_CLASS(ReorderThreadWithHintEXT);
+    STRINGISE_ENUM_CLASS(ReorderThreadWithHitObjectEXT);
+    STRINGISE_ENUM_CLASS(HitObjectTraceRayEXT);
+    STRINGISE_ENUM_CLASS(HitObjectTraceRayMotionEXT);
+    STRINGISE_ENUM_CLASS(HitObjectRecordEmptyEXT);
+    STRINGISE_ENUM_CLASS(HitObjectExecuteShaderEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetCurrentTimeEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetAttributesEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetHitKindEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetPrimitiveIndexEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetGeometryIndexEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetInstanceIdEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetInstanceCustomIndexEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetObjectRayOriginEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetObjectRayDirectionEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetWorldRayDirectionEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetWorldRayOriginEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetObjectToWorldEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetWorldToObjectEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetRayTMaxEXT);
     STRINGISE_ENUM_CLASS(ReportIntersectionKHR);
     STRINGISE_ENUM_CLASS(IgnoreIntersectionNV);
     STRINGISE_ENUM_CLASS(TerminateRayNV);
@@ -2122,6 +2166,12 @@ rdcstr DoStringise(const rdcspv::Op &el)
     STRINGISE_ENUM_CLASS(ExecuteCallableNV);
     STRINGISE_ENUM_CLASS(RayQueryGetIntersectionClusterIdNV);
     STRINGISE_ENUM_CLASS(HitObjectGetClusterIdNV);
+    STRINGISE_ENUM_CLASS(HitObjectGetRayTMinEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetShaderBindingTableRecordIndexEXT);
+    STRINGISE_ENUM_CLASS(HitObjectGetShaderRecordBufferHandleEXT);
+    STRINGISE_ENUM_CLASS(HitObjectIsEmptyEXT);
+    STRINGISE_ENUM_CLASS(HitObjectIsHitEXT);
+    STRINGISE_ENUM_CLASS(HitObjectIsMissEXT);
     STRINGISE_ENUM_CLASS(TypeCooperativeMatrixNV);
     STRINGISE_ENUM_CLASS(CooperativeMatrixLoadNV);
     STRINGISE_ENUM_CLASS(CooperativeMatrixStoreNV);
@@ -2576,8 +2626,16 @@ rdcstr ParamToStr(const std::function<rdcstr(rdcspv::Id)> &idName, const rdcspv:
       ret +=  "(" + idName(el.payloadNodeBaseIndexAMDX) + ")"; break;
     case Decoration::PayloadNodeArraySizeAMDX:
       ret +=  "(" + idName(el.payloadNodeArraySizeAMDX) + ")"; break;
+    case Decoration::ArrayStrideIdEXT:
+      ret +=  "(" + idName(el.arrayStrideIdEXT) + ")"; break;
+    case Decoration::OffsetIdEXT:
+      ret +=  "(" + idName(el.offsetIdEXT) + ")"; break;
     case Decoration::SecondaryViewportRelativeNV:
       ret +=  "(" + ToStr(el.secondaryViewportRelativeNV) + ")"; break;
+    case Decoration::MemberOffsetNV:
+      ret +=  "(" + ToStr(el.memberOffsetNV) + ")"; break;
+    case Decoration::BankNV:
+      ret +=  "(" + ToStr(el.bankNV) + ")"; break;
     case Decoration::SIMTCallINTEL:
       ret +=  "(" + ToStr(el.sIMTCallINTEL) + ")"; break;
     case Decoration::FuncParamIOKindINTEL:
@@ -5136,6 +5194,30 @@ void OpDecoder::ForEachID(const ConstIter &it, const std::function<void(Id,bool)
       callback(Id::fromWord(it.word(2)), true);
       callback(Id::fromWord(it.word(3)), false);
       break;
+    case rdcspv::Op::TypeBufferEXT:
+      callback(Id::fromWord(it.word(1)), true);
+      break;
+    case rdcspv::Op::BufferPointerEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::UntypedImageTexelPointerEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      callback(Id::fromWord(it.word(4)), false);
+      callback(Id::fromWord(it.word(5)), false);
+      callback(Id::fromWord(it.word(6)), false);
+      break;
+    case rdcspv::Op::MemberDecorateIdEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      break;
+    case rdcspv::Op::ConstantSizeOfEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
     case rdcspv::Op::HitObjectRecordHitMotionNV:
       callback(Id::fromWord(it.word(1)), false);
       callback(Id::fromWord(it.word(2)), false);
@@ -5368,7 +5450,7 @@ void OpDecoder::ForEachID(const ConstIter &it, const std::function<void(Id,bool)
       callback(Id::fromWord(it.word(5)), false);
       callback(Id::fromWord(it.word(6)), false);
       break;
-    case rdcspv::Op::TypeCooperativeVectorNV:
+    case rdcspv::Op::TypeVectorIdEXT:
       callback(Id::fromWord(it.word(1)), true);
       callback(Id::fromWord(it.word(2)), false);
       callback(Id::fromWord(it.word(3)), false);
@@ -5433,7 +5515,7 @@ void OpDecoder::ForEachID(const ConstIter &it, const std::function<void(Id,bool)
       callback(Id::fromWord(it.word(1)), false);
       callback(Id::fromWord(it.word(2)), false);
       break;
-    case rdcspv::Op::GroupNonUniformPartitionNV:
+    case rdcspv::Op::GroupNonUniformPartitionEXT:
       callback(Id::fromWord(it.word(1)), false);
       callback(Id::fromWord(it.word(2)), true);
       callback(Id::fromWord(it.word(3)), false);
@@ -5469,6 +5551,201 @@ void OpDecoder::ForEachID(const ConstIter &it, const std::function<void(Id,bool)
     case rdcspv::Op::CooperativeVectorStoreNV:
       callback(Id::fromWord(it.word(1)), false);
       callback(Id::fromWord(it.word(2)), false);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectRecordFromQueryEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      callback(Id::fromWord(it.word(3)), false);
+      callback(Id::fromWord(it.word(4)), false);
+      break;
+    case rdcspv::Op::HitObjectRecordMissEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      callback(Id::fromWord(it.word(3)), false);
+      callback(Id::fromWord(it.word(4)), false);
+      callback(Id::fromWord(it.word(5)), false);
+      callback(Id::fromWord(it.word(6)), false);
+      callback(Id::fromWord(it.word(7)), false);
+      break;
+    case rdcspv::Op::HitObjectRecordMissMotionEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      callback(Id::fromWord(it.word(3)), false);
+      callback(Id::fromWord(it.word(4)), false);
+      callback(Id::fromWord(it.word(5)), false);
+      callback(Id::fromWord(it.word(6)), false);
+      callback(Id::fromWord(it.word(7)), false);
+      callback(Id::fromWord(it.word(8)), false);
+      break;
+    case rdcspv::Op::HitObjectGetIntersectionTriangleVertexPositionsEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetRayFlagsEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectSetShaderBindingTableRecordIndexEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      break;
+    case rdcspv::Op::HitObjectReorderExecuteShaderEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      if(3 < size) callback(Id::fromWord(it.word(3)), false);
+      if(4 < size) callback(Id::fromWord(it.word(4)), false);
+      break;
+    case rdcspv::Op::HitObjectTraceReorderExecuteEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      callback(Id::fromWord(it.word(3)), false);
+      callback(Id::fromWord(it.word(4)), false);
+      callback(Id::fromWord(it.word(5)), false);
+      callback(Id::fromWord(it.word(6)), false);
+      callback(Id::fromWord(it.word(7)), false);
+      callback(Id::fromWord(it.word(8)), false);
+      callback(Id::fromWord(it.word(9)), false);
+      callback(Id::fromWord(it.word(10)), false);
+      callback(Id::fromWord(it.word(11)), false);
+      callback(Id::fromWord(it.word(12)), false);
+      if(13 < size) callback(Id::fromWord(it.word(13)), false);
+      if(14 < size) callback(Id::fromWord(it.word(14)), false);
+      break;
+    case rdcspv::Op::HitObjectTraceMotionReorderExecuteEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      callback(Id::fromWord(it.word(3)), false);
+      callback(Id::fromWord(it.word(4)), false);
+      callback(Id::fromWord(it.word(5)), false);
+      callback(Id::fromWord(it.word(6)), false);
+      callback(Id::fromWord(it.word(7)), false);
+      callback(Id::fromWord(it.word(8)), false);
+      callback(Id::fromWord(it.word(9)), false);
+      callback(Id::fromWord(it.word(10)), false);
+      callback(Id::fromWord(it.word(11)), false);
+      callback(Id::fromWord(it.word(12)), false);
+      callback(Id::fromWord(it.word(13)), false);
+      if(14 < size) callback(Id::fromWord(it.word(14)), false);
+      if(15 < size) callback(Id::fromWord(it.word(15)), false);
+      break;
+    case rdcspv::Op::TypeHitObjectEXT:
+      callback(Id::fromWord(it.word(1)), true);
+      break;
+    case rdcspv::Op::ReorderThreadWithHintEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      break;
+    case rdcspv::Op::ReorderThreadWithHitObjectEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      if(2 < size) callback(Id::fromWord(it.word(2)), false);
+      if(3 < size) callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectTraceRayEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      callback(Id::fromWord(it.word(3)), false);
+      callback(Id::fromWord(it.word(4)), false);
+      callback(Id::fromWord(it.word(5)), false);
+      callback(Id::fromWord(it.word(6)), false);
+      callback(Id::fromWord(it.word(7)), false);
+      callback(Id::fromWord(it.word(8)), false);
+      callback(Id::fromWord(it.word(9)), false);
+      callback(Id::fromWord(it.word(10)), false);
+      callback(Id::fromWord(it.word(11)), false);
+      callback(Id::fromWord(it.word(12)), false);
+      break;
+    case rdcspv::Op::HitObjectTraceRayMotionEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      callback(Id::fromWord(it.word(3)), false);
+      callback(Id::fromWord(it.word(4)), false);
+      callback(Id::fromWord(it.word(5)), false);
+      callback(Id::fromWord(it.word(6)), false);
+      callback(Id::fromWord(it.word(7)), false);
+      callback(Id::fromWord(it.word(8)), false);
+      callback(Id::fromWord(it.word(9)), false);
+      callback(Id::fromWord(it.word(10)), false);
+      callback(Id::fromWord(it.word(11)), false);
+      callback(Id::fromWord(it.word(12)), false);
+      callback(Id::fromWord(it.word(13)), false);
+      break;
+    case rdcspv::Op::HitObjectRecordEmptyEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      break;
+    case rdcspv::Op::HitObjectExecuteShaderEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      break;
+    case rdcspv::Op::HitObjectGetCurrentTimeEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetAttributesEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), false);
+      break;
+    case rdcspv::Op::HitObjectGetHitKindEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetPrimitiveIndexEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetGeometryIndexEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetInstanceIdEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetInstanceCustomIndexEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetObjectRayOriginEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetObjectRayDirectionEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetWorldRayDirectionEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetWorldRayOriginEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetObjectToWorldEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetWorldToObjectEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetRayTMaxEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
       callback(Id::fromWord(it.word(3)), false);
       break;
     case rdcspv::Op::ReportIntersectionKHR:
@@ -5542,6 +5819,36 @@ void OpDecoder::ForEachID(const ConstIter &it, const std::function<void(Id,bool)
       callback(Id::fromWord(it.word(4)), false);
       break;
     case rdcspv::Op::HitObjectGetClusterIdNV:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetRayTMinEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetShaderBindingTableRecordIndexEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectGetShaderRecordBufferHandleEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectIsEmptyEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectIsHitEXT:
+      callback(Id::fromWord(it.word(1)), false);
+      callback(Id::fromWord(it.word(2)), true);
+      callback(Id::fromWord(it.word(3)), false);
+      break;
+    case rdcspv::Op::HitObjectIsMissEXT:
       callback(Id::fromWord(it.word(1)), false);
       callback(Id::fromWord(it.word(2)), true);
       callback(Id::fromWord(it.word(3)), false);
@@ -11297,6 +11604,60 @@ rdcstr OpDecoder::Disassemble(const ConstIter &it, const std::function<rdcstr(Id
            + ")";
       break;
     }
+    case rdcspv::Op::TypeBufferEXT:
+    {
+      OpTypeBufferEXT decoded(it);
+      ret += idName(decoded.result) + " = ";
+      ret += rdcstr("TypeBufferEXT("_lit)
+           + ParamToStr(idName, decoded.storageClass)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::BufferPointerEXT:
+    {
+      OpBufferPointerEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("BufferPointerEXT("_lit)
+           + ParamToStr(idName, decoded.buffer)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::UntypedImageTexelPointerEXT:
+    {
+      OpUntypedImageTexelPointerEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("UntypedImageTexelPointerEXT("_lit)
+           + ParamToStr(idName, decoded.imageType)
+           + ", "
+           + ParamToStr(idName, decoded.image)
+           + ", "
+           + ParamToStr(idName, decoded.coordinate)
+           + ", "
+           + ParamToStr(idName, decoded.sample)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::MemberDecorateIdEXT:
+    {
+      OpMemberDecorateIdEXT decoded(it);
+      ret += rdcstr("MemberDecorateIdEXT("_lit)
+           + ParamToStr(idName, decoded.structureType)
+           + ", "
+           + ParamToStr(idName, decoded.member)
+           + ", "
+           + ParamToStr(idName, decoded.decoration)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::ConstantSizeOfEXT:
+    {
+      OpConstantSizeOfEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("ConstantSizeOfEXT("_lit)
+           + ParamToStr(idName, decoded.type)
+           + ")";
+      break;
+    }
     case rdcspv::Op::HitObjectRecordHitMotionNV:
     {
       OpHitObjectRecordHitMotionNV decoded(it);
@@ -11768,11 +12129,11 @@ rdcstr OpDecoder::Disassemble(const ConstIter &it, const std::function<rdcstr(Id
            + ")";
       break;
     }
-    case rdcspv::Op::TypeCooperativeVectorNV:
+    case rdcspv::Op::TypeVectorIdEXT:
     {
-      OpTypeCooperativeVectorNV decoded(it);
+      OpTypeVectorIdEXT decoded(it);
       ret += idName(decoded.result) + " = ";
-      ret += rdcstr("TypeCooperativeVectorNV("_lit)
+      ret += rdcstr("TypeVectorIdEXT("_lit)
            + ParamToStr(idName, decoded.componentType)
            + ", "
            + ParamToStr(idName, decoded.componentCount)
@@ -11902,11 +12263,11 @@ rdcstr OpDecoder::Disassemble(const ConstIter &it, const std::function<rdcstr(Id
            + ")";
       break;
     }
-    case rdcspv::Op::GroupNonUniformPartitionNV:
+    case rdcspv::Op::GroupNonUniformPartitionEXT:
     {
-      OpGroupNonUniformPartitionNV decoded(it);
+      OpGroupNonUniformPartitionEXT decoded(it);
       ret += declName(decoded.resultType, decoded.result) + " = ";
-      ret += rdcstr("GroupNonUniformPartitionNV("_lit)
+      ret += rdcstr("GroupNonUniformPartitionEXT("_lit)
            + ParamToStr(idName, decoded.value)
            + ")";
       break;
@@ -11977,6 +12338,403 @@ rdcstr OpDecoder::Disassemble(const ConstIter &it, const std::function<rdcstr(Id
            + ", "
            + ParamToStr(idName, decoded.object)
            + (4 < size ? ", " + ParamToStr(idName, decoded.memoryAccess) : "")
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectRecordFromQueryEXT:
+    {
+      OpHitObjectRecordFromQueryEXT decoded(it);
+      ret += rdcstr("HitObjectRecordFromQueryEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.rayQuery)
+           + ", "
+           + ParamToStr(idName, decoded.sBTRecordIndex)
+           + ", "
+           + ParamToStr(idName, decoded.hitObjectAttributes)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectRecordMissEXT:
+    {
+      OpHitObjectRecordMissEXT decoded(it);
+      ret += rdcstr("HitObjectRecordMissEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.rayFlags)
+           + ", "
+           + ParamToStr(idName, decoded.missIndex)
+           + ", "
+           + ParamToStr(idName, decoded.rayOrigin)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmin)
+           + ", "
+           + ParamToStr(idName, decoded.rayDirection)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmax)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectRecordMissMotionEXT:
+    {
+      OpHitObjectRecordMissMotionEXT decoded(it);
+      ret += rdcstr("HitObjectRecordMissMotionEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.rayFlags)
+           + ", "
+           + ParamToStr(idName, decoded.missIndex)
+           + ", "
+           + ParamToStr(idName, decoded.rayOrigin)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmin)
+           + ", "
+           + ParamToStr(idName, decoded.rayDirection)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmax)
+           + ", "
+           + ParamToStr(idName, decoded.currentTime)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetIntersectionTriangleVertexPositionsEXT:
+    {
+      OpHitObjectGetIntersectionTriangleVertexPositionsEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetIntersectionTriangleVertexPositionsEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetRayFlagsEXT:
+    {
+      OpHitObjectGetRayFlagsEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetRayFlagsEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectSetShaderBindingTableRecordIndexEXT:
+    {
+      OpHitObjectSetShaderBindingTableRecordIndexEXT decoded(it);
+      ret += rdcstr("HitObjectSetShaderBindingTableRecordIndexEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.sBTRecordIndex)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectReorderExecuteShaderEXT:
+    {
+      OpHitObjectReorderExecuteShaderEXT decoded(it);
+      ret += rdcstr("HitObjectReorderExecuteShaderEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.payload)
+           + (3 < size ? ", " + ParamToStr(idName, decoded.hint) : "")
+           + (4 < size ? ", " + ParamToStr(idName, decoded.bits) : "")
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectTraceReorderExecuteEXT:
+    {
+      OpHitObjectTraceReorderExecuteEXT decoded(it);
+      ret += rdcstr("HitObjectTraceReorderExecuteEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.accelerationStructure)
+           + ", "
+           + ParamToStr(idName, decoded.rayFlags)
+           + ", "
+           + ParamToStr(idName, decoded.cullMask)
+           + ", "
+           + ParamToStr(idName, decoded.sBTOffset)
+           + ", "
+           + ParamToStr(idName, decoded.sBTStride)
+           + ", "
+           + ParamToStr(idName, decoded.missIndex)
+           + ", "
+           + ParamToStr(idName, decoded.rayOrigin)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmin)
+           + ", "
+           + ParamToStr(idName, decoded.rayDirection)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmax)
+           + ", "
+           + ParamToStr(idName, decoded.payload)
+           + (13 < size ? ", " + ParamToStr(idName, decoded.hint) : "")
+           + (14 < size ? ", " + ParamToStr(idName, decoded.bits) : "")
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectTraceMotionReorderExecuteEXT:
+    {
+      OpHitObjectTraceMotionReorderExecuteEXT decoded(it);
+      ret += rdcstr("HitObjectTraceMotionReorderExecuteEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.accelerationStructure)
+           + ", "
+           + ParamToStr(idName, decoded.rayFlags)
+           + ", "
+           + ParamToStr(idName, decoded.cullMask)
+           + ", "
+           + ParamToStr(idName, decoded.sBTOffset)
+           + ", "
+           + ParamToStr(idName, decoded.sBTStride)
+           + ", "
+           + ParamToStr(idName, decoded.missIndex)
+           + ", "
+           + ParamToStr(idName, decoded.rayOrigin)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmin)
+           + ", "
+           + ParamToStr(idName, decoded.rayDirection)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmax)
+           + ", "
+           + ParamToStr(idName, decoded.currentTime)
+           + ", "
+           + ParamToStr(idName, decoded.payload)
+           + (14 < size ? ", " + ParamToStr(idName, decoded.hint) : "")
+           + (15 < size ? ", " + ParamToStr(idName, decoded.bits) : "")
+           + ")";
+      break;
+    }
+    case rdcspv::Op::TypeHitObjectEXT:
+    {
+      OpTypeHitObjectEXT decoded(it);
+      ret += idName(decoded.result) + " = ";
+      ret += rdcstr("TypeHitObjectEXT("_lit)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::ReorderThreadWithHintEXT:
+    {
+      OpReorderThreadWithHintEXT decoded(it);
+      ret += rdcstr("ReorderThreadWithHintEXT("_lit)
+           + ParamToStr(idName, decoded.hint)
+           + ", "
+           + ParamToStr(idName, decoded.bits)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::ReorderThreadWithHitObjectEXT:
+    {
+      OpReorderThreadWithHitObjectEXT decoded(it);
+      ret += rdcstr("ReorderThreadWithHitObjectEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + (2 < size ? ", " + ParamToStr(idName, decoded.hint) : "")
+           + (3 < size ? ", " + ParamToStr(idName, decoded.bits) : "")
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectTraceRayEXT:
+    {
+      OpHitObjectTraceRayEXT decoded(it);
+      ret += rdcstr("HitObjectTraceRayEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.accelerationStructure)
+           + ", "
+           + ParamToStr(idName, decoded.rayFlags)
+           + ", "
+           + ParamToStr(idName, decoded.cullMask)
+           + ", "
+           + ParamToStr(idName, decoded.sBTOffset)
+           + ", "
+           + ParamToStr(idName, decoded.sBTStride)
+           + ", "
+           + ParamToStr(idName, decoded.missIndex)
+           + ", "
+           + ParamToStr(idName, decoded.rayOrigin)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmin)
+           + ", "
+           + ParamToStr(idName, decoded.rayDirection)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmax)
+           + ", "
+           + ParamToStr(idName, decoded.payload)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectTraceRayMotionEXT:
+    {
+      OpHitObjectTraceRayMotionEXT decoded(it);
+      ret += rdcstr("HitObjectTraceRayMotionEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.accelerationStructure)
+           + ", "
+           + ParamToStr(idName, decoded.rayFlags)
+           + ", "
+           + ParamToStr(idName, decoded.cullMask)
+           + ", "
+           + ParamToStr(idName, decoded.sBTOffset)
+           + ", "
+           + ParamToStr(idName, decoded.sBTStride)
+           + ", "
+           + ParamToStr(idName, decoded.missIndex)
+           + ", "
+           + ParamToStr(idName, decoded.rayOrigin)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmin)
+           + ", "
+           + ParamToStr(idName, decoded.rayDirection)
+           + ", "
+           + ParamToStr(idName, decoded.rayTmax)
+           + ", "
+           + ParamToStr(idName, decoded.currentTime)
+           + ", "
+           + ParamToStr(idName, decoded.payload)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectRecordEmptyEXT:
+    {
+      OpHitObjectRecordEmptyEXT decoded(it);
+      ret += rdcstr("HitObjectRecordEmptyEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectExecuteShaderEXT:
+    {
+      OpHitObjectExecuteShaderEXT decoded(it);
+      ret += rdcstr("HitObjectExecuteShaderEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.payload)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetCurrentTimeEXT:
+    {
+      OpHitObjectGetCurrentTimeEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetCurrentTimeEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetAttributesEXT:
+    {
+      OpHitObjectGetAttributesEXT decoded(it);
+      ret += rdcstr("HitObjectGetAttributesEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ", "
+           + ParamToStr(idName, decoded.hitObjectAttribute)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetHitKindEXT:
+    {
+      OpHitObjectGetHitKindEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetHitKindEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetPrimitiveIndexEXT:
+    {
+      OpHitObjectGetPrimitiveIndexEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetPrimitiveIndexEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetGeometryIndexEXT:
+    {
+      OpHitObjectGetGeometryIndexEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetGeometryIndexEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetInstanceIdEXT:
+    {
+      OpHitObjectGetInstanceIdEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetInstanceIdEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetInstanceCustomIndexEXT:
+    {
+      OpHitObjectGetInstanceCustomIndexEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetInstanceCustomIndexEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetObjectRayOriginEXT:
+    {
+      OpHitObjectGetObjectRayOriginEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetObjectRayOriginEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetObjectRayDirectionEXT:
+    {
+      OpHitObjectGetObjectRayDirectionEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetObjectRayDirectionEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetWorldRayDirectionEXT:
+    {
+      OpHitObjectGetWorldRayDirectionEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetWorldRayDirectionEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetWorldRayOriginEXT:
+    {
+      OpHitObjectGetWorldRayOriginEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetWorldRayOriginEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetObjectToWorldEXT:
+    {
+      OpHitObjectGetObjectToWorldEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetObjectToWorldEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetWorldToObjectEXT:
+    {
+      OpHitObjectGetWorldToObjectEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetWorldToObjectEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetRayTMaxEXT:
+    {
+      OpHitObjectGetRayTMaxEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetRayTMaxEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
            + ")";
       break;
     }
@@ -12138,6 +12896,60 @@ rdcstr OpDecoder::Disassemble(const ConstIter &it, const std::function<rdcstr(Id
       OpHitObjectGetClusterIdNV decoded(it);
       ret += declName(decoded.resultType, decoded.result) + " = ";
       ret += rdcstr("HitObjectGetClusterIdNV("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetRayTMinEXT:
+    {
+      OpHitObjectGetRayTMinEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetRayTMinEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetShaderBindingTableRecordIndexEXT:
+    {
+      OpHitObjectGetShaderBindingTableRecordIndexEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetShaderBindingTableRecordIndexEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectGetShaderRecordBufferHandleEXT:
+    {
+      OpHitObjectGetShaderRecordBufferHandleEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectGetShaderRecordBufferHandleEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectIsEmptyEXT:
+    {
+      OpHitObjectIsEmptyEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectIsEmptyEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectIsHitEXT:
+    {
+      OpHitObjectIsHitEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectIsHitEXT("_lit)
+           + ParamToStr(idName, decoded.hitObject)
+           + ")";
+      break;
+    }
+    case rdcspv::Op::HitObjectIsMissEXT:
+    {
+      OpHitObjectIsMissEXT decoded(it);
+      ret += declName(decoded.resultType, decoded.result) + " = ";
+      ret += rdcstr("HitObjectIsMissEXT("_lit)
            + ParamToStr(idName, decoded.hitObject)
            + ")";
       break;
@@ -14185,6 +14997,11 @@ OpDecoder::OpDecoder(const ConstIter &it)
     case rdcspv::Op::SpecConstantStringAMDX: result = Id::fromWord(it.word(1)); resultType = Id(); break;
     case rdcspv::Op::GroupNonUniformQuadAllKHR: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::GroupNonUniformQuadAnyKHR: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::TypeBufferEXT: result = Id::fromWord(it.word(1)); resultType = Id(); break;
+    case rdcspv::Op::BufferPointerEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::UntypedImageTexelPointerEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::MemberDecorateIdEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::ConstantSizeOfEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::HitObjectRecordHitMotionNV: result = Id(); resultType = Id(); break;
     case rdcspv::Op::HitObjectRecordHitWithIndexMotionNV: result = Id(); resultType = Id(); break;
     case rdcspv::Op::HitObjectRecordMissMotionNV: result = Id(); resultType = Id(); break;
@@ -14219,7 +15036,7 @@ OpDecoder::OpDecoder(const ConstIter &it)
     case rdcspv::Op::ReorderThreadWithHintNV: result = Id(); resultType = Id(); break;
     case rdcspv::Op::TypeHitObjectNV: result = Id::fromWord(it.word(1)); resultType = Id(); break;
     case rdcspv::Op::ImageSampleFootprintNV: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
-    case rdcspv::Op::TypeCooperativeVectorNV: result = Id::fromWord(it.word(1)); resultType = Id(); break;
+    case rdcspv::Op::TypeVectorIdEXT: result = Id::fromWord(it.word(1)); resultType = Id(); break;
     case rdcspv::Op::CooperativeVectorMatrixMulNV: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::CooperativeVectorOuterProductAccumulateNV: result = Id(); resultType = Id(); break;
     case rdcspv::Op::CooperativeVectorReduceSumAccumulateNV: result = Id(); resultType = Id(); break;
@@ -14227,12 +15044,42 @@ OpDecoder::OpDecoder(const ConstIter &it)
     case rdcspv::Op::CooperativeMatrixConvertNV: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::EmitMeshTasksEXT: result = Id(); resultType = Id(); break;
     case rdcspv::Op::SetMeshOutputsEXT: result = Id(); resultType = Id(); break;
-    case rdcspv::Op::GroupNonUniformPartitionNV: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::GroupNonUniformPartitionEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::WritePackedPrimitiveIndices4x8NV: result = Id(); resultType = Id(); break;
     case rdcspv::Op::FetchMicroTriangleVertexPositionNV: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::FetchMicroTriangleVertexBarycentricNV: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::CooperativeVectorLoadNV: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::CooperativeVectorStoreNV: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectRecordFromQueryEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectRecordMissEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectRecordMissMotionEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectGetIntersectionTriangleVertexPositionsEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetRayFlagsEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectSetShaderBindingTableRecordIndexEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectReorderExecuteShaderEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectTraceReorderExecuteEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectTraceMotionReorderExecuteEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::TypeHitObjectEXT: result = Id::fromWord(it.word(1)); resultType = Id(); break;
+    case rdcspv::Op::ReorderThreadWithHintEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::ReorderThreadWithHitObjectEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectTraceRayEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectTraceRayMotionEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectRecordEmptyEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectExecuteShaderEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectGetCurrentTimeEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetAttributesEXT: result = Id(); resultType = Id(); break;
+    case rdcspv::Op::HitObjectGetHitKindEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetPrimitiveIndexEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetGeometryIndexEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetInstanceIdEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetInstanceCustomIndexEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetObjectRayOriginEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetObjectRayDirectionEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetWorldRayDirectionEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetWorldRayOriginEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetObjectToWorldEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetWorldToObjectEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetRayTMaxEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::ReportIntersectionKHR: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::IgnoreIntersectionNV: result = Id(); resultType = Id(); break;
     case rdcspv::Op::TerminateRayNV: result = Id(); resultType = Id(); break;
@@ -14244,6 +15091,12 @@ OpDecoder::OpDecoder(const ConstIter &it)
     case rdcspv::Op::ExecuteCallableNV: result = Id(); resultType = Id(); break;
     case rdcspv::Op::RayQueryGetIntersectionClusterIdNV: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::HitObjectGetClusterIdNV: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetRayTMinEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetShaderBindingTableRecordIndexEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectGetShaderRecordBufferHandleEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectIsEmptyEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectIsHitEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
+    case rdcspv::Op::HitObjectIsMissEXT: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::TypeCooperativeMatrixNV: result = Id::fromWord(it.word(1)); resultType = Id(); break;
     case rdcspv::Op::CooperativeMatrixLoadNV: result = Id::fromWord(it.word(2)); resultType = Id::fromWord(it.word(1)); break;
     case rdcspv::Op::CooperativeMatrixStoreNV: result = Id(); resultType = Id(); break;
