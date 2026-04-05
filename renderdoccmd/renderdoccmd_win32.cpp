@@ -25,7 +25,6 @@
 
 #include "renderdoccmd.h"
 #include <app/renderdoc_app.h>
-#include <renderdoc_ui_exe_name.h>
 #include <renderdocshim.h>
 #include <windows.h>
 #include <string>
@@ -435,7 +434,7 @@ public:
     // run original UI exe (as admin still) and tell it an update succeeded so that it can do any last updates
     std::wstring cmdline = L"\"";
     cmdline += wide_path;
-    cmdline += L"/" RENDERDOC_UI_EXE_WSTR_FULL L"\" ";
+    cmdline += L"/qrenderdoc.exe\" ";
     if(successful)
       cmdline += L"--updatedone_admin";
     else
@@ -510,7 +509,7 @@ public:
           show.vt = VT_I4;
           show.lVal = SW_SHOWNORMAL;
 
-          std::wstring qrenderdoc = wide_path + L"/" RENDERDOC_UI_EXE_WSTR_FULL;
+          std::wstring qrenderdoc = wide_path + L"/qrenderdoc.exe";
 
           BSTR path = SysAllocStringLen(qrenderdoc.c_str(), (UINT)qrenderdoc.size());
           memcpy(path, qrenderdoc.c_str(), qrenderdoc.size());
@@ -534,7 +533,7 @@ public:
 
     cmdline = L"\"";
     cmdline += wide_path;
-    cmdline += L"/" RENDERDOC_UI_EXE_WSTR_FULL L"\" --updatedone";
+    cmdline += L"/qrenderdoc.exe\" --updatedone";
     ZeroMemory(paramsAlloc, sizeof(wchar_t) * 512);
     wcscpy_s(paramsAlloc, 511, cmdline.c_str());
 
@@ -730,7 +729,7 @@ public:
 
           ZeroMemory(paramsAlloc, sizeof(wchar_t) * 512);
 
-          _snwprintf_s(paramsAlloc, 511, 511, L"%s/" RENDERDOC_UI_EXE_WSTR_FULL L" --crash %s", exepath.c_str(),
+          _snwprintf_s(paramsAlloc, 511, 511, L"%s/qrenderdoc.exe --crash %s", exepath.c_str(),
                        destjson.c_str());
 
           PROCESS_INFORMATION pi;
@@ -815,12 +814,12 @@ public:
 
     wchar_t rdocpath[1024];
 
-    // fetch path to our matching core dll
-    HMODULE rdoc = GetModuleHandleA(RENDERDOC_CORE_DLL_FULL);
+    // fetch path to our matching renderdoc.dll
+    HMODULE rdoc = GetModuleHandleA("renderdoc.dll");
 
     if(rdoc == NULL)
     {
-      std::cerr << "globalhook couldn't find " RENDERDOC_CORE_DLL_FULL "!" << std::endl;
+      std::cerr << "globalhook couldn't find renderdoc.dll!" << std::endl;
       return 1;
     }
 

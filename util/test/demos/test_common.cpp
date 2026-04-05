@@ -628,7 +628,7 @@ void GraphicsTest::Prepare(int argc, char **argv)
   pRENDERDOC_GetAPI RENDERDOC_GetAPI = NULL;
 
 #if defined(WIN32)
-  HMODULE mod = GetModuleHandleA("rdoc_core.dll");
+  HMODULE mod = GetModuleHandleA("renderdoc.dll");
   if(mod)
     RENDERDOC_GetAPI = (pRENDERDOC_GetAPI)GetProcAddress(mod, "RENDERDOC_GetAPI");
 #elif defined(ANDROID)

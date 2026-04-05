@@ -23,7 +23,6 @@
  ******************************************************************************/
 
 #include <stdio.h>
-#include "renderdoc_ui_exe_name.h"
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>

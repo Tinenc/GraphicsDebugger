@@ -33,7 +33,6 @@
 #include <urlmon.h>
 #include <set>
 #include "api/app/renderdoc_app.h"
-#include "renderdoc_ui_exe_name.h"
 #include "api/replay/data_types.h"
 #include "common/common.h"
 #include "common/formatting.h"
@@ -287,7 +286,7 @@ rdcstr GetReplayAppFilename()
 
   rdcstr path = StringFormat::Wide2UTF8(curFile);
   path = get_dirname(path);
-  rdcstr exe = path + "/" RENDERDOC_UI_EXE_FULL;
+  rdcstr exe = path + "/qrenderdoc.exe";
 
   FILE *f = FileIO::fopen(exe, FileIO::ReadBinary);
   if(f)
@@ -296,9 +295,9 @@ rdcstr GetReplayAppFilename()
     return exe;
   }
 
-  // if UI exe doesn't live in the same dir, we must be in x86/
+  // if qrenderdoc.exe doesn't live in the same dir, we must be in x86/
   // so look one up the tree.
-  exe = path + "/../" RENDERDOC_UI_EXE_FULL;
+  exe = path + "/../qrenderdoc.exe";
 
   f = FileIO::fopen(exe, FileIO::ReadBinary);
   if(f)

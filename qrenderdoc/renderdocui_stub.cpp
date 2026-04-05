@@ -23,7 +23,6 @@
  ******************************************************************************/
 
 #include <windows.h>
-#include "renderdoc_ui_exe_name.h"
 
 int WINAPI wWinMain(_In_ HINSTANCE hInst, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine,
                     _In_ int nShowCmd)
@@ -58,7 +57,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInst, _In_opt_ HINSTANCE hPrevInstance, _In_
     w++;
   }
 
-  wcscat_s(curFile, 511, RENDERDOC_UI_EXE_WSTR_FULL);
+  wcscat_s(curFile, 511, L"qrenderdoc.exe");
 
   wcscpy_s(paramsAlloc, len, curFile);
 

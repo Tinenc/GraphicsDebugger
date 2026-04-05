@@ -23,7 +23,6 @@
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>common</RootNamespace>
     <ProjectName>breakpad_common</ProjectName>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(SolutionDir)\util\WindowsSDKTarget.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Development|Win32">
@@ -31,7 +31,6 @@
     <RootNamespace>qrenderdoc</RootNamespace>
     <Keyword>Qt4VSv1.0</Keyword>
     <ProjectName>qrenderdoc</ProjectName>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(SolutionDir)\util\WindowsSDKTarget.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -41,8 +40,8 @@
     <ATLMinimizesCRunTimeLibraryUsage>false</ATLMinimizesCRunTimeLibraryUsage>
     <CharacterSet>NotSet</CharacterSet>
     <ConfigurationType>Application</ConfigurationType>
-    <PrimaryOutput>TestName</PrimaryOutput>
-    <TargetName>TestName</TargetName>
+    <PrimaryOutput>qrenderdoc</PrimaryOutput>
+    <TargetName>qrenderdoc</TargetName>
     <IgnoreImportLibrary>true</IgnoreImportLibrary>
     <SolutionRelativeIntDir>$(Platform)\$(Configuration)\obj\$(ProjectName)\</SolutionRelativeIntDir>
   </PropertyGroup>
@@ -72,7 +71,6 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>WIN64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(SolutionDir)\renderdoc\;$(SolutionDir)\renderdoc\api\replay;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -108,7 +106,7 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <TreatWChar_tAsBuiltInType>true</TreatWChar_tAsBuiltInType>
-      <AdditionalIncludeDirectories>$(ProjectDir);3rdparty;$(IntDir)generated\;$(SolutionDir)\renderdoc\;$(SolutionDir)\renderdoc\api\replay;$(PythonIncludeDir);3rdparty\pyside\include\PySide2;3rdparty\pyside\include\shiboken2;$(QtIncludeDir);$(QtIncludeDir)\QtWidgets;$(QtIncludeDir)\QtGui;$(QtIncludeDir)\QtCore;$(QtIncludeDir)\QtSvg;$(QtIncludeDir)\QtNetwork;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);3rdparty;$(IntDir)generated\;$(SolutionDir)\renderdoc\api\replay;$(PythonIncludeDir);3rdparty\pyside\include\PySide2;3rdparty\pyside\include\shiboken2;$(QtIncludeDir);$(QtIncludeDir)\QtWidgets;$(QtIncludeDir)\QtGui;$(QtIncludeDir)\QtCore;$(QtIncludeDir)\QtSvg;$(QtIncludeDir)\QtNetwork;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/Zc:strictStrings /Zc:throwingNew %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>_WINDOWS;UNICODE;WIN32;WIN64;RENDERDOC_PLATFORM_WIN32;SCINTILLA_QT=1;MAKING_LIBRARY=1;SCI_LEXER=1;QT_NO_CAST_FROM_ASCII;QT_NO_CAST_TO_ASCII;QT_WIDGETS_LIB;QT_GUI_LIB;QT_CORE_LIB;QT_SVG_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level4</WarningLevel>
@@ -121,7 +119,6 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <AdditionalDependencies>user32.lib;$(PythonImportLib);qtmain.lib;Qt5Widgets.lib;Qt5Gui.lib;Qt5Core.lib;Qt5Svg.lib;Qt5Network.lib;shell32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>3rdparty\pyside\$(Platform);$(QtLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <DataExecutionPrevention>true</DataExecutionPrevention>
@@ -141,7 +138,7 @@
     </Midl>
     <ResourceCompile>
       <PreprocessorDefinitions>_WINDOWS;UNICODE;WIN32;RENDERDOC_PLATFORM_WIN32;QT_WIDGETS_LIB;QT_GUI_LIB;QT_CORE_LIB;QT_SVG_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(SolutionDir)\renderdoc\;$(SolutionDir)\renderdoc\api\replay</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\renderdoc\api\replay</AdditionalIncludeDirectories>
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='QTDebug'">

@@ -23,7 +23,6 @@
  ******************************************************************************/
 
 #include "UpdateDialog.h"
-#include "renderdoc_ui_exe_name.h"
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
@@ -256,7 +255,7 @@ void UpdateDialog::on_update_clicked()
 
       bool success = true;
 
-      QString dll = lit(RENDERDOC_CORE_DLL_FULL);
+      QString dll = lit("renderdoc.dll");
       QString cmd = lit("renderdoccmd.exe");
 
       QFile::remove(dir.absoluteFilePath(dll));
