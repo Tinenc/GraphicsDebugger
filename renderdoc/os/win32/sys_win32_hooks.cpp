@@ -337,7 +337,7 @@ private:
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("rendertestcmd.exe") || app.contains("qrendertest.exe"))
+      if(app.contains("gfxdiagcmd.exe") || app.contains("qgfxdiag.exe"))
       {
         inject = false;
       }
@@ -346,7 +346,7 @@ private:
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("rendertestcmd.exe") || cmd.contains("qrendertest.exe"))
+      if(cmd.contains("gfxdiagcmd.exe") || cmd.contains("qgfxdiag.exe"))
       {
         inject = false;
       }

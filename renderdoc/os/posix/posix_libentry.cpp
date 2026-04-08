@@ -31,7 +31,7 @@ void ResetHookingEnvVars();
 // DllMain equivalent
 void library_loaded()
 {
-  if(LibraryHooks::Detect(STRINGIZE(RDOC_BASE_NAME) "__replay__marker"))
+  if(LibraryHooks::Detect("gfxdiag__replay__marker"))
   {
     RDCDEBUG("Not creating hooks - in replay app");
 

@@ -25,7 +25,7 @@
 #include "gl_common.h"
 #include "wgl_dispatch_table.h"
 
-#define WINDOW_CLASS_NAME L"rendertestGLclass"
+#define WINDOW_CLASS_NAME L"gfxdiagGLclass"
 
 class WGLPlatform : public GLPlatform
 {

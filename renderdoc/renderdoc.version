@@ -17,8 +17,8 @@
                 execve;
                 execvpe;
                 _exit;
-                RENDERDOC_*;
-                VK_LAYER_RENDERDOC_*;
+                RTCAP_*;
+                VK_LAYER_RTCAP_*;
         local:
                 *;
 };

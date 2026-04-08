@@ -333,7 +333,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_CreateBugReport(const rdcst
   if(report.empty())
   {
     report = FileIO::GetTempFolderFilename() +
-             StringFormat::sntimef(Timing::GetUTCTime(), "/renderdoc_report_%H%M%S.zip");
+StringFormat::sntimef(Timing::GetUTCTime(), "/gfxdiag_report_%H%M%S.zip");
   }
 
   FileIO::Delete(report);
@@ -551,8 +551,8 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_StartSelfHostCapture(const 
   if(module == NULL)
     return;
 
-  pRENDERDOC_GetAPI get =
-      (pRENDERDOC_GetAPI)Process::GetFunctionAddress(module, "RENDERDOC_GetAPI");
+  pRTCAP_GetAPI get =
+      (pRTCAP_GetAPI)Process::GetFunctionAddress(module, "RTCAP_GetAPI");
 
   if(get == NULL)
     return;
@@ -577,8 +577,8 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_EndSelfHostCapture(const rd
   if(module == NULL)
     return;
 
-  pRENDERDOC_GetAPI get =
-      (pRENDERDOC_GetAPI)Process::GetFunctionAddress(module, "RENDERDOC_GetAPI");
+  pRTCAP_GetAPI get =
+      (pRTCAP_GetAPI)Process::GetFunctionAddress(module, "RTCAP_GetAPI");
 
   if(get == NULL)
     return;
@@ -681,7 +681,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_UpdateInstalledVersionNumbe
         Publisher[0] = 0;
 
       // if this is our key, set the version number
-      if(!strcmp(DisplayName, "RenderDoc") && !strcmp(Publisher, "Baldur Karlsson"))
+      if(!strcmp(DisplayName, "GfxDiag") && !strcmp(Publisher, "Baldur Karlsson"))
       {
         DWORD Version = (RENDERDOC_VERSION_MAJOR << 24) | (RENDERDOC_VERSION_MINOR << 16);
         DWORD VersionMajor = RENDERDOC_VERSION_MAJOR;
