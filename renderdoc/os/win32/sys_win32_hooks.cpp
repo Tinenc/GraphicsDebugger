@@ -332,12 +332,13 @@ private:
     bool inject = true;
 
     // sanity check to make sure we're not going to go into an infinity loop injecting into
-    // ourselves.
+    // ourselves, and skip known-incompatible child processes (e.g. Qt WebEngine).
     if(lpApplicationName)
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("gfxdiagcmd.exe") || app.contains("qgfxdiag.exe"))
+      if(app.contains("gfxdiagcmd.exe") || app.contains("qgfxdiag.exe") ||
+         app.contains("platformprocess.exe"))
       {
         inject = false;
       }
@@ -346,7 +347,8 @@ private:
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("gfxdiagcmd.exe") || cmd.contains("qgfxdiag.exe"))
+      if(cmd.contains("gfxdiagcmd.exe") || cmd.contains("qgfxdiag.exe") ||
+         cmd.contains("platformprocess.exe"))
       {
         inject = false;
       }
