@@ -168,7 +168,7 @@ void sharedLogOutput(QtMsgType type, const QMessageLogContext &context, const QS
 
 static QString tr(const char *string)
 {
-  return QApplication::translate("qrenderdoc", string);
+  return QApplication::translate("qTinecmaTools", string);
 }
 
 void hideOption(QCommandLineOption &opt)
@@ -193,7 +193,7 @@ int main(int argc, char *argv[])
   // an optimisation
   qputenv("QT_NO_SUBTRACTOPAQUESIBLINGS", lit("1").toUtf8());
 
-  qInfo() << "QRenderDoc initialising.";
+  qInfo() << "QTinecmaTools initialising.";
 
   if(IsRunningAsAdmin())
     qInfo() << "Running as administrator";
@@ -262,7 +262,7 @@ int main(int argc, char *argv[])
 
       Catch::Session session;
 
-      session.configData().name = "QRenderDoc";
+      session.configData().name = "QTinecmaTools";
       session.configData().shouldDebugBreak = Catch::isDebuggerActive();
 
       ret = session.applyCommandLine(argc, mod_argv);
@@ -388,7 +388,7 @@ int main(int argc, char *argv[])
 
   if(parser.isSet(versionOption))
   {
-    printf("QRenderDoc v%s (%s)\n", MAJOR_MINOR_VERSION_STRING, RENDERDOC_GetCommitHash());
+    printf("QTinecmaTools v%s (%s)\n", MAJOR_MINOR_VERSION_STRING, RENDERDOC_GetCommitHash());
 #if defined(DISTRIBUTION_VERSION)
     printf("Packaged for %s - %s\n", DISTRIBUTION_NAME, DISTRIBUTION_CONTACT);
 #endif
@@ -647,7 +647,7 @@ int main(int argc, char *argv[])
       }
       Analytics::Prompt(ctx, config);
 
-      ANALYTIC_SET(Metadata.RenderDocVersion, lit(FULL_VERSION_STRING));
+      ANALYTIC_SET(Metadata.TinecmaToolsVersion, lit(FULL_VERSION_STRING));
 #if defined(DISTRIBUTION_VERSION)
       ANALYTIC_SET(Metadata.DistributionVersion, lit(DISTRIBUTION_NAME));
 #endif

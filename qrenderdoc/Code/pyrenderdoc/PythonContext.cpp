@@ -110,7 +110,7 @@ static inline QString ToQStr(PyObject *value)
   return QString();
 }
 
-static wchar_t program_name[] = L"qrenderdoc";
+static wchar_t program_name[] = L"qTinecmaTools";
 static wchar_t python_home[1024] = {0};
 
 struct OutputRedirector
@@ -233,7 +233,7 @@ void PythonContext::GlobalInit()
   qRegisterMetaType<QList<QString>>("QList<QString>");
 
   PyImport_AppendInittab("renderdoc", &PyInit_renderdoc);
-  PyImport_AppendInittab("qrenderdoc", &PyInit_qrenderdoc);
+  PyImport_AppendInittab("qTinecmaTools", &PyInit_qrenderdoc);
 
 #if PY_VERSION_HEX > 0x030B0000
   PyConfig config;
@@ -292,7 +292,7 @@ void PythonContext::GlobalInit()
   PyObject *main_module = PyImport_AddModule("__main__");
 
   PyModule_AddObject(main_module, "renderdoc", PyImport_ImportModule("renderdoc"));
-  PyModule_AddObject(main_module, "qrenderdoc", PyImport_ImportModule("qrenderdoc"));
+  PyModule_AddObject(main_module, "qTinecmaTools", PyImport_ImportModule("qTinecmaTools"));
 
   main_dict = PyModule_GetDict(main_module);
 
@@ -529,7 +529,7 @@ bool PythonContext::CheckInterfaces(rdcstr &log)
   errors |= CheckCoreInterface(log);
   errors |= CheckQtInterface(log);
 
-  for(rdcstr module_name : {"renderdoc", "qrenderdoc"})
+  for(rdcstr module_name : {"renderdoc", "qTinecmaTools"})
   {
     PyObject *mod = PyImport_ImportModule(module_name.c_str());
     PyObject *dict = PyModule_GetDict(mod);

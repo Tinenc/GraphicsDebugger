@@ -926,12 +926,12 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
       RDResult result;
 #if RENDERDOC_OFFICIAL_BUILD
       SET_ERROR_RESULT(result, ResultCode::InternalError,
-                       "Can't run 32-bit renderdoccmd to capture 32-bit program.");
+                       "Can't run 32-bit TinecmaToolscmd to capture 32-bit program.");
 #else
       SET_ERROR_RESULT(
           result, ResultCode::InternalError,
-          "Can't run 32-bit renderdoccmd to capture 32-bit program."
-          "If this is a locally built RenderDoc you must build both 32-bit and 64-bit versions.");
+          "Can't run 32-bit TinecmaToolscmd to capture 32-bit program."
+          "If this is a locally built TinecmaTools you must build both 32-bit and 64-bit versions.");
 #endif
       CloseHandle(hProcess);
       return {result, 0};
@@ -963,7 +963,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
       ResultCode code = (ResultCode)exitCode;
 
       RDResult result;
-      SET_ERROR_RESULT(result, code, "32-bit renderdoccmd returned '%s'", ToStr(code).c_str());
+      SET_ERROR_RESULT(result, code, "32-bit TinecmaToolscmd returned '%s'", ToStr(code).c_str());
       return {code, 0};
     }
 

@@ -145,7 +145,7 @@ struct Analytics
   struct
   {
     // The version string (MAJOR_MINOR_VERSION_STRING) of this build.
-    QString RenderDocVersion;
+    QString TinecmaToolsVersion;
 
     // The distribution information (DISTRIBUTION_NAME) for this build.
     QString DistributionVersion;

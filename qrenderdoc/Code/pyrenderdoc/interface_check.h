@@ -78,8 +78,8 @@ inline bool checkname(rdcstr &log, const char *baseType, rdcstr name, NameType n
   // remove the module prefix, if this is a type name we're checking
   if(name.beginsWith("renderdoc."))
     name.erase(0, 10);
-  if(name.beginsWith("qrenderdoc."))
-    name.erase(0, 11);
+  if(name.beginsWith("qTinecmaTools."))
+    name.erase(0, 14);
 
   // skip a few well-known members
   if(name == "this" || name == "thisown")
