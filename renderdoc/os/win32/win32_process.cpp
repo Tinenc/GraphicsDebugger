@@ -249,6 +249,8 @@ extern "C" __declspec(dllexport) void __cdecl INTERNAL_ApplyEnvMods(void *ignore
   Process::ApplyEnvironmentModification();
 }
 
+uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName);
+
 void InjectDLL(HANDLE hProcess, rdcwstr libName)
 {
   wchar_t dllPath[MAX_PATH + 1] = {0};
@@ -344,8 +346,19 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
         ctx.Rip = (DWORD64)stubMem;
         SetThreadContext(hThread, &ctx);
         ResumeThread(hThread);
-        Sleep(200);
-        injected = true;
+        // Poll until TinecmaTools.dll appears in the target's module list (up to 5 seconds).
+        // A fixed sleep is unreliable: DLL init can be slow and SetThreadContext can fail
+        // silently. Only mark injected=true when the DLL is actually present; otherwise
+        // fall back to CreateRemoteThread below.
+        for(int retry = 0; retry < 100; retry++)
+        {
+          Sleep(50);
+          if(FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll") != 0)
+          {
+            injected = true;
+            break;
+          }
+        }
       }
       else
       {
