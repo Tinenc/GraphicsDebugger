@@ -284,11 +284,14 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
   bool injected = false;
 
 #if ENABLED(RDOC_X64)
-  // Use SetThreadContext to hijack an existing thread, bypassing CreateRemoteThread monitoring
-  // used by anti-cheat systems such as CrashSight.
+  // Queue an APC to every enumerable thread in the target process.
+  // Compared to SetThreadContext hijacking this requires only THREAD_SET_CONTEXT
+  // (no SuspendThread / GetThreadContext / SetThreadContext), generates no
+  // shellcode pages, and doesn't modify any thread's execution state directly.
+  // The APC fires the next time each thread enters an alertable wait
+  // (SleepEx, WaitForMultipleObjectsEx with bAlertable=TRUE, etc.).
   DWORD pid = GetProcessId(hProcess);
   HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-  HANDLE hThread = NULL;
   if(hSnap != INVALID_HANDLE_VALUE)
   {
     THREADENTRY32 te;
@@ -299,79 +302,25 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
       {
         if(te.th32OwnerProcessID == pid)
         {
-          hThread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT,
-                               FALSE, te.th32ThreadID);
-          if(hThread)
-            break;
+          HANDLE hThr = OpenThread(THREAD_SET_CONTEXT, FALSE, te.th32ThreadID);
+          if(hThr)
+          {
+            if(QueueUserAPC((PAPCFUNC)loadLibAddr, hThr, (ULONG_PTR)remoteMem))
+              injected = true;
+            CloseHandle(hThr);
+          }
         }
       } while(Thread32Next(hSnap, &te));
     }
     CloseHandle(hSnap);
   }
 
-  if(hThread)
+  if(injected)
   {
-    SuspendThread(hThread);
-
-    CONTEXT ctx;
-    ctx.ContextFlags = CONTEXT_FULL;
-    if(GetThreadContext(hThread, &ctx))
-    {
-      DWORD64 origRip = ctx.Rip;
-
-      // x64 stub:
-      //   sub  rsp, 0x28      ; 32-byte shadow space + 8 for alignment
-      //   mov  rcx, <path>    ; LoadLibraryW argument
-      //   mov  rax, <LLW>     ; LoadLibraryW address
-      //   call rax
-      //   add  rsp, 0x28      ; restore rsp
-      //   mov  rax, <origRip> ; return to original execution
-      //   jmp  rax
-      uint8_t stub[64] = {};
-      size_t off = 0;
-      stub[off++] = 0x48; stub[off++] = 0x83; stub[off++] = 0xEC; stub[off++] = 0x28;
-      stub[off++] = 0x48; stub[off++] = 0xB9;
-      memcpy(stub + off, &remoteMem, 8); off += 8;
-      stub[off++] = 0x48; stub[off++] = 0xB8;
-      memcpy(stub + off, &loadLibAddr, 8); off += 8;
-      stub[off++] = 0xFF; stub[off++] = 0xD0;
-      stub[off++] = 0x48; stub[off++] = 0x83; stub[off++] = 0xC4; stub[off++] = 0x28;
-      stub[off++] = 0x48; stub[off++] = 0xB8;
-      memcpy(stub + off, &origRip, 8); off += 8;
-      stub[off++] = 0xFF; stub[off++] = 0xE0;
-
-      void *stubMem = VirtualAllocEx(hProcess, NULL, off, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-      if(stubMem && WriteProcessMemory(hProcess, stubMem, stub, off, NULL))
-      {
-        ctx.Rip = (DWORD64)stubMem;
-        SetThreadContext(hThread, &ctx);
-        ResumeThread(hThread);
-        // Poll until TinecmaTools.dll appears in the target's module list (up to 5 seconds).
-        // A fixed sleep is unreliable: DLL init can be slow and SetThreadContext can fail
-        // silently. Only mark injected=true when the DLL is actually present; otherwise
-        // fall back to CreateRemoteThread below.
-        for(int retry = 0; retry < 100; retry++)
-        {
-          Sleep(50);
-          if(FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll") != 0)
-          {
-            injected = true;
-            break;
-          }
-        }
-      }
-      else
-      {
-        if(stubMem)
-          VirtualFreeEx(hProcess, stubMem, 0, MEM_RELEASE);
-        ResumeThread(hThread);
-      }
-    }
-    else
-    {
-      ResumeThread(hThread);
-    }
-    CloseHandle(hThread);
+    // Give threads time to drain their APC queues and for DllMain to complete.
+    Sleep(3000);
+    // Verify the DLL actually appeared; if not, fall through to CreateRemoteThread.
+    injected = FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll") != 0;
   }
 #endif
 
