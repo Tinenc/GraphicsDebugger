@@ -249,8 +249,6 @@ extern "C" __declspec(dllexport) void __cdecl INTERNAL_ApplyEnvMods(void *ignore
   Process::ApplyEnvironmentModification();
 }
 
-uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName);
-
 void InjectDLL(HANDLE hProcess, rdcwstr libName)
 {
   wchar_t dllPath[MAX_PATH + 1] = {0};
@@ -266,81 +264,36 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
 
   void *remoteMem =
       VirtualAllocEx(hProcess, NULL, sizeof(dllPath), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-  if(!remoteMem)
+  if(remoteMem)
   {
-    RDCERR("Couldn't allocate remote memory for DLL '%ls': %u", libName.c_str(), GetLastError());
-    return;
-  }
-
-  if(!WriteProcessMemory(hProcess, remoteMem, (void *)dllPath, sizeof(dllPath), NULL))
-  {
-    RDCERR("Couldn't write remote memory %p with dllPath '%ls': %u", remoteMem, dllPath,
-           GetLastError());
-    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
-    return;
-  }
-
-  LPVOID loadLibAddr = (LPVOID)GetProcAddress(kernel32, "LoadLibraryW");
-  bool injected = false;
-
-#if ENABLED(RDOC_X64)
-  // Queue an APC to every enumerable thread in the target process.
-  // Compared to SetThreadContext hijacking this requires only THREAD_SET_CONTEXT
-  // (no SuspendThread / GetThreadContext / SetThreadContext), generates no
-  // shellcode pages, and doesn't modify any thread's execution state directly.
-  // The APC fires the next time each thread enters an alertable wait
-  // (SleepEx, WaitForMultipleObjectsEx with bAlertable=TRUE, etc.).
-  DWORD pid = GetProcessId(hProcess);
-  HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-  if(hSnap != INVALID_HANDLE_VALUE)
-  {
-    THREADENTRY32 te;
-    te.dwSize = sizeof(te);
-    if(Thread32First(hSnap, &te))
+    BOOL success = WriteProcessMemory(hProcess, remoteMem, (void *)dllPath, sizeof(dllPath), NULL);
+    if(success)
     {
-      do
+      HANDLE hThread = CreateRemoteThread(
+          hProcess, NULL, 1024 * 1024U,
+          (LPTHREAD_START_ROUTINE)GetProcAddress(kernel32, "LoadLibraryW"), remoteMem, 0, NULL);
+      if(hThread)
       {
-        if(te.th32OwnerProcessID == pid)
-        {
-          HANDLE hThr = OpenThread(THREAD_SET_CONTEXT, FALSE, te.th32ThreadID);
-          if(hThr)
-          {
-            if(QueueUserAPC((PAPCFUNC)loadLibAddr, hThr, (ULONG_PTR)remoteMem))
-              injected = true;
-            CloseHandle(hThr);
-          }
-        }
-      } while(Thread32Next(hSnap, &te));
-    }
-    CloseHandle(hSnap);
-  }
-
-  if(injected)
-  {
-    // Give threads time to drain their APC queues and for DllMain to complete.
-    Sleep(3000);
-    // Verify the DLL actually appeared; if not, fall through to CreateRemoteThread.
-    injected = FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll") != 0;
-  }
-#endif
-
-  if(!injected)
-  {
-    HANDLE hCRTThread =
-        CreateRemoteThread(hProcess, NULL, 1024 * 1024U,
-                           (LPTHREAD_START_ROUTINE)loadLibAddr, remoteMem, 0, NULL);
-    if(hCRTThread)
-    {
-      WaitForSingleObject(hCRTThread, INFINITE);
-      CloseHandle(hCRTThread);
+        WaitForSingleObject(hThread, INFINITE);
+        CloseHandle(hThread);
+      }
+      else
+      {
+        RDCERR("Couldn't create remote thread for LoadLibraryW: %u", GetLastError());
+      }
     }
     else
     {
-      RDCERR("Couldn't create remote thread for LoadLibraryW: %u", GetLastError());
+      RDCERR("Couldn't write remote memory %p with dllPath '%ls': %u", remoteMem, dllPath,
+             GetLastError());
     }
-  }
 
-  VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+  }
+  else
+  {
+    RDCERR("Couldn't allocate remote memory for DLL '%ls': %u", libName.c_str(), GetLastError());
+  }
 }
 
 uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName)
