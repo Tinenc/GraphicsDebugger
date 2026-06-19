@@ -264,36 +264,121 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
 
   void *remoteMem =
       VirtualAllocEx(hProcess, NULL, sizeof(dllPath), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-  if(remoteMem)
+  if(!remoteMem)
   {
-    BOOL success = WriteProcessMemory(hProcess, remoteMem, (void *)dllPath, sizeof(dllPath), NULL);
-    if(success)
+    RDCERR("Couldn't allocate remote memory for DLL '%ls': %u", libName.c_str(), GetLastError());
+    return;
+  }
+
+  if(!WriteProcessMemory(hProcess, remoteMem, (void *)dllPath, sizeof(dllPath), NULL))
+  {
+    RDCERR("Couldn't write remote memory %p with dllPath '%ls': %u", remoteMem, dllPath,
+           GetLastError());
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+    return;
+  }
+
+  LPVOID loadLibAddr = (LPVOID)GetProcAddress(kernel32, "LoadLibraryW");
+  bool injected = false;
+
+#if ENABLED(RDOC_X64)
+  // Use SetThreadContext to hijack an existing thread, bypassing CreateRemoteThread monitoring
+  // used by anti-cheat systems such as CrashSight.
+  DWORD pid = GetProcessId(hProcess);
+  HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+  HANDLE hThread = NULL;
+  if(hSnap != INVALID_HANDLE_VALUE)
+  {
+    THREADENTRY32 te;
+    te.dwSize = sizeof(te);
+    if(Thread32First(hSnap, &te))
     {
-      HANDLE hThread = CreateRemoteThread(
-          hProcess, NULL, 1024 * 1024U,
-          (LPTHREAD_START_ROUTINE)GetProcAddress(kernel32, "LoadLibraryW"), remoteMem, 0, NULL);
-      if(hThread)
+      do
       {
-        WaitForSingleObject(hThread, INFINITE);
-        CloseHandle(hThread);
+        if(te.th32OwnerProcessID == pid)
+        {
+          hThread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT,
+                               FALSE, te.th32ThreadID);
+          if(hThread)
+            break;
+        }
+      } while(Thread32Next(hSnap, &te));
+    }
+    CloseHandle(hSnap);
+  }
+
+  if(hThread)
+  {
+    SuspendThread(hThread);
+
+    CONTEXT ctx;
+    ctx.ContextFlags = CONTEXT_FULL;
+    if(GetThreadContext(hThread, &ctx))
+    {
+      DWORD64 origRip = ctx.Rip;
+
+      // x64 stub:
+      //   sub  rsp, 0x28      ; 32-byte shadow space + 8 for alignment
+      //   mov  rcx, <path>    ; LoadLibraryW argument
+      //   mov  rax, <LLW>     ; LoadLibraryW address
+      //   call rax
+      //   add  rsp, 0x28      ; restore rsp
+      //   mov  rax, <origRip> ; return to original execution
+      //   jmp  rax
+      uint8_t stub[64] = {};
+      size_t off = 0;
+      stub[off++] = 0x48; stub[off++] = 0x83; stub[off++] = 0xEC; stub[off++] = 0x28;
+      stub[off++] = 0x48; stub[off++] = 0xB9;
+      memcpy(stub + off, &remoteMem, 8); off += 8;
+      stub[off++] = 0x48; stub[off++] = 0xB8;
+      memcpy(stub + off, &loadLibAddr, 8); off += 8;
+      stub[off++] = 0xFF; stub[off++] = 0xD0;
+      stub[off++] = 0x48; stub[off++] = 0x83; stub[off++] = 0xC4; stub[off++] = 0x28;
+      stub[off++] = 0x48; stub[off++] = 0xB8;
+      memcpy(stub + off, &origRip, 8); off += 8;
+      stub[off++] = 0xFF; stub[off++] = 0xE0;
+
+      void *stubMem = VirtualAllocEx(hProcess, NULL, off, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+      if(stubMem && WriteProcessMemory(hProcess, stubMem, stub, off, NULL))
+      {
+        ctx.Rip = (DWORD64)stubMem;
+        SetThreadContext(hThread, &ctx);
+        ResumeThread(hThread);
+        Sleep(200);
+        injected = true;
       }
       else
       {
-        RDCERR("Couldn't create remote thread for LoadLibraryW: %u", GetLastError());
+        if(stubMem)
+          VirtualFreeEx(hProcess, stubMem, 0, MEM_RELEASE);
+        ResumeThread(hThread);
       }
     }
     else
     {
-      RDCERR("Couldn't write remote memory %p with dllPath '%ls': %u", remoteMem, dllPath,
-             GetLastError());
+      ResumeThread(hThread);
     }
+    CloseHandle(hThread);
+  }
+#endif
 
-    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
-  }
-  else
+  if(!injected)
   {
-    RDCERR("Couldn't allocate remote memory for DLL '%ls': %u", libName.c_str(), GetLastError());
+    HANDLE hCRTThread =
+        CreateRemoteThread(hProcess, NULL, 1024 * 1024U,
+                           (LPTHREAD_START_ROUTINE)loadLibAddr, remoteMem, 0, NULL);
+    if(hCRTThread)
+    {
+      WaitForSingleObject(hCRTThread, INFINITE);
+      CloseHandle(hCRTThread);
+    }
+    else
+    {
+      RDCERR("Couldn't create remote thread for LoadLibraryW: %u", GetLastError());
+    }
   }
+
+  VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
 }
 
 uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName)
@@ -735,7 +820,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
       renderdocPath[idx] = 0;
 
-      wcscat_s(renderdocPath, L"\\Win32\\Development\\renderdoccmd.exe");
+      wcscat_s(renderdocPath, L"\\Win32\\Development\\TinecmaTools.exe");
     }
 
     if(!devLocation)
@@ -748,7 +833,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
         renderdocPath[idx] = 0;
 
-        wcscat_s(renderdocPath, L"\\Win32\\Release\\renderdoccmd.exe");
+        wcscat_s(renderdocPath, L"\\Win32\\Release\\TinecmaTools.exe");
       }
     }
 
@@ -763,7 +848,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         *slash = 0;
 
       // append path
-      wcscat_s(renderdocPath, L"\\x86\\renderdoccmd.exe");
+      wcscat_s(renderdocPath, L"\\x86\\TinecmaTools.exe");
     }
 #else
     // if it looks like we're in the development environment, look for the alternate bitness in the
@@ -775,7 +860,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
       renderdocPath[idx] = 0;
 
-      wcscat_s(renderdocPath, L"\\x64\\Development\\renderdoccmd.exe");
+      wcscat_s(renderdocPath, L"\\x64\\Development\\TinecmaTools.exe");
     }
 
     if(!devLocation)
@@ -788,7 +873,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
         renderdocPath[idx] = 0;
 
-        wcscat_s(renderdocPath, L"\\x64\\Release\\renderdoccmd.exe");
+        wcscat_s(renderdocPath, L"\\x64\\Release\\TinecmaTools.exe");
       }
     }
 
@@ -808,7 +893,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         *slash = 0;
 
       // append path
-      wcscat_s(renderdocPath, L"\\renderdoccmd.exe");
+      wcscat_s(renderdocPath, L"\\TinecmaTools.exe");
     }
 #endif
 
@@ -1379,7 +1464,7 @@ RDResult BackupAndChangeRegistry(GlobalHookData &hookdata, const rdcstr &shimpat
   // write it to disk but don't fail if we can't, just print it to the log and keep going.
   wchar_t reg_backup[MAX_PATH];
   GetTempPathW(MAX_PATH, reg_backup);
-  wcscat_s(reg_backup, L"RenderDoc_RestoreGlobalHook.reg");
+  wcscat_s(reg_backup, L"TinecmaTools_RestoreGlobalHook.reg");
 
   FILE *f = NULL;
   _wfopen_s(&f, reg_backup, L"w");
@@ -1498,7 +1583,7 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
   renderdocPath = get_dirname(renderdocPath);
 
   // the native renderdoccmd.exe is always next to the dll. Wow32 will be somewhere else
-  rdcstr cmdpathNative = renderdocPath + "\\renderdoccmd.exe";
+  rdcstr cmdpathNative = renderdocPath + "\\TinecmaTools.exe";
   rdcstr cmdpathWow32;
 
   rdcstr shimpathNative = renderdocPath;
@@ -1507,7 +1592,7 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
 #if ENABLED(RDOC_X64)
 
   // native shim is just renderdocshim64.dll
-  shimpathNative = renderdocPath + "\\renderdocshim64.dll";
+  shimpathNative = renderdocPath + "\\TinecmaToolsshim64.dll";
 
   // if it looks like we're in the development environment, look for the alternate bitness in the
   // corresponding folder
@@ -1516,8 +1601,8 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
   {
     renderdocPath.erase(devLocation, ~0U);
 
-    shimpathWow32 = renderdocPath + "\\Win32\\Development\\renderdocshim32.dll";
-    cmdpathWow32 = renderdocPath + "\\Win32\\Development\\renderdoccmd.exe";
+    shimpathWow32 = renderdocPath + "\\Win32\\Development\\TinecmaToolsshim32.dll";
+    cmdpathWow32 = renderdocPath + "\\Win32\\Development\\TinecmaTools.exe";
   }
   else
   {
@@ -1527,22 +1612,22 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
     {
       renderdocPath.erase(devLocation, ~0U);
 
-      shimpathWow32 = renderdocPath + "\\Win32\\Release\\renderdocshim32.dll";
-      cmdpathWow32 = renderdocPath + "\\Win32\\Release\\renderdoccmd.exe";
+      shimpathWow32 = renderdocPath + "\\Win32\\Release\\TinecmaToolsshim32.dll";
+      cmdpathWow32 = renderdocPath + "\\Win32\\Release\\TinecmaTools.exe";
     }
   }
 
   // if we're not in the dev environment, assume it's under a x86\ subfolder
   if(devLocation < 0)
   {
-    shimpathWow32 = renderdocPath + "\\x86\\renderdocshim32.dll";
-    cmdpathWow32 = renderdocPath + "\\x86\\renderdoccmd.exe";
+    shimpathWow32 = renderdocPath + "\\x86\\TinecmaToolsshim32.dll";
+    cmdpathWow32 = renderdocPath + "\\x86\\TinecmaTools.exe";
   }
 
 #else
 
   // nothing fancy to do here for 32-bit, just point the shim next to our dll.
-  shimpathNative = renderdocPath + "\\renderdocshim32.dll";
+  shimpathNative = renderdocPath + "\\TinecmaToolsshim32.dll";
 
 #endif
 

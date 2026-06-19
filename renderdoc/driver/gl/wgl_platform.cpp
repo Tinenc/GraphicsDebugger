@@ -25,7 +25,7 @@
 #include "gl_common.h"
 #include "wgl_dispatch_table.h"
 
-#define WINDOW_CLASS_NAME L"renderdocGLclass"
+#define WINDOW_CLASS_NAME L"TinecmaToolsGLclass"
 
 class WGLPlatform : public GLPlatform
 {

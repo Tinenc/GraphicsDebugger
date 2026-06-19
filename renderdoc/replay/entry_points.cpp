@@ -896,7 +896,7 @@ extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(int pytho
 {
 #if ENABLED(RDOC_WIN32)
   const char *moduledir = "/pymodules";
-  const char *modulename = "renderdoc.pyd";
+  const char *modulename = "TinecmaTools.pyd";
   rdcstr pythonlibs[] = {"python3?.dll"};
 #elif ENABLED(RDOC_LINUX)
   const char *moduledir = "";

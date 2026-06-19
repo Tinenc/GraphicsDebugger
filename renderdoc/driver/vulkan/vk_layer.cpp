@@ -165,7 +165,7 @@ class VulkanHook : LibraryHook
         EnvironmentModification(EnvMod::Set, EnvSep::NoSep, "DISABLE_LAYER", "1"));
 
     // support self-hosted capture by checking our filename and tweaking the env var we set
-    if(VulkanLayerJSONBasename != "renderdoc")
+    if(VulkanLayerJSONBasename != "TinecmaTools")
     {
       Process::RegisterEnvironmentModification(EnvironmentModification(
           EnvMod::Set, EnvSep::NoSep,

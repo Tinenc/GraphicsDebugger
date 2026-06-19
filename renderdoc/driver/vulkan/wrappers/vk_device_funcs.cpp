@@ -49,9 +49,9 @@ RDOC_CONFIG(bool, Vulkan_Debug_EnableGPUVA, false,
 static VkApplicationInfo renderdocAppInfo = {
     VK_STRUCTURE_TYPE_APPLICATION_INFO,
     NULL,
-    "RenderDoc Capturing App",
+    "TinecmaTools Capturing App",
     VK_MAKE_VERSION(RENDERDOC_VERSION_MAJOR, RENDERDOC_VERSION_MINOR, 0),
-    "RenderDoc",
+    "TinecmaTools",
     VK_MAKE_VERSION(RENDERDOC_VERSION_MAJOR, RENDERDOC_VERSION_MINOR, 0),
     VK_API_VERSION_1_0,
 };
