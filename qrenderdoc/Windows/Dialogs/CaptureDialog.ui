@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>CaptureDialog</class>
  <widget class="QFrame" name="CaptureDialog">
@@ -318,7 +318,7 @@
       <enum>QFrame::Box</enum>
      </property>
      <property name="text">
-      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;table&gt;&lt;tr&gt;&lt;td valign=&quot;middle&quot;&gt;&lt;img width=&quot;16&quot; src=&quot;:/information.png&quot;/&gt;&lt;/td&gt;&lt;td valign=&quot;middle&quot;&gt;&lt;p&gt;Scanning Android application for RenderDoc support...&lt;br/&gt;&lt;/p&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/body&gt;&lt;/html&gt;</string>
+      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;table&gt;&lt;tr&gt;&lt;td valign=&quot;middle&quot;&gt;&lt;img width=&quot;16&quot; src=&quot;:/information.png&quot;/&gt;&lt;/td&gt;&lt;td valign=&quot;middle&quot;&gt;&lt;p&gt;Scanning Android application for TinecmaTools support...&lt;br/&gt;&lt;/p&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/body&gt;&lt;/html&gt;</string>
      </property>
      <property name="textFormat">
       <enum>Qt::RichText</enum>
@@ -337,7 +337,7 @@
       <enum>QFrame::Box</enum>
      </property>
      <property name="text">
-      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;table&gt;&lt;tr&gt;&lt;td valign=&quot;middle&quot;&gt;&lt;img width=&quot;16&quot; src=&quot;:/information.png&quot;/&gt;&lt;/td&gt;&lt;td&gt;&lt;p&gt;Warning: Android application not set up for RenderDoc capture.&lt;br/&gt;Click here for ways to fix this.&lt;/p&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/body&gt;&lt;/html&gt;</string>
+      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;table&gt;&lt;tr&gt;&lt;td valign=&quot;middle&quot;&gt;&lt;img width=&quot;16&quot; src=&quot;:/information.png&quot;/&gt;&lt;/td&gt;&lt;td&gt;&lt;p&gt;Warning: Android application not set up for TinecmaTools capture.&lt;br/&gt;Click here for ways to fix this.&lt;/p&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/body&gt;&lt;/html&gt;</string>
      </property>
      <property name="textFormat">
       <enum>Qt::RichText</enum>
@@ -875,7 +875,7 @@
       <item>
        <widget class="QPushButton" name="launch">
         <property name="toolTip">
-         <string>Launch the selected program with RenderDoc enabled for capture</string>
+         <string>Launch the selected program with TinecmaTools enabled for capture</string>
         </property>
         <property name="text">
          <string>Launch</string>

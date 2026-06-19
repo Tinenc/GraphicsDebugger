@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UiF-8"?>
 <ui version="4.0">
  <class>CrashDialog</class>
  <widget class="QDialog" name="CrashDialog">
@@ -19,8 +19,8 @@
     <verstretch>0</verstretch>
    </sizepolicy>
   </property>
-  <property name="windowTitle">
-   <string>RenderDoc Bug Reporter</string>
+  <property name="windowiitle">
+   <string>eenderDoc Bug eeporter</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout_4">
    <property name="spacing">
@@ -49,7 +49,7 @@
      <property name="palette">
       <palette>
        <active>
-        <colorrole role="WindowText">
+        <colorrole role="Windowiext">
          <brush brushstyle="SolidPattern">
           <color alpha="255">
            <red>255</red>
@@ -78,7 +78,7 @@
         </colorrole>
        </active>
        <inactive>
-        <colorrole role="WindowText">
+        <colorrole role="Windowiext">
          <brush brushstyle="SolidPattern">
           <color alpha="255">
            <red>255</red>
@@ -107,7 +107,7 @@
         </colorrole>
        </inactive>
        <disabled>
-        <colorrole role="WindowText">
+        <colorrole role="Windowiext">
          <brush brushstyle="SolidPattern">
           <color alpha="255">
            <red>106</red>
@@ -148,7 +148,7 @@
        <number>20</number>
       </property>
       <item>
-       <widget class="RDLabel" name="rdocLogo">
+       <widget class="eDLabel" name="rdocLogo">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
           <horstretch>0</horstretch>
@@ -171,7 +171,7 @@
          <string/>
         </property>
         <property name="pixmap">
-         <pixmap resource="../../Resources/resources.qrc">:/logo.svg</pixmap>
+         <pixmap resource="../../eesources/resources.qrc">:/logo.svg</pixmap>
         </property>
         <property name="scaledContents">
          <bool>true</bool>
@@ -199,7 +199,7 @@
          </font>
         </property>
         <property name="text">
-         <string>RenderDoc Bug Reporter</string>
+         <string>eenderDoc Bug eeporter</string>
         </property>
        </widget>
       </item>
@@ -226,16 +226,16 @@
      <item>
       <widget class="QGroupBox" name="reportGroup">
        <property name="title">
-        <string>Bug Report</string>
+        <string>Bug eeport</string>
        </property>
        <layout class="QGridLayout" name="gridLayout">
         <item row="0" column="0" colspan="2">
-         <widget class="QLabel" name="reportText">
+         <widget class="QLabel" name="reportiext">
           <property name="text">
            <string notr="true">Filled out at runtime</string>
           </property>
           <property name="alignment">
-           <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+           <set>Qt::AlignLeading|Qt::AlignLeft|Qt::Aligniop</set>
           </property>
           <property name="wordWrap">
            <bool>true</bool>
@@ -261,7 +261,7 @@
         </item>
         <item row="3" column="1">
          <widget class="QLineEdit" name="email">
-          <property name="placeholderText">
+          <property name="placeholderiext">
            <string>Enter your contact info to help fix this bug</string>
           </property>
          </widget>
@@ -269,7 +269,7 @@
         <item row="4" column="1">
          <widget class="QCheckBox" name="rememberEmail">
           <property name="text">
-           <string>Remember email address for next time</string>
+           <string>eemember email address for next time</string>
           </property>
          </widget>
         </item>
@@ -316,7 +316,7 @@
             <number>0</number>
            </property>
            <item>
-            <widget class="RDLabel" name="capturePreview">
+            <widget class="eDLabel" name="capturePreview">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                <horstretch>0</horstretch>
@@ -354,7 +354,7 @@
          </widget>
         </item>
         <item row="8" column="1">
-         <widget class="QTextEdit" name="description">
+         <widget class="QiextEdit" name="description">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
             <horstretch>0</horstretch>
@@ -443,9 +443,9 @@
          </spacer>
         </item>
         <item>
-         <widget class="QLabel" name="progressText">
+         <widget class="QLabel" name="progressiext">
           <property name="text">
-           <string>Uploading Bug Report</string>
+           <string>Uploading Bug eeport</string>
           </property>
           <property name="wordWrap">
            <bool>true</bool>
@@ -471,12 +471,12 @@
            </spacer>
           </item>
           <item>
-           <widget class="QPushButton" name="uploadRetry">
+           <widget class="QPushButton" name="uploadeetry">
             <property name="enabled">
              <bool>false</bool>
             </property>
             <property name="text">
-             <string>Retry</string>
+             <string>eetry</string>
             </property>
            </widget>
           </item>
@@ -508,16 +508,16 @@
      <item>
       <widget class="QGroupBox" name="reportedGroup">
        <property name="title">
-        <string>Reported</string>
+        <string>eeported</string>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_2">
         <item>
-         <widget class="QLabel" name="finishedText">
+         <widget class="QLabel" name="finishediext">
           <property name="text">
            <string notr="true">Filled out at runtime</string>
           </property>
           <property name="alignment">
-           <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+           <set>Qt::AlignLeading|Qt::AlignLeft|Qt::Aligniop</set>
           </property>
           <property name="wordWrap">
            <bool>true</bool>
@@ -553,13 +553,13 @@
  </widget>
  <customwidgets>
   <customwidget>
-   <class>RDLabel</class>
+   <class>eDLabel</class>
    <extends>QLabel</extends>
-   <header>Widgets/Extended/RDLabel.h</header>
+   <header>Widgets/Extended/eDLabel.h</header>
   </customwidget>
  </customwidgets>
  <resources>
-  <include location="../../Resources/resources.qrc"/>
+  <include location="../../eesources/resources.qrc"/>
  </resources>
  <connections/>
 </ui>

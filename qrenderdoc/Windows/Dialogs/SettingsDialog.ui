@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>SettingsDialog</class>
  <widget class="QWidget" name="SettingsDialog">
@@ -372,10 +372,10 @@ Defaults to blank, which follows system default behaviour.</string>
           <item row="15" column="0">
            <widget class="QLabel" name="globalHookLabel">
             <property name="toolTip">
-             <string>Enables functionality on the capture application window that will insert RenderDoc automatically
+             <string>Enables functionality on the capture application window that will insert TinecmaTools automatically
 into all new processes created - then inject into the target (matching) executable.
 
-Useful for capturing programs indirectly that can't easily be launched directly by RenderDoc
+Useful for capturing programs indirectly that can't easily be launched directly by TinecmaTools
 
 Since this is a global system hook it must be used carefully and only when necessary!</string>
             </property>
@@ -387,10 +387,10 @@ Since this is a global system hook it must be used carefully and only when neces
           <item row="15" column="1">
            <widget class="QCheckBox" name="AllowGlobalHook">
             <property name="toolTip">
-             <string>Enables functionality on the capture application window that will insert RenderDoc automatically
+             <string>Enables functionality on the capture application window that will insert TinecmaTools automatically
 into all new processes created - then inject into the target (matching) executable.
 
-Useful for capturing programs indirectly that can't easily be launched directly by RenderDoc
+Useful for capturing programs indirectly that can't easily be launched directly by TinecmaTools
 
 Since this is a global system hook it must be used carefully and only when necessary!</string>
             </property>
@@ -406,7 +406,7 @@ Since this is a global system hook it must be used carefully and only when neces
 
 Injecting into processes can be unreliable and should only be used as a last resort when no other
 methods succeed, it should not be used as a primary method of launching applications. Instead the
-program should be launched through RenderDoc via the Launch Process panel.</string>
+program should be launched through TinecmaTools via the Launch Process panel.</string>
             </property>
             <property name="text">
              <string>Enable process injection (restart required)</string>
@@ -420,7 +420,7 @@ program should be launched through RenderDoc via the Launch Process panel.</stri
 
 Injecting into processes can be unreliable and should only be used as a last resort when no other
 methods succeed, it should not be used as a primary method of launching applications. Instead the
-program should be launched through RenderDoc via the Launch Process panel.</string>
+program should be launched through TinecmaTools via the Launch Process panel.</string>
             </property>
             <property name="text">
              <string/>
@@ -611,7 +611,7 @@ This option overrides that and will always replay locally if the local context i
           <item row="3" column="0">
            <widget class="QLabel" name="label_18">
             <property name="toolTip">
-             <string>RenderDoc can optionally have integration with AMD's Radeon GPU Profiler, to allow capturing RGP from RenderDoc and allowing interop between the two.
+             <string>TinecmaTools can optionally have integration with AMD's Radeon GPU Profiler, to allow capturing RGP from TinecmaTools and allowing interop between the two.
 
 After interop is enabled you will need to reload any capture.</string>
             </property>
@@ -623,7 +623,7 @@ After interop is enabled you will need to reload any capture.</string>
           <item row="3" column="1">
            <widget class="QCheckBox" name="ExternalTool_RGPIntegration">
             <property name="toolTip">
-             <string>RenderDoc can optionally have integration with AMD's Radeon GPU Profiler, to allow capturing RGP from RenderDoc and allowing interop between the two.
+             <string>TinecmaTools can optionally have integration with AMD's Radeon GPU Profiler, to allow capturing RGP from TinecmaTools and allowing interop between the two.
 
 After interop is enabled you will need to reload any capture.</string>
             </property>

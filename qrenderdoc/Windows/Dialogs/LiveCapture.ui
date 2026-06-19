@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>LiveCapture</class>
  <widget class="QFrame" name="LiveCapture">
@@ -127,9 +127,9 @@
            <property name="toolTip">
             <string>&lt;p&gt;An API in use is not presenting to a window. This commonly means the API rendering is happening to off-screen targets and either nothing is displayed, or the results are displayed using some other mechanism.&lt;/p&gt;
 
-&lt;p&gt;Without the boundary of a frame, RenderDoc cannot capture by default since it can't tell where to start and stop.&lt;/p&gt;
+&lt;p&gt;Without the boundary of a frame, TinecmaTools cannot capture by default since it can't tell where to start and stop.&lt;/p&gt;
 
-&lt;p&gt;You can use RenderDoc's In-application API to manually provide markers about where to start and stop the frame capture.&lt;/p&gt;
+&lt;p&gt;You can use TinecmaTools's In-application API to manually provide markers about where to start and stop the frame capture.&lt;/p&gt;
 
 &lt;p&gt;Click on the icon for more information about this API.&lt;/p&gt;</string>
            </property>
