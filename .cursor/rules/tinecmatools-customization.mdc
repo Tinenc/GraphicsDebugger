@@ -1,0 +1,36 @@
+---
+description: TinecmaTools source customization and replay marker rules
+globs: renderdoc/**,qrenderdoc/**,renderdoccmd/**,renderdocshim/**
+alwaysApply: false
+---
+
+# TinecmaTools 源码定制
+
+Windows 构建中 `RDOC_BASE_NAME=TinecmaTools`（见 `renderdoc/renderdoc.vcxproj`）。修改字符串时参照 `TinecmaTools_Modification_Guide.md` 的 13 类清单：
+
+1. Replay marker 导出符号
+2. libentry 检测逻辑
+3. 进程/cmd 路径硬编码
+4. Shim DLL 路径
+5. Global Hook 进程白名单
+6. Breakpad 管道/转储路径
+7. 注册表与日志路径
+8. OpenGL 窗口类名
+9. Global Hook 共享内存名
+10. PE 资源字符串
+11. Qt UI 日志/标题/Python 模块名
+12. Analytics 字段名
+13. SWIG 模块名（`qrenderdoc.i` -> `qTinecmaTools`）
+
+## Replay Marker（最关键）
+
+DLL 加载时检测 `TinecmaTools__replay__marker` 判断回放进程。
+
+- **正确修复**：改 `renderdoc/api/replay/renderdoc_replay.h` 导出符号为 `TinecmaTools__replay__marker`
+- **不要**在 `win32_libentry.cpp` 保留 `renderdoc__replay__marker` 兜底（`Crash_Fix_Report.md` 方案已过时）
+- marker 不匹配崩溃链：`IsReplayApp()=false` -> `core.cpp(625)` -> `resource_manager.h(838)`
+
+## 其他注意
+
+- 修改 `qrenderdoc.i` 后须触发 SWIG 重新生成
+- 源码目录名 `qrenderdoc` 会嵌入 `.pdata` 路径字符串，非功能性特征，常规扫描可忽略

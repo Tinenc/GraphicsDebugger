@@ -1,0 +1,38 @@
+---
+description: Windows build, troubleshooting, and tools/ scripts
+globs: tools/**,*.sln,*.vcxproj,docs/BUILD_TROUBLESHOOTING.md
+alwaysApply: false
+---
+
+# 构建与工具
+
+## Windows 编译
+
+1. 打开 `TinecmaTools.sln`，VS2022，选 Development 或 Release
+2. 前置依赖见 `docs/BUILD_TROUBLESHOOTING.md`
+
+| 错误 | 原因 | 修复 |
+|------|------|------|
+| MSB303 dbghelp/symsrv | 缺预编译 DLL | 从 Windows SDK Debuggers 复制到 `renderdoc/3rdparty/dbghelp/` |
+| 退出码 9009 (SWIG) | 缺 SWIG/Qt | 解压 `qrenderdoc_3rdparty.zip` 到 `qrenderdoc/3rdparty/` |
+| 退出码 3 (uic) | 缺 Qt uic/moc | 同上，或设 `RENDERDOC_QT_PREFIX64` |
+
+## tools/ 脚本
+
+| 脚本 | 用途 |
+|------|------|
+| `auto_bypass.py` | 一键：复制->重命名->字符串替换->启动游戏->延迟注入->启动 UI |
+| `rename_tool.ps1` | 批量重命名 RenderDoc 文件 |
+| `string_replacer.py` | 二进制特征字符串替换 |
+| `inject_dll.ps1` | 手动 DLL 注入（需管理员） |
+
+`auto_bypass.py` 关键参数：`--renderdoc`、`--game`、`--output`、`--delay`、`--no-ui`
+
+## 二进制命名映射
+
+```
+renderdoc.dll -> TinecmaTools.dll
+renderdoccmd.exe -> TinecmaToolscmd.exe
+qrenderdoc.exe -> qTinecmaTools.exe
+renderdocshim*.dll -> TinecmaToolsshim*.dll
+```

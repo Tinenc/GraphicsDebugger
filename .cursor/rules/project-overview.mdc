@@ -1,0 +1,37 @@
+---
+description: GraphicsDebugger / TinecmaTools project identity, structure, and doc index
+alwaysApply: true
+---
+
+# 项目概览
+
+本仓库是 **RenderDoc v1.43** 的深度定制分支，品牌名 **TinecmaTools**，路径 `C:\Program Files\GraphicsDebugger`。
+
+## 核心子系统与产物
+
+| 目录 | 产物 |
+|------|------|
+| `renderdoc/` | `TinecmaTools.dll` |
+| `qrenderdoc/` | `qTinecmaTools.exe` |
+| `renderdoccmd/` | `TinecmaToolscmd.exe` |
+| `renderdocshim/` | `TinecmaToolsshim32/64.dll` |
+| `tools/` | Python/PowerShell 自动化脚本 |
+
+Windows 构建入口：`TinecmaTools.sln`（VS2022）。`renderdoc.vcxproj` 定义 `RDOC_BASE_NAME=TinecmaTools`；根 `CMakeLists.txt` 仍为 `renderdoc`（Linux/Android 路径）。
+
+## 定制目的
+
+将二进制中 `renderdoc` 特征字符串/符号/管道名等替换为 `TinecmaTools`，用于 PC 端图形截帧与 Shader 分析。
+
+## 文档索引
+
+- **源码修改清单（最权威）**：`TinecmaTools_Modification_Guide.md`
+- **快速上手**：`QUICK_START.md`、`tools/README.md`
+- **编译排错**：`docs/BUILD_TROUBLESHOOTING.md`
+- **崩溃分析**：`Crash_Fix_Report.md`（replay marker 修复策略以 Modification Guide 为准）
+- **上游规范**：`docs/CONTRIBUTING/Developing-Change.md`
+
+## 排除项
+
+- `NR_DualUV_Mod_Summary.md` 是 Ninja Ripper 记录，与本项目无关
+- `bypass_anticheat_guide.md`、`CHANGELOG.md` 被部分 MD 引用但**不存在**

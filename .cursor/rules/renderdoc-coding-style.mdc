@@ -1,0 +1,27 @@
+---
+description: RenderDoc upstream coding style summary
+globs: renderdoc/**/*.cpp,renderdoc/**/*.h,qrenderdoc/**/*.cpp,qrenderdoc/**/*.h
+alwaysApply: false
+---
+
+# RenderDoc 编码规范
+
+摘自 `docs/CONTRIBUTING/Developing-Change.md`，修改代码时遵循现有风格。
+
+## 格式与类型
+
+- 大括号/缩进/空格由 **clang-format** 强制
+- 用 `NULL`，不用 `nullptr`
+- `auto` 仅用于 STL 迭代器和 lambda；其余用显式类型
+- 非 OS 代码用 UTF-8 `char*`；宽字符串仅用于 Windows 兼容
+
+## 容器与 STL
+
+- 用 `rdcarray` 替代 `std::vector`，`rdcstr` 替代 `std::string`
+- STL 限制使用：`std::map`、`std::set`、`std::function`、`std::sort`、`std::is_same` 等
+
+## 命名与结构
+
+- 成员变量前缀 `m_`；避免匈牙利命名（hook 函数官方参数名除外）
+- `if`/`else` 一方加花括号时，所有分支都加花括号
+- 新代码尽量匹配周围上下文，避免与现有风格明显不一致
