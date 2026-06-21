@@ -329,7 +329,7 @@ private:
     if(text.empty())
       return false;
 
-    // Do not inject into anti-cheat helper processes (e.g. Wuthering Waves / ACE).
+    // Skip anti-cheat helper child processes (e.g. Wuthering Waves / ACE).
     return text.contains("anticheatexpert") || text.contains("ace-setup") ||
            text.contains("acesetup") || text.contains("crashsight");
   }

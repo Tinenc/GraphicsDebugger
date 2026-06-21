@@ -251,6 +251,7 @@ extern "C" __declspec(dllexport) void __cdecl INTERNAL_ApplyEnvMods(void *ignore
 
 uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName);
 
+#if ENABLED(RDOC_X64)
 static bool PollForRemoteDLL(DWORD pid, int retries = 100, DWORD intervalMs = 50)
 {
   for(int retry = 0; retry < retries; retry++)
@@ -261,6 +262,7 @@ static bool PollForRemoteDLL(DWORD pid, int retries = 100, DWORD intervalMs = 50
   }
   return false;
 }
+#endif
 
 void InjectDLL(HANDLE hProcess, rdcwstr libName)
 {
@@ -293,10 +295,11 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
 
   LPVOID loadLibAddr = (LPVOID)GetProcAddress(kernel32, "LoadLibraryW");
   bool injected = false;
-  DWORD pid = GetProcessId(hProcess);
 
 #if ENABLED(RDOC_X64)
-  // 1) SetThreadContext hijack — bypasses CreateRemoteThread monitoring (CrashSight / ACE).
+  DWORD pid = GetProcessId(hProcess);
+
+  // 1) SetThreadContext hijack - bypasses CreateRemoteThread monitoring (CrashSight / ACE).
   HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
   HANDLE hThread = NULL;
   if(hSnap != INVALID_HANDLE_VALUE)
@@ -378,7 +381,7 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
     CloseHandle(hThread);
   }
 
-  // 2) QueueUserAPC — no remote thread creation, lower profile than CreateRemoteThread.
+  // 2) QueueUserAPC - no remote thread creation, lower profile than CreateRemoteThread.
   if(!injected)
   {
     hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
@@ -410,7 +413,7 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
   }
 #endif
 
-  // 3) Last resort — original RenderDoc path.
+  // 3) Last resort - original RenderDoc path.
   if(!injected)
   {
     HANDLE hCRTThread =
