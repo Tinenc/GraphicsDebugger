@@ -249,6 +249,19 @@ extern "C" __declspec(dllexport) void __cdecl INTERNAL_ApplyEnvMods(void *ignore
   Process::ApplyEnvironmentModification();
 }
 
+uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName);
+
+static bool PollForRemoteDLL(DWORD pid, int retries = 100, DWORD intervalMs = 50)
+{
+  for(int retry = 0; retry < retries; retry++)
+  {
+    Sleep(intervalMs);
+    if(FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll") != 0)
+      return true;
+  }
+  return false;
+}
+
 void InjectDLL(HANDLE hProcess, rdcwstr libName)
 {
   wchar_t dllPath[MAX_PATH + 1] = {0};
@@ -264,36 +277,157 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
 
   void *remoteMem =
       VirtualAllocEx(hProcess, NULL, sizeof(dllPath), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-  if(remoteMem)
+  if(!remoteMem)
   {
-    BOOL success = WriteProcessMemory(hProcess, remoteMem, (void *)dllPath, sizeof(dllPath), NULL);
-    if(success)
+    RDCERR("Couldn't allocate remote memory for DLL '%ls': %u", libName.c_str(), GetLastError());
+    return;
+  }
+
+  if(!WriteProcessMemory(hProcess, remoteMem, (void *)dllPath, sizeof(dllPath), NULL))
+  {
+    RDCERR("Couldn't write remote memory %p with dllPath '%ls': %u", remoteMem, dllPath,
+           GetLastError());
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+    return;
+  }
+
+  LPVOID loadLibAddr = (LPVOID)GetProcAddress(kernel32, "LoadLibraryW");
+  bool injected = false;
+  DWORD pid = GetProcessId(hProcess);
+
+#if ENABLED(RDOC_X64)
+  // 1) SetThreadContext hijack — bypasses CreateRemoteThread monitoring (CrashSight / ACE).
+  HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+  HANDLE hThread = NULL;
+  if(hSnap != INVALID_HANDLE_VALUE)
+  {
+    THREADENTRY32 te;
+    te.dwSize = sizeof(te);
+    if(Thread32First(hSnap, &te))
     {
-      HANDLE hThread = CreateRemoteThread(
-          hProcess, NULL, 1024 * 1024U,
-          (LPTHREAD_START_ROUTINE)GetProcAddress(kernel32, "LoadLibraryW"), remoteMem, 0, NULL);
-      if(hThread)
+      do
       {
-        WaitForSingleObject(hThread, INFINITE);
-        CloseHandle(hThread);
+        if(te.th32OwnerProcessID == pid)
+        {
+          hThread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT,
+                               FALSE, te.th32ThreadID);
+          if(hThread)
+            break;
+        }
+      } while(Thread32Next(hSnap, &te));
+    }
+    CloseHandle(hSnap);
+  }
+
+  if(hThread)
+  {
+    SuspendThread(hThread);
+
+    CONTEXT ctx;
+    ctx.ContextFlags = CONTEXT_FULL;
+    if(GetThreadContext(hThread, &ctx))
+    {
+      DWORD64 origRip = ctx.Rip;
+
+      uint8_t stub[64] = {};
+      size_t off = 0;
+      stub[off++] = 0x48;
+      stub[off++] = 0x83;
+      stub[off++] = 0xEC;
+      stub[off++] = 0x28;
+      stub[off++] = 0x48;
+      stub[off++] = 0xB9;
+      memcpy(stub + off, &remoteMem, 8);
+      off += 8;
+      stub[off++] = 0x48;
+      stub[off++] = 0xB8;
+      memcpy(stub + off, &loadLibAddr, 8);
+      off += 8;
+      stub[off++] = 0xFF;
+      stub[off++] = 0xD0;
+      stub[off++] = 0x48;
+      stub[off++] = 0x83;
+      stub[off++] = 0xC4;
+      stub[off++] = 0x28;
+      stub[off++] = 0x48;
+      stub[off++] = 0xB8;
+      memcpy(stub + off, &origRip, 8);
+      off += 8;
+      stub[off++] = 0xFF;
+      stub[off++] = 0xE0;
+
+      void *stubMem = VirtualAllocEx(hProcess, NULL, off, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+      if(stubMem && WriteProcessMemory(hProcess, stubMem, stub, off, NULL))
+      {
+        ctx.Rip = (DWORD64)stubMem;
+        SetThreadContext(hThread, &ctx);
+        ResumeThread(hThread);
+        injected = PollForRemoteDLL(pid);
       }
       else
       {
-        RDCERR("Couldn't create remote thread for LoadLibraryW: %u", GetLastError());
+        if(stubMem)
+          VirtualFreeEx(hProcess, stubMem, 0, MEM_RELEASE);
+        ResumeThread(hThread);
       }
     }
     else
     {
-      RDCERR("Couldn't write remote memory %p with dllPath '%ls': %u", remoteMem, dllPath,
-             GetLastError());
+      ResumeThread(hThread);
+    }
+    CloseHandle(hThread);
+  }
+
+  // 2) QueueUserAPC — no remote thread creation, lower profile than CreateRemoteThread.
+  if(!injected)
+  {
+    hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if(hSnap != INVALID_HANDLE_VALUE)
+    {
+      THREADENTRY32 te;
+      te.dwSize = sizeof(te);
+      if(Thread32First(hSnap, &te))
+      {
+        do
+        {
+          if(te.th32OwnerProcessID == pid)
+          {
+            HANDLE hThr = OpenThread(THREAD_SET_CONTEXT, FALSE, te.th32ThreadID);
+            if(hThr)
+            {
+              if(QueueUserAPC((PAPCFUNC)loadLibAddr, hThr, (ULONG_PTR)remoteMem))
+                injected = true;
+              CloseHandle(hThr);
+            }
+          }
+        } while(Thread32Next(hSnap, &te));
+      }
+      CloseHandle(hSnap);
     }
 
-    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+    if(injected)
+      injected = PollForRemoteDLL(pid);
   }
-  else
+#endif
+
+  // 3) Last resort — original RenderDoc path.
+  if(!injected)
   {
-    RDCERR("Couldn't allocate remote memory for DLL '%ls': %u", libName.c_str(), GetLastError());
+    HANDLE hCRTThread =
+        CreateRemoteThread(hProcess, NULL, 1024 * 1024U,
+                           (LPTHREAD_START_ROUTINE)loadLibAddr, remoteMem, 0, NULL);
+    if(hCRTThread)
+    {
+      WaitForSingleObject(hCRTThread, INFINITE);
+      CloseHandle(hCRTThread);
+    }
+    else
+    {
+      RDCERR("Couldn't create remote thread for LoadLibraryW: %u", GetLastError());
+    }
   }
+
+  VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
 }
 
 uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName)

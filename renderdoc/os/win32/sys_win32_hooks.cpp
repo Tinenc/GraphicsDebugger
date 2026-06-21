@@ -324,6 +324,16 @@ private:
     return ret;
   }
 
+  static bool ShouldSkipChildProcess(const rdcstr &text)
+  {
+    if(text.empty())
+      return false;
+
+    // Do not inject into anti-cheat helper processes (e.g. Wuthering Waves / ACE).
+    return text.contains("anticheatexpert") || text.contains("ace-setup") ||
+           text.contains("acesetup") || text.contains("crashsight");
+  }
+
   static bool ShouldInject(LPCWSTR lpApplicationName, LPCWSTR lpCommandLine)
   {
     if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren)
@@ -337,16 +347,26 @@ private:
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("tinecmatools.exe") || app.contains("qtinecmatools.exe"))
+      if(app.contains("tinecmatoolscmd.exe") || app.contains("tinecmatools.exe") ||
+         app.contains("qtinecmatools.exe"))
+      {
+        inject = false;
+      }
+      else if(ShouldSkipChildProcess(app))
       {
         inject = false;
       }
     }
-    if(lpCommandLine)
+    if(inject && lpCommandLine)
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("tinecmatools.exe") || cmd.contains("qtinecmatools.exe"))
+      if(cmd.contains("tinecmatoolscmd.exe") || cmd.contains("tinecmatools.exe") ||
+         cmd.contains("qtinecmatools.exe"))
+      {
+        inject = false;
+      }
+      else if(ShouldSkipChildProcess(cmd))
       {
         inject = false;
       }
