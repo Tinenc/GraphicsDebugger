@@ -625,31 +625,31 @@ void GraphicsTest::Prepare(int argc, char **argv)
     }
   }
 
-  pRTCAP_GetAPI RTCAP_GetAPI = NULL;
+  pTINECMATOOL_GetAPI TINECMATOOL_GetAPI = NULL;
 
 #if defined(WIN32)
-  HMODULE mod = GetModuleHandleA("rendertest.dll");
+  HMODULE mod = GetModuleHandleA("TinecmaTool.dll");
   if(mod)
-    RTCAP_GetAPI = (pRTCAP_GetAPI)GetProcAddress(mod, "RTCAP_GetAPI");
+    TINECMATOOL_GetAPI = (pTINECMATOOL_GetAPI)GetProcAddress(mod, "TINECMATOOL_GetAPI");
 #elif defined(ANDROID)
-  void *mod = dlopen("libVkLayer_GLES_GfxDiag.so", RTLD_NOW | RTLD_NOLOAD);
+  void *mod = dlopen("libVkLayer_GLES_TinecmaTool.so", RTLD_NOW | RTLD_NOLOAD);
   if(mod)
-    RTCAP_GetAPI = (pRTCAP_GetAPI)dlsym(mod, "RTCAP_GetAPI");
+    TINECMATOOL_GetAPI = (pTINECMATOOL_GetAPI)dlsym(mod, "TINECMATOOL_GetAPI");
 #elif defined(__linux__)
-  void *mod = dlopen("librendertest.so", RTLD_NOW | RTLD_NOLOAD);
+  void *mod = dlopen("libTinecmaTool.so", RTLD_NOW | RTLD_NOLOAD);
   if(mod)
-    RTCAP_GetAPI = (pRTCAP_GetAPI)dlsym(mod, "RTCAP_GetAPI");
+    TINECMATOOL_GetAPI = (pTINECMATOOL_GetAPI)dlsym(mod, "TINECMATOOL_GetAPI");
 #elif defined(__APPLE__)
-  void *mod = dlopen("librendertest.dylib", RTLD_NOW | RTLD_NOLOAD);
+  void *mod = dlopen("libTinecmaTool.dylib", RTLD_NOW | RTLD_NOLOAD);
   if(mod)
-    RTCAP_GetAPI = (pRTCAP_GetAPI)dlsym(mod, "RTCAP_GetAPI");
+    TINECMATOOL_GetAPI = (pTINECMATOOL_GetAPI)dlsym(mod, "TINECMATOOL_GetAPI");
 #else
 #error UNKNOWN PLATFORM
 #endif
 
-  if(RTCAP_GetAPI)
+  if(TINECMATOOL_GetAPI)
   {
-    int ret = RTCAP_GetAPI(eRENDERDOC_API_Version_1_7_0, (void **)&rdoc);
+    int ret = TINECMATOOL_GetAPI(eRENDERDOC_API_Version_1_7_0, (void **)&rdoc);
 
     if(ret != 1)
       rdoc = NULL;

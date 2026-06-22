@@ -735,7 +735,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
       renderdocPath[idx] = 0;
 
-      wcscat_s(renderdocPath, L"\\Win32\\Development\\gfxdiagcmd.exe");
+      wcscat_s(renderdocPath, L"\\Win32\\Development\\TinecmaToolcmd.exe");
     }
 
     if(!devLocation)
@@ -748,7 +748,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
         renderdocPath[idx] = 0;
 
-        wcscat_s(renderdocPath, L"\\Win32\\Release\\gfxdiagcmd.exe");
+        wcscat_s(renderdocPath, L"\\Win32\\Release\\TinecmaToolcmd.exe");
       }
     }
 
@@ -763,7 +763,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         *slash = 0;
 
       // append path
-      wcscat_s(renderdocPath, L"\\x86\\gfxdiagcmd.exe");
+      wcscat_s(renderdocPath, L"\\x86\\TinecmaToolcmd.exe");
     }
 #else
     // if it looks like we're in the development environment, look for the alternate bitness in the
@@ -775,7 +775,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
       renderdocPath[idx] = 0;
 
-      wcscat_s(renderdocPath, L"\\x64\\Development\\gfxdiagcmd.exe");
+      wcscat_s(renderdocPath, L"\\x64\\Development\\TinecmaToolcmd.exe");
     }
 
     if(!devLocation)
@@ -788,7 +788,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
         renderdocPath[idx] = 0;
 
-        wcscat_s(renderdocPath, L"\\x64\\Release\\gfxdiagcmd.exe");
+        wcscat_s(renderdocPath, L"\\x64\\Release\\TinecmaToolcmd.exe");
       }
     }
 
@@ -808,7 +808,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         *slash = 0;
 
       // append path
-      wcscat_s(renderdocPath, L"\\gfxdiagcmd.exe");
+      wcscat_s(renderdocPath, L"\\TinecmaToolcmd.exe");
     }
 #endif
 
@@ -1396,7 +1396,7 @@ RDResult BackupAndChangeRegistry(GlobalHookData &hookdata, const rdcstr &shimpat
   // write it to disk but don't fail if we can't, just print it to the log and keep going.
   wchar_t reg_backup[MAX_PATH];
   GetTempPathW(MAX_PATH, reg_backup);
-  wcscat_s(reg_backup, L"GfxDiag_RestoreGlobalHook.reg");
+  wcscat_s(reg_backup, L"TinecmaTool_RestoreGlobalHook.reg");
 
   FILE *f = NULL;
   _wfopen_s(&f, reg_backup, L"w");
@@ -1515,7 +1515,7 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
   renderdocPath = get_dirname(renderdocPath);
 
   // the native renderdoccmd.exe is always next to the dll. Wow32 will be somewhere else
-  rdcstr cmdpathNative = renderdocPath + "\\gfxdiagcmd.exe";
+  rdcstr cmdpathNative = renderdocPath + "\\TinecmaToolcmd.exe";
   rdcstr cmdpathWow32;
 
   rdcstr shimpathNative = renderdocPath;
@@ -1524,7 +1524,7 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
 #if ENABLED(RDOC_X64)
 
   // native shim is just renderdocshim64.dll
-  shimpathNative = renderdocPath + "\\gfxdiagshim64.dll";
+  shimpathNative = renderdocPath + "\\TinecmaToolshim64.dll";
 
   // if it looks like we're in the development environment, look for the alternate bitness in the
   // corresponding folder
@@ -1533,8 +1533,8 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
   {
     renderdocPath.erase(devLocation, ~0U);
 
-    shimpathWow32 = renderdocPath + "\\Win32\\Development\\gfxdiagshim32.dll";
-    cmdpathWow32 = renderdocPath + "\\Win32\\Development\\gfxdiagcmd.exe";
+    shimpathWow32 = renderdocPath + "\\Win32\\Development\\TinecmaToolshim32.dll";
+    cmdpathWow32 = renderdocPath + "\\Win32\\Development\\TinecmaToolcmd.exe";
   }
   else
   {
@@ -1544,22 +1544,22 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
     {
       renderdocPath.erase(devLocation, ~0U);
 
-      shimpathWow32 = renderdocPath + "\\Win32\\Release\\gfxdiagshim32.dll";
-      cmdpathWow32 = renderdocPath + "\\Win32\\Release\\gfxdiagcmd.exe";
+      shimpathWow32 = renderdocPath + "\\Win32\\Release\\TinecmaToolshim32.dll";
+      cmdpathWow32 = renderdocPath + "\\Win32\\Release\\TinecmaToolcmd.exe";
     }
   }
 
   // if we're not in the dev environment, assume it's under a x86\ subfolder
   if(devLocation < 0)
   {
-    shimpathWow32 = renderdocPath + "\\x86\\gfxdiagshim32.dll";
-    cmdpathWow32 = renderdocPath + "\\x86\\gfxdiagcmd.exe";
+    shimpathWow32 = renderdocPath + "\\x86\\TinecmaToolshim32.dll";
+    cmdpathWow32 = renderdocPath + "\\x86\\TinecmaToolcmd.exe";
   }
 
 #else
 
   // nothing fancy to do here for 32-bit, just point the shim next to our dll.
-  shimpathNative = renderdocPath + "\\gfxdiagshim32.dll";
+  shimpathNative = renderdocPath + "\\TinecmaToolshim32.dll";
 
 #endif
 

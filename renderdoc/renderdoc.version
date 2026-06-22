@@ -17,8 +17,8 @@
                 execve;
                 execvpe;
                 _exit;
-                RTCAP_*;
-                VK_LAYER_RTCAP_*;
+                TINECMATOOL_*;
+                VK_LAYER_TINECMATOOL_*;
         local:
                 *;
 };

@@ -121,3 +121,68 @@ Commit 1 改了一遍 `renderdoc → rendertest`（含 vcxproj），Commit 2 把
 > **(1) 为鸣潮 Wuwa 加固了 Windows 注入流程，并把启动器子进程加入黑名单；**
 > **(2) 把所有 `renderdoc` 字样改成 `gfxdiag` 以躲过基础字符串检测。**
 > **除此之外没有任何功能增减；底层抓帧/回放能力与上游完全一致。**
+
+---
+
+## 七、第三轮统一品牌：`rendertest` / `gfxdiag` → `TinecmaTool`
+
+`butteruni/renderdoc` 原始 Endfield 分支留下了 `rendertest`（vcxproj/导出名）与 `gfxdiag`（源码硬编码）两套不一致的命名，必须靠 hot-patch 复制产物才能跑起来。本 fork 把全部品牌统一为 **`TinecmaTool`**，彻底修复了不一致 bug。
+
+### 7.1 统一后的命名规则
+
+| 类别 | 旧值（任一） | 新值 |
+| --- | --- | --- |
+| 主 DLL | `rendertest.dll` / `gfxdiag.dll` | `TinecmaTool.dll` |
+| 命令行 | `rendertestcmd.exe` / `gfxdiagcmd.exe` | `TinecmaToolcmd.exe` |
+| Shim (x64) | `rendertestshim64.dll` / `gfxdiagshim64.dll` | `TinecmaToolshim64.dll` |
+| Shim (x86) | `rendertestshim32.dll` / `gfxdiagshim32.dll` | `TinecmaToolshim32.dll` |
+| UI | `qrendertest.exe` / `qgfxdiag.exe` | `qTinecmaTool.exe` |
+| Stub lib | `rendertestui_stub.lib` | `TinecmaToolui_stub.lib` |
+| Android SO | `libVkLayer_GLES_GfxDiag.so` | `libVkLayer_GLES_TinecmaTool.so` |
+| Android 包 | `org.gfxdiag.gfxdiagcmd` | `org.tinecmatool.tinecmatoolcmd` |
+| Vulkan layer 名 | `VK_LAYER_RTCAP_Capture` | `VK_LAYER_TINECMATOOL_Capture` |
+| Vulkan 导出符号 | `VK_LAYER_RTCAP_*` | `VK_LAYER_TINECMATOOL_*` |
+| Vulkan env (enable) | `ENABLE_VULKAN_RTCAP_CAPTURE` | `ENABLE_VULKAN_TINECMATOOL_CAPTURE` |
+| Vulkan env (disable) | `DISABLE_VULKAN_RTCAP_CAPTURE_*` | `DISABLE_VULKAN_TINECMATOOL_CAPTURE_*` |
+| C API 入口 | `RTCAP_GetAPI` / `pRTCAP_GetAPI` | `TINECMATOOL_GetAPI` / `pTINECMATOOL_GetAPI` |
+| Linker version script | `RTCAP_*` | `TINECMATOOL_*` |
+| Crash 事件名 | `RENDERTEST_CRASHHANDLE` / `GFXDIAG_CRASHHANDLE` | `TINECMATOOL_CRASHHANDLE` |
+| Replay marker 符号 | `rendertest__replay__marker` / `gfxdiag__replay__marker` | `TinecmaTool__replay__marker` |
+| 全局 hook 共享数据 | `RenderTestGlobalHookData64/32` | `TinecmaToolGlobalHookData64/32` |
+| Registry 备份文件 | `GfxDiag_RestoreGlobalHook.reg` | `TinecmaTool_RestoreGlobalHook.reg` |
+| Symbol 缓存路径 | `\gfxdiag\symbols` | `\TinecmaTool\symbols` |
+| INI 节名 | `[gfxdiag]` | `[TinecmaTool]` |
+| BugReport zip | `gfxdiag_report_*.zip` | `TinecmaTool_report_*.zip` |
+| WGL 窗口类 | `gfxdiagGLclass` | `TinecmaToolGLclass` |
+| PE 资源 (InternalName/ProductName) | `gfxdiag` / `GfxDiag` / `RenderTest` | `TinecmaTool` |
+| 5 个 `vcxproj` `<ProjectName>` | `rendertest / rendertestcmd / rendertestshim / qrendertest / rendertestui_stub` | `TinecmaTool / TinecmaToolcmd / TinecmaToolshim / qTinecmaTool / TinecmaToolui_stub` |
+
+### 7.2 大小写策略
+
+- 文件名 / 显示名 / 项目名 / 符号名：保留 PascalCase `TinecmaTool`。
+- 全大写宏：`TINECMATOOL_*`（事件名、Vulkan env、API 入口、linker script 通配符等）。
+- `sys_win32_hooks.cpp` 中的注入黑名单走 `strlower()` 比较，因此是字面小写 `tinecmatoolcmd.exe` / `qtinecmatool.exe`。
+- Android Java 包名按惯例全小写 `org.tinecmatool.tinecmatoolcmd`。
+
+### 7.3 编译产物期望
+
+直接 build `renderdoc.sln`（Debug/Release × x64/Win32）即可，输出位于：
+
+```
+x64\Development\TinecmaTool.dll
+x64\Development\TinecmaToolcmd.exe
+x64\Development\TinecmaToolshim64.dll
+x64\Development\qTinecmaTool.exe
+Win32\Development\TinecmaToolshim32.dll
+```
+
+**不再需要任何 hot-patch 复制步骤**，UI 启动 `qTinecmaTool.exe` 后调用注入器找的就是同目录的 `TinecmaToolcmd.exe`，路径完全自洽。
+
+### 7.4 向后兼容性破坏
+
+以下接口已变更，外部依赖需要同步：
+
+- 通过 `GetProcAddress` 获取 RenderDoc In-app API 的客户端：把 `"RTCAP_GetAPI"` 改成 `"TINECMATOOL_GetAPI"`（或同步更新 `renderdoc_app.h`）。
+- Vulkan 应用通过 layer enumeration 找 capture layer 的：`VK_LAYER_RTCAP_Capture` → `VK_LAYER_TINECMATOOL_Capture`。
+- 通过环境变量启用/禁用 Vulkan capture 的脚本：所有 `*_RTCAP_*` → `*_TINECMATOOL_*`。
+- Android 部署：APK 包名变为 `org.tinecmatool.tinecmatoolcmd`，老的 install 需要先卸载。

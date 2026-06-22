@@ -24,7 +24,7 @@
 
 #include <string.h>
 #include "api/app/renderdoc_app.h"
-#include "api/replay/apidefs.h"    // for RENDERDOC_API to export the RTCAP_GetAPI function
+#include "api/replay/apidefs.h"    // for RENDERDOC_API to export the TINECMATOOL_GetAPI function
 #include "common/common.h"
 #include "common/formatting.h"
 #include "core/core.h"
@@ -401,12 +401,12 @@ void Init_1_7_0()
   api.SetCommandAnnotation = &SetCommandAnnotation;
 }
 
-extern "C" RENDERDOC_API int RENDERDOC_CC RTCAP_GetAPI(RENDERDOC_Version version,
+extern "C" RENDERDOC_API int RENDERDOC_CC TINECMATOOL_GetAPI(RENDERDOC_Version version,
                                                        void **outAPIPointers)
 {
   if(outAPIPointers == NULL)
   {
-    RDCERR("Invalid call to RTCAP_GetAPI with NULL outAPIPointers");
+    RDCERR("Invalid call to TINECMATOOL_GetAPI with NULL outAPIPointers");
     return 0;
   }
 

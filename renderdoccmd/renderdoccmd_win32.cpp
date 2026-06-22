@@ -600,7 +600,7 @@ public:
       return 1;
     }
 
-    HANDLE readyEvent = CreateEventA(NULL, TRUE, FALSE, "RENDERTEST_CRASHHANDLE");
+    HANDLE readyEvent = CreateEventA(NULL, TRUE, FALSE, "TINECMATOOL_CRASHHANDLE");
 
     if(readyEvent != NULL)
     {
@@ -815,7 +815,7 @@ public:
     wchar_t rdocpath[1024];
 
     // fetch path to our matching renderdoc.dll
-    HMODULE rdoc = GetModuleHandleA("rendertest.dll");
+    HMODULE rdoc = GetModuleHandleA("TinecmaTool.dll");
 
     if(rdoc == NULL)
     {

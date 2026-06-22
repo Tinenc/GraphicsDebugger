@@ -337,7 +337,7 @@ private:
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("gfxdiagcmd.exe") || app.contains("qgfxdiag.exe") ||
+      if(app.contains("tinecmatoolcmd.exe") || app.contains("qtinecmatool.exe") ||
          app.contains("platformprocess.exe"))
       {
         inject = false;
@@ -347,7 +347,7 @@ private:
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("gfxdiagcmd.exe") || cmd.contains("qgfxdiag.exe") ||
+      if(cmd.contains("tinecmatoolcmd.exe") || cmd.contains("qtinecmatool.exe") ||
          cmd.contains("platformprocess.exe"))
       {
         inject = false;

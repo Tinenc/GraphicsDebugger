@@ -150,13 +150,13 @@ enum
   RenderDoc_ForwardPortStride = 10,
 };
 
-#define RENDERDOC_VULKAN_LAYER_NAME "VK_LAYER_RTCAP_Capture"
-#define RENDERDOC_VULKAN_LAYER_VAR "ENABLE_VULKAN_RTCAP_CAPTURE"
+#define RENDERDOC_VULKAN_LAYER_NAME "VK_LAYER_TINECMATOOL_Capture"
+#define RENDERDOC_VULKAN_LAYER_VAR "ENABLE_VULKAN_TINECMATOOL_CAPTURE"
 
-#define RENDERDOC_ANDROID_LIBRARY "libVkLayer_GLES_GfxDiag.so"
+#define RENDERDOC_ANDROID_LIBRARY "libVkLayer_GLES_TinecmaTool.so"
 
 // This MUST match the package name in the build process that generates per-architecture packages
-#define RENDERDOC_ANDROID_PACKAGE_BASE "org.gfxdiag.gfxdiagcmd"
+#define RENDERDOC_ANDROID_PACKAGE_BASE "org.tinecmatool.tinecmatoolcmd"
 
 /////////////////////////////////////////////////
 // Debugging features configuration

@@ -305,24 +305,24 @@ VKAPI_ATTR void VKAPI_CALL hooked_vkDestroyInstance(VkInstance instance, const V
 
 #pragma comment( \
     linker,      \
-    "/EXPORT:VK_LAYER_RTCAP_CaptureEnumerateDeviceLayerProperties=_VK_LAYER_RTCAP_CaptureEnumerateDeviceLayerProperties@12")
+    "/EXPORT:VK_LAYER_TINECMATOOL_CaptureEnumerateDeviceLayerProperties=_VK_LAYER_TINECMATOOL_CaptureEnumerateDeviceLayerProperties@12")
 #pragma comment( \
     linker,      \
-    "/EXPORT:VK_LAYER_RTCAP_CaptureEnumerateDeviceExtensionProperties=_VK_LAYER_RTCAP_CaptureEnumerateDeviceExtensionProperties@16")
+    "/EXPORT:VK_LAYER_TINECMATOOL_CaptureEnumerateDeviceExtensionProperties=_VK_LAYER_TINECMATOOL_CaptureEnumerateDeviceExtensionProperties@16")
 #pragma comment( \
     linker,      \
-    "/EXPORT:VK_LAYER_RTCAP_CaptureEnumerateInstanceExtensionProperties=_VK_LAYER_RTCAP_CaptureEnumerateInstanceExtensionProperties@16")
+    "/EXPORT:VK_LAYER_TINECMATOOL_CaptureEnumerateInstanceExtensionProperties=_VK_LAYER_TINECMATOOL_CaptureEnumerateInstanceExtensionProperties@16")
 #pragma comment( \
     linker,      \
-    "/EXPORT:VK_LAYER_RTCAP_CaptureGetDeviceProcAddr=_VK_LAYER_RTCAP_CaptureGetDeviceProcAddr@8")
+    "/EXPORT:VK_LAYER_TINECMATOOL_CaptureGetDeviceProcAddr=_VK_LAYER_TINECMATOOL_CaptureGetDeviceProcAddr@8")
 #pragma comment( \
     linker,      \
-    "/EXPORT:VK_LAYER_RTCAP_CaptureGetInstanceProcAddr=_VK_LAYER_RTCAP_CaptureGetInstanceProcAddr@8")
+    "/EXPORT:VK_LAYER_TINECMATOOL_CaptureGetInstanceProcAddr=_VK_LAYER_TINECMATOOL_CaptureGetInstanceProcAddr@8")
 #endif
 
 extern "C" {
 
-VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL VK_LAYER_RTCAP_CaptureEnumerateDeviceLayerProperties(
+VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL VK_LAYER_TINECMATOOL_CaptureEnumerateDeviceLayerProperties(
     VkPhysicalDevice physicalDevice, uint32_t *pPropertyCount, VkLayerProperties *pProperties)
 {
   // must have a property count, either to fill out or use as a size
@@ -345,7 +345,7 @@ VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL VK_LAYER_RTCAP_CaptureEnumerateDe
         RENDERDOC_VULKAN_LAYER_NAME,
         VK_API_VERSION_1_0,
         VK_MAKE_VERSION(RENDERDOC_VERSION_MAJOR, RENDERDOC_VERSION_MINOR, 0),
-        "Debugging capture layer for GfxDiag",
+        "Debugging capture layer for TinecmaTool",
     };
 
     // set the one layer property
@@ -356,7 +356,7 @@ VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL VK_LAYER_RTCAP_CaptureEnumerateDe
 }
 
 VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
-VK_LAYER_RTCAP_CaptureEnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
+VK_LAYER_TINECMATOOL_CaptureEnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
                                                              const char *pLayerName,
                                                              uint32_t *pPropertyCount,
                                                              VkExtensionProperties *pProperties)
@@ -372,7 +372,7 @@ VK_LAYER_RTCAP_CaptureEnumerateDeviceExtensionProperties(VkPhysicalDevice physic
 }
 
 VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
-VK_LAYER_RTCAP_CaptureEnumerateInstanceExtensionProperties(
+VK_LAYER_TINECMATOOL_CaptureEnumerateInstanceExtensionProperties(
     const VkEnumerateInstanceExtensionPropertiesChain *pChain, const char *pLayerName,
     uint32_t *pPropertyCount, VkExtensionProperties *pProperties)
 {
@@ -420,10 +420,10 @@ VK_LAYER_RTCAP_CaptureEnumerateInstanceExtensionProperties(
 // proc addr routines
 
 VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
-VK_LAYER_RTCAP_CaptureGetDeviceProcAddr(VkDevice device, const char *pName)
+VK_LAYER_TINECMATOOL_CaptureGetDeviceProcAddr(VkDevice device, const char *pName)
 {
   if(!strcmp("vkGetDeviceProcAddr", pName))
-    return (PFN_vkVoidFunction)&VK_LAYER_RTCAP_CaptureGetDeviceProcAddr;
+    return (PFN_vkVoidFunction)&VK_LAYER_TINECMATOOL_CaptureGetDeviceProcAddr;
   if(!strcmp("vkCreateDevice", pName))
     return (PFN_vkVoidFunction)&hooked_vkCreateDevice;
   if(!strcmp("vkDestroyDevice", pName))
@@ -454,10 +454,10 @@ VK_LAYER_RTCAP_CaptureGetDeviceProcAddr(VkDevice device, const char *pName)
 }
 
 VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
-VK_LAYER_RTCAP_Capture_layerGetPhysicalDeviceProcAddr(VkInstance instance, const char *pName);
+VK_LAYER_TINECMATOOL_Capture_layerGetPhysicalDeviceProcAddr(VkInstance instance, const char *pName);
 
 VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
-VK_LAYER_RTCAP_CaptureGetInstanceProcAddr(VkInstance instance, const char *pName)
+VK_LAYER_TINECMATOOL_CaptureGetInstanceProcAddr(VkInstance instance, const char *pName)
 {
   // if name is NULL undefined is returned, let's return NULL
   if(pName == NULL)
@@ -466,11 +466,11 @@ VK_LAYER_RTCAP_CaptureGetInstanceProcAddr(VkInstance instance, const char *pName
   // a NULL instance can return vkGetInstanceProcAddr or a global function, handle that here
 
   if(!strcmp("vkGetInstanceProcAddr", pName))
-    return (PFN_vkVoidFunction)&VK_LAYER_RTCAP_CaptureGetInstanceProcAddr;
+    return (PFN_vkVoidFunction)&VK_LAYER_TINECMATOOL_CaptureGetInstanceProcAddr;
   if(!strcmp("vkEnumerateInstanceExtensionProperties", pName))
-    return (PFN_vkVoidFunction)&VK_LAYER_RTCAP_CaptureEnumerateInstanceExtensionProperties;
+    return (PFN_vkVoidFunction)&VK_LAYER_TINECMATOOL_CaptureEnumerateInstanceExtensionProperties;
   if(!strcmp("vk_layerGetPhysicalDeviceProcAddr", pName))
-    return (PFN_vkVoidFunction)&VK_LAYER_RTCAP_Capture_layerGetPhysicalDeviceProcAddr;
+    return (PFN_vkVoidFunction)&VK_LAYER_TINECMATOOL_Capture_layerGetPhysicalDeviceProcAddr;
 
   // don't implement vkEnumerateInstanceLayerProperties or vkEnumerateInstanceVersion, the loader
   // will do that
@@ -481,11 +481,11 @@ VK_LAYER_RTCAP_CaptureGetInstanceProcAddr(VkInstance instance, const char *pName
     return NULL;
 
   if(!strcmp("vkEnumerateDeviceLayerProperties", pName))
-    return (PFN_vkVoidFunction)&VK_LAYER_RTCAP_CaptureEnumerateDeviceLayerProperties;
+    return (PFN_vkVoidFunction)&VK_LAYER_TINECMATOOL_CaptureEnumerateDeviceLayerProperties;
   if(!strcmp("vkEnumerateDeviceExtensionProperties", pName))
-    return (PFN_vkVoidFunction)&VK_LAYER_RTCAP_CaptureEnumerateDeviceExtensionProperties;
+    return (PFN_vkVoidFunction)&VK_LAYER_TINECMATOOL_CaptureEnumerateDeviceExtensionProperties;
   if(!strcmp("vkGetDeviceProcAddr", pName))
-    return (PFN_vkVoidFunction)&VK_LAYER_RTCAP_CaptureGetDeviceProcAddr;
+    return (PFN_vkVoidFunction)&VK_LAYER_TINECMATOOL_CaptureGetDeviceProcAddr;
   if(!strcmp("vkCreateDevice", pName))
     return (PFN_vkVoidFunction)&hooked_vkCreateDevice;
   if(!strcmp("vkDestroyDevice", pName))
@@ -542,18 +542,18 @@ VK_LAYER_RTCAP_CaptureGetInstanceProcAddr(VkInstance instance, const char *pName
 }
 
 VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
-VK_LAYER_RTCAP_Capture_layerGetPhysicalDeviceProcAddr(VkInstance instance, const char *pName)
+VK_LAYER_TINECMATOOL_Capture_layerGetPhysicalDeviceProcAddr(VkInstance instance, const char *pName)
 {
   // GetPhysicalDeviceProcAddr acts like GetInstanceProcAddr but it returns NULL for any functions
   // which are known but aren't physical device functions
   if(!strcmp("vkGetInstanceProcAddr", pName))
     return NULL;
   if(!strcmp("vk_layerGetPhysicalDeviceProcAddr", pName))
-    return (PFN_vkVoidFunction)&VK_LAYER_RTCAP_Capture_layerGetPhysicalDeviceProcAddr;
+    return (PFN_vkVoidFunction)&VK_LAYER_TINECMATOOL_Capture_layerGetPhysicalDeviceProcAddr;
   if(!strcmp("vkEnumerateDeviceLayerProperties", pName))
-    return (PFN_vkVoidFunction)&VK_LAYER_RTCAP_CaptureEnumerateDeviceLayerProperties;
+    return (PFN_vkVoidFunction)&VK_LAYER_TINECMATOOL_CaptureEnumerateDeviceLayerProperties;
   if(!strcmp("vkEnumerateDeviceExtensionProperties", pName))
-    return (PFN_vkVoidFunction)&VK_LAYER_RTCAP_CaptureEnumerateDeviceExtensionProperties;
+    return (PFN_vkVoidFunction)&VK_LAYER_TINECMATOOL_CaptureEnumerateDeviceExtensionProperties;
   if(!strcmp("vkEnumerateInstanceExtensionProperties", pName))
     return NULL;
   if(!strcmp("vkGetDeviceProcAddr", pName))
@@ -631,17 +631,17 @@ VK_LAYER_RTCAP_Capture_layerGetPhysicalDeviceProcAddr(VkInstance instance, const
 
 // layer interface negotation (new interface)
 VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
-VK_LAYER_RTCAP_CaptureNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface *pVersionStruct)
+VK_LAYER_TINECMATOOL_CaptureNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface *pVersionStruct)
 {
   if(pVersionStruct->sType != LAYER_NEGOTIATE_INTERFACE_STRUCT)
     return VK_ERROR_INITIALIZATION_FAILED;
 
   if(pVersionStruct->loaderLayerInterfaceVersion >= 2)
   {
-    pVersionStruct->pfnGetInstanceProcAddr = VK_LAYER_RTCAP_CaptureGetInstanceProcAddr;
-    pVersionStruct->pfnGetDeviceProcAddr = VK_LAYER_RTCAP_CaptureGetDeviceProcAddr;
+    pVersionStruct->pfnGetInstanceProcAddr = VK_LAYER_TINECMATOOL_CaptureGetInstanceProcAddr;
+    pVersionStruct->pfnGetDeviceProcAddr = VK_LAYER_TINECMATOOL_CaptureGetDeviceProcAddr;
     pVersionStruct->pfnGetPhysicalDeviceProcAddr =
-        VK_LAYER_RTCAP_Capture_layerGetPhysicalDeviceProcAddr;
+        VK_LAYER_TINECMATOOL_Capture_layerGetPhysicalDeviceProcAddr;
   }
 
   // we only support the current version. Don't let updating the header silently make us report a
