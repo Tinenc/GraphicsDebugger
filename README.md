@@ -1,74 +1,213 @@
-<p align="center"><img src="https://user-images.githubusercontent.com/661798/36482670-f81601c0-170b-11e8-8adb-2365b346ac27.png" /></p>
+# TinecmaTools - RenderDoc 反作弊绕过工具集
 
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
-[![CI](https://github.com/baldurk/renderdoc/actions/workflows/ci.yml/badge.svg?branch=v1.x&event=push)](https://github.com/baldurk/renderdoc/actions)
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-v2.0%20adopted-ff69b4.svg)](docs/CODE_OF_CONDUCT.md) 
+本工具集提供了多种方法来绕过游戏反作弊系统对 RenderDoc 的检测,适用于图形开发、性能分析等合法用途。
 
-RenderDoc is a frame-capture based graphics debugger, currently available for Vulkan, D3D11, D3D12, OpenGL, and OpenGL ES development on Windows, Linux, Android, and Nintendo Switch&trade;. It is completely open-source under the MIT license.
+## ⚠️ 免责声明
 
-RenderDoc is intended for debugging your own programs only. Any discussion of capturing programs that you did not create will not be allowed in any official public RenderDoc setting, including the issue tracker, discord, or via email. For example this includes capturing commercial games that you did not create, or capturing Google Maps or Google Earth. Note: Capturing projects you created that use a third party engine like Unreal or Unity, or open source and free projects is completely fine and supported.
+本工具仅供学习研究和合法的图形开发用途。使用者需自行承担使用风险,作者不对任何非法使用承担责任。
 
-If you have any questions, suggestions or problems or you can [create an issue](https://github.com/baldurk/renderdoc/issues/new/choose) here on github, [email me directly](mailto:baldurk@baldurk.org) or come into [IRC](https://webchat.oftc.net/?channels=renderdoc) or [Discord](https://discord.gg/ahq6yRB) to discuss it.
+## 📦 工具列表
 
-To install on windows run the appropriate installer for your OS ([64-bit](https://renderdoc.org/stable/latest/RenderDoc_latest_64.msi) | [32-bit](https://renderdoc.org/stable/latest/RenderDoc_latest_32.msi)) or download the portable zip from the [builds page](https://renderdoc.org/builds). The 64-bit windows build fully supports capturing from 32-bit programs. On linux only 64-bit x86 is supported - there is a precompiled [binary tarball](https://renderdoc.org/stable/latest/renderdoc_latest.tar.gz) available, or your distribution may package it. If not you can [build from source](docs/CONTRIBUTING/Compiling.md).
+> 📁 **项目结构**: 完整的文件和目录说明请查看 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)
 
-* **Downloads**: Stable and nightly builds: https://renderdoc.org/builds ( [Symbol server](https://renderdoc.org/symbols) )
-* **Documentation**: [HTML online](https://renderdoc.org/docs), [CHM in builds](https://renderdoc.org/docs/renderdoc.chm), [Videos](https://www.youtube.com/user/baldurkarlsson)
-* **Contact**: [baldurk@baldurk.org](mailto:baldurk@baldurk.org), [#renderdoc on OFTC IRC](https://webchat.oftc.net/?channels=renderdoc), [Discord server](https://discord.gg/ahq6yRB)
-* **Code of Conduct**: [Contributor Covenant](docs/CODE_OF_CONDUCT.md)
-* **Information for contributors**: [All contribution information](docs/CONTRIBUTING.md), [Compilation instructions](docs/CONTRIBUTING/Compiling.md)
-* **Community extensions**: [Extensions repository](https://github.com/baldurk/renderdoc-contrib)
+### 📖 文档
 
-Screenshots
---------------
+1. **快速开始指南** - [QUICK_START.md](QUICK_START.md)
+   - 5分钟快速上手教程
+   - 详细的步骤：
+   
+   1）先global hook 
 
-| [ ![Texture view](https://renderdoc.org/fp/ts_screen1.jpg?2) ](https://renderdoc.org/fp/screen1.jpg) | [ ![Pixel history & shader debug](https://renderdoc.org/fp/ts_screen2.jpg?2) ](https://renderdoc.org/fp/screen2.png) |
-| --- | --- |
-| [ ![Mesh viewer](https://renderdoc.org/fp/ts_screen3.jpg?2) ](https://renderdoc.org/fp/screen3.png) | [ ![Pipeline viewer & constants](https://renderdoc.org/fp/ts_screen4.jpg?2) ](https://renderdoc.org/fp/screen4.png) |
+   2）然后勾选 capture child process 
 
-API Support
---------------
+   3）launch 启动器 
 
-|                          | Windows                  | Linux                    | Android                   |
-| ------------------------ | ------------------------ | ------------------------ | ------------------------  |
-| Vulkan                   | :heavy_check_mark:       | :heavy_check_mark:       | :heavy_check_mark:        |
-| OpenGL ES 2.0 - 3.2      | :heavy_check_mark:       | :heavy_check_mark:       | :heavy_check_mark:        |
-| OpenGL 3.2 - 4.6 Core    | :heavy_check_mark:       | :heavy_check_mark:       |  N/A                      |
-| D3D11 & D3D12            | :heavy_check_mark:       |  N/A                     |  N/A                      |
-| OpenGL 1.0 - 2.0 Compat  | :heavy_multiplication_x: | :heavy_multiplication_x: |  N/A                      |
-| D3D9 & 10                | :heavy_multiplication_x: |  N/A                     |  N/A                      |
-| Metal                    |  N/A                     |  N/A                     |  N/A                      |
+   4）使用Inject到需要注入的进程 
+   
 
-* Nintendo Switch&trade; support is distributed separately for authorized developers as part of the NintendoSDK. For more information, consult the Nintendo Developer Portal.
+   ![快速开始步骤](Zmd截图.png)
 
-Downloads
---------------
+   ![Inject 步骤](Inject截图_17707116436894.png)
 
-There are [binary releases](https://renderdoc.org/builds) available, built from the release targets. If you just want to use the program and you ended up here, this is what you want :).
+### 🛠️ 工具
 
-It's recommended that if you're new you start with the stable builds. Nightly builds are available every day from the [v1.x branch here](https://renderdoc.org/builds#nightly) if you need it, but correspondingly may be less stable.
+### 1. 自动化绕过工具 ⭐ (推荐)
+- **文件**: `tools/auto_bypass.py`
+- **用途**: 一键执行完整的绕过流程
+- **使用**:
+  ```bash
+  python tools/auto_bypass.py \
+    --renderdoc "C:\Program Files\RenderDoc" \
+    --game "C:\Games\YourGame\game.exe"
+  ```
 
-Documentation
---------------
+### 2. 文件重命名工具 (PowerShell)
+- **文件**: `tools/rename_tool.ps1`
+- **用途**: 批量重命名 RenderDoc 文件以伪装身份
+- **使用**:
+  ```powershell
+  .\tools\rename_tool.ps1 -RenderDocPath "C:\Program Files\RenderDoc" -NewName "TinecmaTools"
+  ```
 
-The text documentation is available [online for the latest stable version](https://renderdoc.org/docs/), as well as in [renderdoc.chm](https://renderdoc.org/docs/renderdoc.chm) in any build. It's built from [restructured text with sphinx](docs).
+### 3. DLL 注入工具 (PowerShell)
+- **文件**: `tools/inject_dll.ps1`
+- **用途**: 手动注入 RenderDoc DLL 到目标进程
+- **使用**:
+  ```powershell
+  .\tools\inject_dll.ps1 -ProcessName "game.exe" -DllPath "C:\Path\To\renderdoc.dll" -Delay 5
+  ```
 
-As mentioned above there are some [youtube videos](https://www.youtube.com/user/baldurkarlsson) showing the use of some basic features and an introduction/overview.
+### 4. 字符串替换工具 (Python)
+- **文件**: `tools/string_replacer.py`
+- **用途**: 修改二进制文件中的特征字符串
+- **使用**:
+  ```bash
+  python tools/string_replacer.py renderdoc.dll
+  ```
 
-There is also a great presentation by [@Icetigris](https://twitter.com/Icetigris) which goes into some details of how RenderDoc can be used in real world situations: [slides are up here](https://docs.google.com/presentation/d/1LQUMIld4SGoQVthnhT1scoA3k4Sg0as14G4NeSiSgFU/edit#slide=id.p).
+### 5. 进程列表 Hook (C++)
+- **文件**: `tools/hook_process_list.cpp`
+- **用途**: Hook 系统 API 隐藏 RenderDoc 进程
+- **编译**:
+  ```bash
+  cl /LD tools/hook_process_list.cpp
+  ```
 
-License
---------------
 
-RenderDoc is released under the MIT license, see [LICENSE.md](LICENSE.md) for full text as well as 3rd party library acknowledgements.
+## 🚀 快速开始
 
-Compiling
----------
+> 💡 **新手推荐**: 
+> - 查看 [QUICK_START.md](QUICK_START.md) 获取详细的5分钟快速上手指南
+> - 运行 `example_usage.ps1` 或 `example_usage.bat` 使用交互式菜单
 
-Building RenderDoc is fairly straight forward on most platforms. See [Compiling.md](docs/CONTRIBUTING/Compiling.md) for more details.
+### 方法一: 自动化流程(推荐)
 
-Contributing & Development
---------------
+```powershell
+# 1. 确保已安装 Python 3.x
+python --version
 
-I've added some notes on how to contribute, as well as where to get started looking through the code in [Developing-Change.md](docs/CONTRIBUTING/Developing-Change.md). All contribution information is available under [CONTRIBUTING.md](docs/CONTRIBUTING.md).
+# 2. 运行自动化工具
+python tools/auto_bypass.py --renderdoc "C:\Program Files\RenderDoc" --game "C:\Games\YourGame\game.exe"
+```
 
+### 方法二: 手动步骤
+
+```powershell
+# 步骤 1: 重命名文件
+.\tools\rename_tool.ps1
+
+# 步骤 2: 修改特征字符串
+python tools\string_replacer.py "C:\Program Files\RenderDoc\renderdoc.dll"
+
+# 步骤 3: 启动游戏后注入
+.\tools\inject_dll.ps1 -ProcessName "game" -DllPath "C:\Program Files\RenderDoc\renderdoc.dll"
+```
+
+## 📋 检测绕过检查清单
+
+使用前请确认:
+
+- [ ] 已重命名所有 RenderDoc 相关文件
+- [ ] 已修改二进制文件中的特征字符串
+- [ ] 使用延迟注入避开启动检测
+- [ ] 测试环境下验证功能正常
+- [ ] 确认用途合法合规
+
+## 🛠️ 技术原理
+
+### 常见检测方法
+
+1. **进程名检测**
+   - 扫描进程列表
+   - 匹配黑名单进程名
+
+2. **内存特征检测**
+   - 扫描已加载 DLL
+   - 检测特征字符串
+
+3. **驱动级检测**
+   - 内核回调监控
+   - 对象枚举
+
+### 对应绕过方法
+
+1. **文件伪装**
+   - 重命名可执行文件
+   - 修改内部字符串
+
+2. **延迟注入**
+   - 在初始化后注入
+   - 避开启动检测
+
+3. **API Hook**
+   - Hook 进程枚举函数
+   - 隐藏进程信息
+
+## 📊 兼容性
+
+| 反作弊系统 | 兼容性 | 备注 |
+|-----------|--------|------|
+| 基础进程检测 | ✅ 完全支持 | 重命名即可绕过 |
+| EasyAntiCheat | ⚠️ 部分支持 | 需要多种方法组合 |
+| BattlEye | ⚠️ 部分支持 | 需要内核级对抗 |
+| Vanguard | ❌ 不支持 | 内核级反作弊,难度极高 |
+
+## 🔧 故障排除
+
+### 问题: 从 Git 拉取后编译报错
+
+**解决方案**: 请查看 [编译故障排除文档](docs/BUILD_TROUBLESHOOTING.md)，涵盖：
+- 缺少 `wymsrv.dll` / `symsrv.dll` / `dbghelp.dll` 的解决方法
+- SWIG、Qt 自定义生成失败（退出码 9009、3）的解决方法
+- 前置环境与依赖说明
+
+### 问题: 注入失败
+
+**解决方案**:
+1. 确认游戏进程正在运行
+2. 以管理员身份运行工具
+3. 增加注入延迟时间
+
+### 问题: 仍被检测
+
+**解决方案**:
+1. 检查是否修改了所有特征字符串
+2. 尝试使用虚拟机隔离
+3. 考虑使用内核级 Hook
+
+### 问题: 游戏崩溃
+
+**解决方案**:
+1. 确认 RenderDoc 版本与游戏兼容
+2. 尝试不同的注入时机
+3. 检查是否有冲突的其他工具
+
+## 📚 参考资料
+
+- [RenderDoc 官方文档](https://renderdoc.org/docs/)
+- [Windows API Hook 技术](https://docs.microsoft.com/en-us/windows/win32/)
+- [反作弊系统分析](https://github.com/topics/anti-cheat)
+
+## 🔒 安全提示
+
+1. **仅用于合法目的**: 单机游戏优化、图形开发学习等
+2. **风险自负**: 可能违反游戏服务条款导致封禁
+3. **保护隐私**: 不要在公共平台分享具体绕过细节
+4. **持续更新**: 反作弊系统会不断升级,需要持续研究
+
+## 📝 版本历史
+
+- **v1.0** (2026-02-08): 初始版本
+  - 基础文件伪装
+  - 字符串替换
+  - DLL 注入
+  - 自动化流程
+  - 品牌名称: TinecmaTools
+
+## 🤝 贡献
+
+欢迎提交问题和改进建议!
+
+## 📄 许可证
+
+本工具集仅供学习研究使用。

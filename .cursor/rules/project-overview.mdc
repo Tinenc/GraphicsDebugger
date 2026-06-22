@@ -1,0 +1,49 @@
+---
+description: butteruni/renderdoc Endfield 分支项目背景、品牌坑与编译方式
+alwaysApply: true
+---
+
+# 项目背景
+
+- **远程**: https://github.com/butteruni/renderdoc.git
+- **分支**: `Endfield`（基于上游 baldurk/renderdoc v1.x fork）
+- **本地路径**: `c:\Program Files\GraphicsDebuggerRdcTools`（路径含空格，PowerShell 中需用双引号 `"c:\Program Files\..."`）
+- **解决方案**: `renderdoc.sln`（不是 TinecmaTools.sln）
+- **Endfield 用途**: 修改 RenderDoc hook 逻辑，避免注入到 `platformprocess.exe`（鸣潮 Wuwa 启动器）等进程，便于对该类游戏抓帧
+- **关键改动文件**: `renderdoc/os/win32/sys_win32_hooks.cpp`、`win32_process.cpp`
+
+# ⚠ 品牌命名严重不一致（必读）
+
+仓库源码与工程文件的品牌名**不匹配**，会导致 UI 报 "Couldn't start global hook / err 2"：
+
+| 类别 | 源码硬编码（期望） | vcxproj 输出（实际） |
+|------|------|------|
+| 主库 | `gfxdiag.dll` | `rendertest.dll` |
+| 命令行 | `gfxdiagcmd.exe` | `rendertestcmd.exe` |
+| Shim | `gfxdiagshim64/32.dll` | `rendertestshim64/32.dll` |
+| UI | `qgfxdiag.exe` | `qrendertest.exe` |
+
+**救急方案**（每次重编后都要做一次）：把 `x64/Win32` × `Development/Release` 四个产物目录里，所有 `rendertest*` / `qrendertest.exe` **复制**一份改名为对应的 `gfxdiag*` / `qgfxdiag.exe`（保留原文件以维持 PE Import 依赖）。
+
+**根治**：把 4 个 vcxproj 的 `<ProjectName>` 改成 `gfxdiag` / `gfxdiagcmd` / `gfxdiagshim` / `qgfxdiag`，清理产物后重编。
+
+# 目录与编译
+
+| 目录 | 用途 |
+|------|------|
+| `renderdoc/` | C++ 核心抓帧/回放库（含 driver、hooks、os、shaders） |
+| `qrenderdoc/` | Qt + SWIG/Python UI |
+| `renderdoccmd/` | 命令行注入器 |
+| `renderdocshim/` | 注入 shim DLL |
+| `docs/` | Sphinx 文档（含 CONTRIBUTING/Compiling.md） |
+| `util/` | 测试、构建脚本、clang-format |
+| `x64/Development/`、`x64/Release/` 等 | VS 编译输出 |
+
+编译：VS 2019/2022 打开 `renderdoc.sln`，目标平台 x64，配置 Development/Release。需要 SWIG、Qt 5.9.x、Python 3.6 工具链，放入 `qrenderdoc/3rdparty/`（git 不带二进制，需手动放）。
+
+# 协作约定
+
+- 始终使用**简体中文**回复
+- 修改核心代码遵循上游 RenderDoc C++ 风格（`util/clangformat/`）
+- 修改 hook 注入逻辑时优先看 `sys_win32_hooks.cpp` 的 `ShouldInject` 与 `win32_process.cpp` 的 `Inject*` 函数
+- PowerShell 命令所有含空格路径必须双引号
