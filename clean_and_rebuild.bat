@@ -27,7 +27,7 @@ timeout /t 5 /nobreak
 echo.
 echo [3/4] 开始重新编译...
 echo 请手动在 Visual Studio 中执行以下操作：
-echo 1. 打开 TinecmaTools.sln
+echo 1. 打开 renderdoc.sln
 echo 2. 选择 "生成" -> "清理解决方案"
 echo 3. 选择 "生成" -> "重新生成解决方案"
 echo.

@@ -1126,8 +1126,7 @@ void WrappedID3D11DeviceContext::AddUsage(const ActionDescription &a)
       if(sh.Used_SRV(i))
       {
         WrappedID3D11ShaderResourceView1 *view = (WrappedID3D11ShaderResourceView1 *)sh.SRVs[i];
-        m_ResourceUses[view->GetResourceResID()].push_back(
-            EventUsage(e, ResUsage(s), view->GetResourceID()));
+        m_ResourceUses[view->GetResourceResID()].push_back(EventUsage(e, ResUsage(s)));
       }
     }
 
@@ -1140,7 +1139,7 @@ void WrappedID3D11DeviceContext::AddUsage(const ActionDescription &a)
           WrappedID3D11UnorderedAccessView1 *view =
               (WrappedID3D11UnorderedAccessView1 *)pipe->CSUAVs[i];
           m_ResourceUses[view->GetResourceResID()].push_back(
-              EventUsage(e, ResourceUsage::CS_RWResource, view->GetResourceID()));
+              EventUsage(e, ResourceUsage::CS_RWResource));
         }
       }
     }
@@ -1169,8 +1168,7 @@ void WrappedID3D11DeviceContext::AddUsage(const ActionDescription &a)
     {
       WrappedID3D11UnorderedAccessView1 *view =
           (WrappedID3D11UnorderedAccessView1 *)pipe->OM.UAVs[i - pipe->OM.UAVStartSlot];
-      m_ResourceUses[view->GetResourceResID()].push_back(
-          EventUsage(e, ResourceUsage::PS_RWResource, view->GetResourceID()));
+      m_ResourceUses[view->GetResourceResID()].push_back(EventUsage(e, ResourceUsage::PS_RWResource));
     }
   }
 
@@ -1178,7 +1176,7 @@ void WrappedID3D11DeviceContext::AddUsage(const ActionDescription &a)
   {
     WrappedID3D11DepthStencilView *view = (WrappedID3D11DepthStencilView *)pipe->OM.DepthView;
     m_ResourceUses[view->GetResourceResID()].push_back(
-        EventUsage(e, ResourceUsage::DepthStencilTarget, view->GetResourceID()));
+        EventUsage(e, ResourceUsage::DepthStencilTarget));
   }
 
   for(int i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
@@ -1187,8 +1185,7 @@ void WrappedID3D11DeviceContext::AddUsage(const ActionDescription &a)
     {
       WrappedID3D11RenderTargetView1 *view =
           (WrappedID3D11RenderTargetView1 *)pipe->OM.RenderTargets[i];
-      m_ResourceUses[view->GetResourceResID()].push_back(
-          EventUsage(e, ResourceUsage::ColorTarget, view->GetResourceID()));
+      m_ResourceUses[view->GetResourceResID()].push_back(EventUsage(e, ResourceUsage::ColorTarget));
     }
   }
 }

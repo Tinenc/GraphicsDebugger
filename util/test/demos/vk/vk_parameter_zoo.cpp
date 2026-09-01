@@ -1284,6 +1284,7 @@ void main()
     };
 
     VkDescriptorUpdateTemplateKHR inlinetempl = VK_NULL_HANDLE;
+    VkDescriptorUpdateTemplateKHR immuttempl = VK_NULL_HANDLE;
     VkDescriptorSet inlineuboset = allocateDescriptorSet(inlineubosetlayout);
     VkDescriptorSet inlineuboset_templ = allocateDescriptorSet(inlineubosetlayout);
     VkDescriptorSet inlineuboset_templ_dyn = allocateDescriptorSet(inlineubosetlayout);
@@ -1393,16 +1394,34 @@ void main()
 
     setName(mutableSampler, "mutableSampler");
 
+    VkDescriptorImageInfo immutUpdate =
+        vkh::DescriptorImageInfo(validImgView, VK_IMAGE_LAYOUT_GENERAL, mutableSampler);
+
     // try writing a different sampler to the immutable sampler, it should not be applied
     vkh::updateDescriptorSets(
-        device,
-        {
-            vkh::WriteDescriptorSet(
-                immutdescset, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                {
-                    vkh::DescriptorImageInfo(validImgView, VK_IMAGE_LAYOUT_GENERAL, mutableSampler),
-                }),
-        });
+        device, {
+                    vkh::WriteDescriptorSet(
+                        immutdescset, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, {immutUpdate}),
+                });
+
+    if(KHR_descriptor_update_template)
+    {
+      std::vector<VkDescriptorUpdateTemplateEntryKHR> entries = {
+          {0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0, sizeof(VkDescriptorImageInfo)},
+      };
+
+      VkDescriptorUpdateTemplateCreateInfoKHR createInfo = {};
+      createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO_KHR;
+      createInfo.descriptorUpdateEntryCount = (uint32_t)entries.size();
+      createInfo.pDescriptorUpdateEntries = entries.data();
+      createInfo.templateType = VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET_KHR;
+      createInfo.descriptorSetLayout = immutsetlayout;
+      createInfo.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+
+      vkCreateDescriptorUpdateTemplateKHR(device, &createInfo, NULL, &immuttempl);
+
+      vkUpdateDescriptorSetWithTemplateKHR(device, immutdescset, immuttempl, &immutUpdate);
+    }
 
     refdatastruct resetrefdata = {};
     resetrefdata.sampler.sampler = resetrefdata.combined.sampler = validSampler;
@@ -1671,16 +1690,19 @@ void main()
         Submit(0, 4, {cmd});
       }
 
+      immutUpdate.sampler = invalidSampler;
+
       // try writing with an invalid sampler to the immutable, it should be ignored
       vkh::updateDescriptorSets(
-          device,
-          {
-              vkh::WriteDescriptorSet(
-                  immutdescset, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                  {
-                      vkh::DescriptorImageInfo(validImgView, VK_IMAGE_LAYOUT_GENERAL, invalidSampler),
-                  }),
-          });
+          device, {
+                      vkh::WriteDescriptorSet(
+                          immutdescset, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, {immutUpdate}),
+                  });
+
+      if(KHR_descriptor_update_template)
+      {
+        vkUpdateDescriptorSetWithTemplateKHR(device, immutdescset, immuttempl, &immutUpdate);
+      }
 
       // do a bunch of spinning on fences/semaphores that should not be serialised exhaustively
       VkResult status = VK_SUCCESS;
@@ -2037,8 +2059,8 @@ void main()
 
       {
         std::vector<VkCommandBuffer> cmds = {};
-        VkSubmitInfo submit = vkh::SubmitInfo(cmds);
-        CHECK_VKR(vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE));
+        VkSubmitInfo submit[2] = {vkh::SubmitInfo(cmds), vkh::SubmitInfo(cmds)};
+        CHECK_VKR(vkQueueSubmit(queue, 2, submit, VK_NULL_HANDLE));
       }
       if(hasExt(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME))
       {
@@ -2068,6 +2090,8 @@ void main()
     if(KHR_descriptor_update_template)
     {
       vkDestroyDescriptorUpdateTemplateKHR(device, reftempl, NULL);
+
+      vkDestroyDescriptorUpdateTemplateKHR(device, immuttempl, NULL);
 
       if(hasExt(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME))
         vkDestroyDescriptorUpdateTemplateKHR(device, inlinetempl, NULL);

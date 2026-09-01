@@ -490,7 +490,7 @@ add_subdirectory(renderdoc)
 # are handled in common
 if(ENABLE_QRENDERDOC OR ENABLE_PYRENDERDOC)
     # Make sure Python 3 is found
-    set(Python_ADDITIONAL_VERSIONS 3.15 3.14 3.13 3.12 3.11 3.10 3.9 3.8 3.7 3.6 3.5 3.4)
+    set(Python_ADDITIONAL_VERSIONS 3.18 3.17 3.16 3.15 3.14 3.13 3.12 3.11 3.10 3.9 3.8 3.7 3.6 3.5 3.4)
     if(NOT ${CMAKE_VERSION} VERSION_LESS "3.12")
         find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
         set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})

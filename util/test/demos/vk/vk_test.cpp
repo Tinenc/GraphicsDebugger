@@ -1056,6 +1056,12 @@ void VulkanGraphicsTest::setName(VkPipeline obj, const std::string &name)
 }
 
 template <>
+void VulkanGraphicsTest::setName(VkPipelineLayout obj, const std::string &name)
+{
+  setName(VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)obj, name);
+}
+
+template <>
 void VulkanGraphicsTest::setName(VkFramebuffer obj, const std::string &name)
 {
   setName(VK_OBJECT_TYPE_FRAMEBUFFER, (uint64_t)obj, name);
@@ -1107,6 +1113,24 @@ template <>
 void VulkanGraphicsTest::setName(VkAccelerationStructureKHR obj, const std::string &name)
 {
   setName(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, (uint64_t)obj, name);
+}
+
+template <>
+void VulkanGraphicsTest::setName(VkDescriptorSetLayout obj, const std::string &name)
+{
+  setName(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, (uint64_t)obj, name);
+}
+
+template <>
+void VulkanGraphicsTest::setName(VkDescriptorSet obj, const std::string &name)
+{
+  setName(VK_OBJECT_TYPE_DESCRIPTOR_SET, (uint64_t)obj, name);
+}
+
+template <>
+void VulkanGraphicsTest::setName(VkRenderPass obj, const std::string &name)
+{
+  setName(VK_OBJECT_TYPE_RENDER_PASS, (uint64_t)obj, name);
 }
 
 void VulkanGraphicsTest::setName(VkObjectType objType, uint64_t obj, const std::string &name)

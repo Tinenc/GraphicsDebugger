@@ -535,7 +535,8 @@ void main()
                         vkh::BufferCreateInfo(size, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR |
                                                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                                         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-                                                        VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT),
+                                                        VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
+                                                        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT),
                         VmaAllocationCreateInfo({0, VMA_MEMORY_USAGE_CPU_TO_GPU}));
     setName(ret.buffer, name);
     dataAddress = ret.address;

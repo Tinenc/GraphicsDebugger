@@ -200,6 +200,7 @@ void OrderedListEditor::addNewItemRow()
   item->setFlags(item->flags() & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled));
   setItem(rowCount() - 1, 0, item);
 
+  if(m_Prop.valid())
   {
     QWidget *w = makeCellWidget(1, OrderedItemExtras::CustomProp);
     QCheckBox *c = qobject_cast<QCheckBox *>(w);

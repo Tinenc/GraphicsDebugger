@@ -559,7 +559,8 @@
   DeclExt(KHR_map_memory2);                            \
   DeclExt(KHR_present_wait2);                          \
   DeclExt(EXT_fragment_density_map_offset);            \
-  DeclExt(EXT_image_drm_format_modifier);
+  DeclExt(EXT_image_drm_format_modifier);              \
+  DeclExt(EXT_custom_resolve);
 
 // for simplicity and since the check itself is platform agnostic,
 // these aren't protected in platform defines
@@ -705,7 +706,8 @@
   CheckExt(KHR_map_memory2, VK14);                            \
   CheckExt(KHR_present_wait2, VKXX);                          \
   CheckExt(EXT_fragment_density_map_offset, VKXX);            \
-  CheckExt(EXT_image_drm_format_modifier, VKXX);
+  CheckExt(EXT_image_drm_format_modifier, VKXX);              \
+  CheckExt(EXT_custom_resolve, VKXX);
 
 #define HookInitVulkanInstanceExts_PhysDev()                                                         \
   HookInitExtension(KHR_surface, GetPhysicalDeviceSurfaceSupportKHR);                                \
@@ -983,6 +985,7 @@
   HookInitPromotedExtension(KHR_dynamic_rendering, CmdBeginRendering, KHR);                          \
   HookInitPromotedExtension(KHR_dynamic_rendering, CmdEndRendering, KHR);                            \
   HookInitExtension(EXT_fragment_density_map_offset, CmdEndRendering2EXT);                           \
+  HookInitExtension(EXT_custom_resolve, CmdBeginCustomResolveEXT);                                   \
   HookInitPromotedExtension(KHR_dynamic_rendering_local_read, CmdSetRenderingAttachmentLocations,    \
                             KHR);                                                                    \
   HookInitPromotedExtension(KHR_dynamic_rendering_local_read,                                        \
@@ -1110,6 +1113,7 @@
   HookInitPromotedExtension(KHR_map_memory2, UnmapMemory2, KHR);                                     \
   HookInitExtension(KHR_present_wait2, WaitForPresent2KHR);                                          \
   HookInitExtension(EXT_image_drm_format_modifier, GetImageDrmFormatModifierPropertiesEXT);          \
+  HookInitExtension(EXT_custom_resolve, CmdBeginCustomResolveEXT);                                   \
   HookInitExtension_Device_Win32();                                                                  \
   HookInitExtension_Device_Linux();                                                                  \
   HookInitExtension_Device_Android();                                                                \
@@ -2082,6 +2086,8 @@
               pBindDescriptorBufferEmbeddedSamplersInfo);                                            \
   HookDefine3(VkResult, vkGetImageDrmFormatModifierPropertiesEXT, VkDevice, device, VkImage,         \
               image, VkImageDrmFormatModifierPropertiesEXT *, pProperties);                          \
+  HookDefine2(void, vkCmdBeginCustomResolveEXT, VkCommandBuffer, commandBuffer,                      \
+              const VkBeginCustomResolveInfoEXT *, pBeginCustomResolveInfo);                         \
   HookDefine_Win32();                                                                                \
   HookDefine_Linux();                                                                                \
   HookDefine_Android();                                                                              \

@@ -1298,6 +1298,8 @@ void VulkanReplay::FlipOutputWindow(uint64_t id)
 
   VkResult retvkr;
 
+  vt->DeviceWaitIdle(Unwrap(m_pDriver->GetDev()));
+
   // if we were not able to acquire an image successfully in Bind even after resizing due to an
   // OUT_OF_DATE, then don't present here as we never got a valid image.
   // This will also force another recreate below

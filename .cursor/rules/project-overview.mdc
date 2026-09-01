@@ -1,0 +1,83 @@
+---
+description: TinecmaTool（butteruni/renderdoc Endfield fork）项目背景、品牌、编译方式
+alwaysApply: true
+---
+
+# 项目背景
+
+- **上游 fork**: https://github.com/butteruni/renderdoc.git，`Endfield` 分支（基于 baldurk/renderdoc v1.x）
+- **本仓库远程**: https://github.com/Tinenc/GraphicsDebuggerRdcTools.git，活动分支 `endfield/import`
+- **本地路径**: `c:\Program Files\GraphicsDebuggerRdcTools`（路径含空格，PowerShell 中需用双引号 `"c:\Program Files\..."`）
+- **解决方案**: `renderdoc.sln`
+- **Endfield 用途**: 修改 RenderDoc hook 逻辑，避免注入到 `platformprocess.exe`（鸣潮 Wuwa 启动器）等进程，便于对该类游戏抓帧
+- **关键改动文件**: `renderdoc/os/win32/sys_win32_hooks.cpp`、`renderdoc/os/win32/win32_process.cpp`
+
+# 品牌：TinecmaTool（统一后）
+
+原始 Endfield fork 留下了 `rendertest`（vcxproj 输出）与 `gfxdiag`（源码硬编码）两套不一致的命名，需要 hot-patch 复制产物才能跑。**本仓库已统一改名为 `TinecmaTool`**，问题彻底消失。
+
+## 命名约定
+
+| 类别 | 值 |
+|------|------|
+| 主 DLL | `TinecmaTool.dll` |
+| 命令行 | `TinecmaToolcmd.exe` |
+| Shim | `TinecmaToolshim64.dll` / `TinecmaToolshim32.dll` |
+| UI | `qTinecmaTool.exe` |
+| Stub lib | `TinecmaToolui_stub.lib` |
+| Android SO | `libVkLayer_GLES_TinecmaTool.so` |
+| Android 包 | `org.tinecmatool.tinecmatoolcmd` |
+| Vulkan layer | `VK_LAYER_TINECMATOOL_Capture`，导出 `VK_LAYER_TINECMATOOL_*` |
+| Vulkan env | `ENABLE_VULKAN_TINECMATOOL_CAPTURE` / `DISABLE_VULKAN_TINECMATOOL_CAPTURE_*` |
+| C API 入口 | `TINECMATOOL_GetAPI`（typedef `pTINECMATOOL_GetAPI`） |
+| Crash 事件名 | `TINECMATOOL_CRASHHANDLE` |
+| Replay marker | `TinecmaTool__replay__marker` |
+| 全局 hook 共享 | `TinecmaToolGlobalHookData64/32` |
+| Registry 备份 | `TinecmaTool_RestoreGlobalHook.reg` |
+| Symbol 缓存 | `%APPDATA%\TinecmaTool\symbols` |
+| INI 节 | `[TinecmaTool]` |
+| BugReport zip | `TinecmaTool_report_*.zip` |
+| WGL 窗口类 | `TinecmaToolGLclass` |
+| PE 资源 | InternalName/ProductName = `TinecmaTool` |
+
+## 大小写规则（修改代码时务必遵守）
+
+- 文件名 / 项目名 / 显示名 / 符号名：PascalCase **`TinecmaTool`**
+- 全大写宏：**`TINECMATOOL_*`**（事件、env、API 入口、linker version script 通配符）
+- `sys_win32_hooks.cpp` 中的注入黑名单走 `strlower()` 比较 → 必须用字面小写 **`tinecmatoolcmd.exe`** / **`qtinecmatool.exe`**
+- Android 包名按惯例全小写 **`org.tinecmatool.tinecmatoolcmd`**
+
+# 目录与编译
+
+| 目录 | 用途 |
+|------|------|
+| `renderdoc/` | C++ 核心抓帧/回放库（含 driver、hooks、os、shaders） |
+| `qrenderdoc/` | Qt + SWIG/Python UI |
+| `renderdoccmd/` | 命令行注入器（输出 `TinecmaToolcmd.exe`） |
+| `renderdocshim/` | 注入 shim DLL（输出 `TinecmaToolshim64/32.dll`） |
+| `docs/` | Sphinx 文档（含 CONTRIBUTING/Compiling.md） |
+| `util/` | 测试、构建脚本、clang-format |
+| `x64/Development/`、`Win32/Development/` 等 | VS 编译输出 |
+
+编译：VS 2019/2022 打开 `renderdoc.sln`，目标平台 x64（或 Win32），配置 Development/Release。需要 SWIG、Qt 5.9.x、Python 3.6 工具链，放入 `qrenderdoc/3rdparty/`（git 不带二进制，需手动放）。
+
+**编译完成后直接运行 `x64\Development\qTinecmaTool.exe` 即可注入**，不再需要任何 hot-patch 复制步骤——所有产物名与源码硬编码一致，路径自洽。
+
+# 5 个核心 vcxproj 的 ProjectName
+
+| vcxproj | ProjectName | 输出 |
+|---------|-------------|------|
+| `renderdoc/renderdoc.vcxproj` | `TinecmaTool` | `TinecmaTool.dll` |
+| `renderdoccmd/renderdoccmd.vcxproj` | `TinecmaToolcmd` | `TinecmaToolcmd.exe` |
+| `renderdocshim/renderdocshim.vcxproj` | `TinecmaToolshim` | `TinecmaToolshim64/32.dll`（TargetName 后缀位宽） |
+| `qrenderdoc/qrenderdoc_local.vcxproj` | `qTinecmaTool` | `qTinecmaTool.exe` |
+| `qrenderdoc/renderdocui_stub.vcxproj` | `TinecmaToolui_stub` | `TinecmaToolui.lib` |
+
+# 协作约定
+
+- 始终使用**简体中文**回复
+- 修改核心代码遵循上游 RenderDoc C++ 风格（`util/clangformat/`）
+- 修改 hook 注入逻辑时优先看 `sys_win32_hooks.cpp` 的 `ShouldInject` 与 `win32_process.cpp` 的 `Inject*` 函数
+- PowerShell 命令所有含空格路径必须双引号；分隔命令用 `;` 而不是 `&&`
+- 新增任何文件名/符号名/字符串/资源时，沿用上面的 TinecmaTool 命名 + 大小写规则，**绝不再引入 `renderdoc` / `rendertest` / `gfxdiag` / `RTCAP` / `GFXDIAG` 等历史品牌**
+- 详细的 fork 演化历史与对比，见 `ENDFIELD_CHANGES.md`

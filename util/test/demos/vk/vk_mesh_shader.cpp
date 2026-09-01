@@ -176,6 +176,42 @@ void main()
 
 )EOSHADER";
 
+  std::string point_mesh = R"EOSHADER(
+
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(points, max_vertices = 2, max_primitives = 2) out;
+layout(location = 0) out vec4 outColor[];
+
+void main()
+{
+  uint primCount = 2;
+  uint vertexCount = 1 * primCount;
+
+  SetMeshOutputsEXT(vertexCount, primCount);
+
+  for (uint i = 0; i < primCount; ++i)
+  {
+    uint vertIdx = i * 1;
+    uint tri = i + 2 * gl_WorkGroupID.x;
+    vec4 org = vec4(0.21, 0.0, 0.0, 0.0) * tri;
+
+    uint vert0 = 0 + vertIdx;
+
+    gl_MeshVerticesEXT[vert0].gl_Position = vec4(-0.4, -0.4, 0.0, 1.0) + org;
+    gl_MeshVerticesEXT[vert0].gl_PointSize = 20.0f;
+
+    outColor[vert0] = vec4(0.0, 1.0, 0.0, 1.0);
+
+    gl_PrimitivePointIndicesEXT[i] = vert0;
+  }
+}
+
+)EOSHADER";
+
   std::string pixel = R"EOSHADER(
 
 #version 460
@@ -244,8 +280,8 @@ void main()
     pipeCreateInfo.layout = layout;
     pipeCreateInfo.renderPass = mainWindow->rp;
 
-    VkPipeline pipelines[2];
-    int countTasks[2];
+    VkPipeline pipelines[3];
+    int countTasks[3];
 
     pipeCreateInfo.stages = {
         CompileShaderModule(simple_mesh, ShaderLang::glsl, ShaderStage::mesh, "main", {},
@@ -274,6 +310,19 @@ void main()
 
     pipelines[1] = createGraphicsPipeline(vkPipeCreateInfo);
     countTasks[1] = 1;
+
+    pipeCreateInfo.stages = {
+        CompileShaderModule(point_mesh, ShaderLang::glsl, ShaderStage::mesh, "main", {},
+                            SPIRVTarget::vulkan12),
+        CompileShaderModule(pixel, ShaderLang::glsl, ShaderStage::frag, "main"),
+    };
+
+    vkPipeCreateInfo = pipeCreateInfo;
+    vkPipeCreateInfo->pVertexInputState = NULL;
+    vkPipeCreateInfo->pInputAssemblyState = NULL;
+
+    pipelines[2] = createGraphicsPipeline(vkPipeCreateInfo);
+    countTasks[2] = 3;
 
     while(Running())
     {

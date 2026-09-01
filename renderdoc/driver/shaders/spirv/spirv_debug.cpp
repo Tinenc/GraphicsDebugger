@@ -2234,17 +2234,21 @@ void ThreadState::StepNext(bool useDebugState, const uint32_t steps,
       for(uint8_t c = 0; c < var.columns; c++)
       {
 #undef _IMPL
-#define _IMPL(I, S, U)                               \
-  const U mask = (U(1) << comp<U>(count, c)) - U(1); \
-                                                     \
-  comp<U>(var, c) >>= comp<U>(offset, c);            \
-  comp<U>(var, c) &= mask;                           \
-                                                     \
-  if(opdata.op == Op::BitFieldSExtract)              \
-  {                                                  \
-    U topbit = (mask + U(1)) >> U(1);                \
-    if(comp<U>(var, c) & topbit)                     \
-      comp<U>(var, c) |= (~0ULL ^ mask);             \
+#define _IMPL(I, S, U)                        \
+  const U bitcount = comp<U>(count, c);       \
+  if(bitcount < sizeof(U) * 8)                \
+  {                                           \
+    const U mask = (U(1) << bitcount) - U(1); \
+                                              \
+    comp<U>(var, c) >>= comp<U>(offset, c);   \
+    comp<U>(var, c) &= mask;                  \
+                                              \
+    if(opdata.op == Op::BitFieldSExtract)     \
+    {                                         \
+      U topbit = (mask + U(1)) >> U(1);       \
+      if(comp<U>(var, c) & topbit)            \
+        comp<U>(var, c) |= (~0ULL ^ mask);    \
+    }                                         \
   }
 
         IMPL_FOR_INT_TYPES(_IMPL);

@@ -606,6 +606,12 @@ SERIALISE_VK_HANDLES();
   PNEXT_STRUCT(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT,                     \
                VkPhysicalDeviceCustomBorderColorFeaturesEXT)                                           \
                                                                                                        \
+  /* VK_EXT_custom_resolve */                                                                          \
+  PNEXT_STRUCT(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_RESOLVE_FEATURES_EXT,                          \
+               VkPhysicalDeviceCustomResolveFeaturesEXT)                                               \
+  PNEXT_STRUCT(VK_STRUCTURE_TYPE_BEGIN_CUSTOM_RESOLVE_INFO_EXT, VkBeginCustomResolveInfoEXT)           \
+  PNEXT_STRUCT(VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT, VkCustomResolveCreateInfoEXT)         \
+                                                                                                       \
   /* VK_EXT_debug_marker */                                                                            \
   PNEXT_STRUCT(VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT, VkDebugMarkerObjectNameInfoEXT)    \
   PNEXT_STRUCT(VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_TAG_INFO_EXT, VkDebugMarkerObjectTagInfoEXT)      \
@@ -1819,11 +1825,6 @@ SERIALISE_VK_HANDLES();
   PNEXT_UNSUPPORTED(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_FEATURES_EXT)           \
   PNEXT_UNSUPPORTED(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_PROPERTIES_EXT)         \
   PNEXT_UNSUPPORTED(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_ADVANCED_STATE_CREATE_INFO_EXT)             \
-                                                                                                       \
-  /* VK_EXT_custom_resolve */                                                                          \
-  PNEXT_UNSUPPORTED(VK_STRUCTURE_TYPE_BEGIN_CUSTOM_RESOLVE_INFO_EXT)                                   \
-  PNEXT_UNSUPPORTED(VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT)                                  \
-  PNEXT_UNSUPPORTED(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_RESOLVE_FEATURES_EXT)                     \
                                                                                                        \
   /* VK_EXT_depth_bias_control */                                                                      \
   PNEXT_UNSUPPORTED(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_CONTROL_FEATURES_EXT)                 \
@@ -6487,6 +6488,22 @@ void Deserialise(const VkPhysicalDeviceCustomBorderColorFeaturesEXT &el)
 }
 
 template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, VkPhysicalDeviceCustomResolveFeaturesEXT &el)
+{
+  RDCASSERT(ser.IsReading() ||
+            el.sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_RESOLVE_FEATURES_EXT);
+  SerialiseNext(ser, el.sType, el.pNext);
+
+  SERIALISE_MEMBER(customResolve);
+}
+
+template <>
+void Deserialise(const VkPhysicalDeviceCustomResolveFeaturesEXT &el)
+{
+  DeserialiseNext(el.pNext);
+}
+
+template <typename SerialiserType>
 void DoSerialise(SerialiserType &ser, VkPipelineTessellationDomainOriginStateCreateInfo &el)
 {
   RDCASSERT(ser.IsReading() ||
@@ -10452,20 +10469,19 @@ void DoSerialise(SerialiserType &ser, VkDescriptorGetInfoEXT &el)
   RDCASSERT(ser.IsReading() || el.sType == VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT);
   SerialiseNext(ser, el.sType, el.pNext);
 
-  // these fields must either be NULL or valid if present, never garbage
-  ser.SetStructArg(
-      uint64_t(VkDescriptorImageInfoValidity::Sampler | VkDescriptorImageInfoValidity::ImageView));
-
   SERIALISE_MEMBER(type);
   switch(el.type)
   {
     case VK_DESCRIPTOR_TYPE_SAMPLER:
     {
+      ser.SetStructArg(uint64_t(VkDescriptorImageInfoValidity::Sampler));
       SERIALISE_MEMBER_OPT(data.pSampler).Named("pSampler");
       break;
     }
     case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
     {
+      ser.SetStructArg(uint64_t(VkDescriptorImageInfoValidity::Sampler |
+                                VkDescriptorImageInfoValidity::ImageView));
       SERIALISE_MEMBER_OPT(data.pCombinedImageSampler).Named("pCombinedImageSampler");
       break;
     }
@@ -10473,6 +10489,7 @@ void DoSerialise(SerialiserType &ser, VkDescriptorGetInfoEXT &el)
     case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
     case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
     {
+      ser.SetStructArg(uint64_t(VkDescriptorImageInfoValidity::ImageView));
       SERIALISE_MEMBER_OPT(data.pStorageImage).Named("pStorageImage");
       break;
     }
@@ -14831,6 +14848,39 @@ void Deserialise(const VkMemoryToImageCopy &el)
   FreeAlignedBuffer((byte *)el.pHostPointer);
 }
 
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, VkBeginCustomResolveInfoEXT &el)
+{
+  RDCASSERT(ser.IsReading() || el.sType == VK_STRUCTURE_TYPE_BEGIN_CUSTOM_RESOLVE_INFO_EXT);
+  SerialiseNext(ser, el.sType, el.pNext);
+}
+
+template <>
+void Deserialise(const VkBeginCustomResolveInfoEXT &el)
+{
+  DeserialiseNext(el.pNext);
+}
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, VkCustomResolveCreateInfoEXT &el)
+{
+  RDCASSERT(ser.IsReading() || el.sType == VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT);
+  SerialiseNext(ser, el.sType, el.pNext);
+
+  SERIALISE_MEMBER(customResolve);
+  SERIALISE_MEMBER(colorAttachmentCount);
+  SERIALISE_MEMBER_ARRAY(pColorAttachmentFormats, colorAttachmentCount);
+  SERIALISE_MEMBER(depthAttachmentFormat);
+  SERIALISE_MEMBER(stencilAttachmentFormat);
+}
+
+template <>
+void Deserialise(const VkCustomResolveCreateInfoEXT &el)
+{
+  DeserialiseNext(el.pNext);
+  delete[] el.pColorAttachmentFormats;
+}
+
 // pNext structs - always have deserialise for the next chain
 INSTANTIATE_SERIALISE_TYPE(VkAccelerationStructureBuildGeometryInfoKHR);
 INSTANTIATE_SERIALISE_TYPE(VkAccelerationStructureBuildSizesInfoKHR);
@@ -14851,6 +14901,7 @@ INSTANTIATE_SERIALISE_TYPE(VkAttachmentFeedbackLoopInfoEXT);
 INSTANTIATE_SERIALISE_TYPE(VkAttachmentReference2);
 INSTANTIATE_SERIALISE_TYPE(VkAttachmentReferenceStencilLayout);
 INSTANTIATE_SERIALISE_TYPE(VkAttachmentSampleLocationsEXT);
+INSTANTIATE_SERIALISE_TYPE(VkBeginCustomResolveInfoEXT);
 INSTANTIATE_SERIALISE_TYPE(VkBindBufferMemoryDeviceGroupInfo);
 INSTANTIATE_SERIALISE_TYPE(VkBindBufferMemoryInfo);
 INSTANTIATE_SERIALISE_TYPE(VkBindDescriptorBufferEmbeddedSamplersInfoEXT);
@@ -15052,6 +15103,7 @@ INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceConditionalRenderingFeaturesEXT);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceConservativeRasterizationPropertiesEXT);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceCustomBorderColorFeaturesEXT);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceCustomBorderColorPropertiesEXT);
+INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceCustomResolveFeaturesEXT);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceDepthClampZeroOneFeaturesKHR);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceDepthClipControlFeaturesEXT);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceDepthClipEnableFeaturesEXT);

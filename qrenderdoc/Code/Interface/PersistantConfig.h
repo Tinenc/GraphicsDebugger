@@ -82,7 +82,7 @@ struct ShaderProcessingTool
   }
   DOCUMENT(R"(The :class:`KnownShaderTool` identifying which known tool this program is.
 
-:type: KnownShaderTool
+:type: renderdoc.KnownShaderTool
 )");
   KnownShaderTool tool = KnownShaderTool::Unknown;
   DOCUMENT(R"(The human-readable name of the program.
@@ -102,12 +102,12 @@ struct ShaderProcessingTool
   rdcstr args;
   DOCUMENT(R"(The input that this program expects.
 
-:type: ShaderEncoding
+:type: renderdoc.ShaderEncoding
 )");
   ShaderEncoding input = ShaderEncoding::Unknown;
   DOCUMENT(R"(The output that this program provides.
 
-:type: ShaderEncoding
+:type: renderdoc.ShaderEncoding
 )");
   ShaderEncoding output = ShaderEncoding::Unknown;
 

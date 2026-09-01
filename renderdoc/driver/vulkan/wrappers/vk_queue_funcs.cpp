@@ -285,7 +285,8 @@ void WrappedVulkan::ReplayQueueSubmit(VkQueue queue, VkSubmitInfo2 submitInfo, r
     // we're adding multiple events, need to increment ourselves
     m_RootEventID++;
 
-    if(submitInfo.commandBufferInfoCount == 0)
+    uint32_t numCmds = submitInfo.commandBufferInfoCount;
+    if(numCmds == 0)
     {
       DoSubmit(queue, submitInfo);
 
@@ -304,7 +305,6 @@ void WrappedVulkan::ReplayQueueSubmit(VkQueue queue, VkSubmitInfo2 submitInfo, r
     }
 
     // submit command buffers one by one
-    uint32_t numCmds = submitInfo.commandBufferInfoCount;
     submitInfo.commandBufferInfoCount = 1;
     for(uint32_t c = 0; c < numCmds; c++)
     {
@@ -312,6 +312,7 @@ void WrappedVulkan::ReplayQueueSubmit(VkQueue queue, VkSubmitInfo2 submitInfo, r
       FlushQ();
 
       ResourceId cmd = GetResID(submitInfo.pCommandBufferInfos[0].commandBuffer);
+      RDCASSERTNOTEQUAL(cmd, ResourceId());
 
       submitInfo.pCommandBufferInfos++;
 
@@ -354,15 +355,12 @@ void WrappedVulkan::ReplayQueueSubmit(VkQueue queue, VkSubmitInfo2 submitInfo, r
         m_DebugMessages.back().eventId += m_RootEventID;
       }
 
-      m_RootEventID += cmdBufInfo.eventCount;
-      m_RootActionID += cmdBufInfo.actionCount;
-
       {
         // pull in any remaining events on the command buffer that weren't added to an action
         uint32_t i = 0;
         for(APIEvent &apievent : cmdBufInfo.curEvents)
         {
-          apievent.eventId = m_RootEventID - cmdBufInfo.curEvents.count() + i;
+          apievent.eventId += m_RootEventID;
 
           m_RootEvents.push_back(apievent);
           m_Events.resize(apievent.eventId + 1);
@@ -374,10 +372,13 @@ void WrappedVulkan::ReplayQueueSubmit(VkQueue queue, VkSubmitInfo2 submitInfo, r
         for(auto it = cmdBufInfo.resourceUsage.begin(); it != cmdBufInfo.resourceUsage.end(); ++it)
         {
           EventUsage u = it->second;
-          u.eventId += m_RootEventID - cmdBufInfo.curEvents.count();
+          u.eventId += m_RootEventID;
           m_ResourceUses[it->first].push_back(u);
           m_EventFlags[u.eventId] |= PipeRWUsageEventFlags(u.usage);
         }
+
+        m_RootEventID += cmdBufInfo.eventCount;
+        m_RootActionID += cmdBufInfo.actionCount;
 
         name = StringFormat::Fmt("=> %s[%u]: vkEndCommandBuffer(%s)", basename.c_str(), c,
                                  ToStr(cmd).c_str());
@@ -393,10 +394,6 @@ void WrappedVulkan::ReplayQueueSubmit(VkQueue queue, VkSubmitInfo2 submitInfo, r
         m_RootEventID++;
       }
     }
-
-    // account for the outer loop thinking we've added one event and incrementing,
-    // since we've done all the handling ourselves this will be off by one.
-    m_RootEventID--;
   }
   else
   {
@@ -411,24 +408,23 @@ void WrappedVulkan::ReplayQueueSubmit(VkQueue queue, VkSubmitInfo2 submitInfo, r
     }
 
     uint32_t startEID = m_RootEventID;
-
     // advance m_CurEventID to match the events added when reading
     for(uint32_t c = 0; c < submitInfo.commandBufferInfoCount; c++)
     {
       ResourceId cmd = GetResID(submitInfo.pCommandBufferInfos[c].commandBuffer);
-
-      m_RootEventID += m_BakedCmdBufferInfo[cmd].eventCount;
-      m_RootActionID += m_BakedCmdBufferInfo[cmd].actionCount;
-
-      // 2 extra for the virtual labels around the command buffer
+      // cmd is not valid when selecting a vkQueueSubmit event
+      if(cmd != ResourceId())
       {
-        m_RootEventID += 2;
-        m_RootActionID += 2;
+        m_RootEventID += m_BakedCmdBufferInfo[cmd].eventCount;
+        m_RootActionID += m_BakedCmdBufferInfo[cmd].actionCount;
+
+        // 2 extra for the virtual labels around the command buffer
+        {
+          m_RootEventID += 2;
+          m_RootActionID += 2;
+        }
       }
     }
-
-    // same accounting for the outer loop as above
-    m_RootEventID--;
 
     if(submitInfo.commandBufferInfoCount == 0)
     {
@@ -455,6 +451,7 @@ void WrappedVulkan::ReplayQueueSubmit(VkQueue queue, VkSubmitInfo2 submitInfo, r
       {
         VkCommandBufferSubmitInfo info = submitInfo.pCommandBufferInfos[c];
         ResourceId cmdId = GetResID(info.commandBuffer);
+        RDCASSERTNOTEQUAL(cmdId, ResourceId());
 
         // account for the virtual vkBeginCommandBuffer label at the start of the events here
         // so it matches up to baseEvent
@@ -1484,6 +1481,9 @@ bool WrappedVulkan::Serialise_vkQueueSubmit(SerialiserType &ser, VkQueue queue, 
 
       ReplayQueueSubmit(queue, submitInfo, basename);
     }
+    // account for the outer loop thinking we've added one event and incrementing,
+    // since we've done all the handling ourselves this will be off by one.
+    m_RootEventID--;
   }
 
   return true;
@@ -1652,6 +1652,9 @@ bool WrappedVulkan::Serialise_vkQueueSubmit2(SerialiserType &ser, VkQueue queue,
 
       ReplayQueueSubmit(queue, pSubmits[sub], basename);
     }
+    // account for the outer loop thinking we've added one event and incrementing,
+    // since we've done all the handling ourselves this will be off by one.
+    m_RootEventID--;
   }
 
   return true;

@@ -1331,28 +1331,42 @@ VkDriverInfo::VkDriverInfo(const VkPhysicalDeviceProperties &physProps,
     // happening in a way that was easy to notice. In this version NV applied a optimisation
     // to not re-set static pipeline state when a renderpass was begun, which was previously
     // hiding the issue by conservatively re-setting the state.
-    if(Major() > 532)
+    // This was likely fixed much earlier than version 591, but it wasn't checked before then (and
+    // the workaround is very cheap)
+    if(Major() > 532 && Major() < 591)
     {
       if(active)
-        RDCLOG("Enabling NV workaround for static pipeline force-bind to preserve state");
+        RDCLOG(
+            "Enabling NV workaround for static pipeline force-bind to preserve state - update to a "
+            "newer driver for fix");
       nvidiaStaticPipelineRebindStates = true;
     }
 
 #if ENABLED(RDOC_WIN32)
-    // this is fixed in a windows version but we can't easily query that, so instead we are waiting
-    // for a driver-based workaround and apply the workaround ourselves in the meantime
-    if(active)
-      RDCLOG("Enabling NV workaround for unaligned BDA memory capture/replay");
-    nvidiaUnalignedBDAIssue = true;
+    // this is fixed in a windows version but we can't easily query that, but there is a
+    // driver-based workaround. Before this version we apply the workaround ourselves
+    if(Major() < 591)
+    {
+      if(active)
+        RDCLOG(
+            "Enabling NV workaround for unaligned BDA memory capture/replay - update to a "
+            "newer driver for fix");
+      nvidiaUnalignedBDAIssue = true;
+    }
 #endif
 
     // this was found in the initial implementation, if mesh output is fetched and a user descriptor
     // set has no vertex bindings at all (and they're not also compute bindings) then a descriptor
     // set layout devoid of any compute bindings being bound causes problems. To fix this we set one
     // binding visible to all stages in every descriptor set layout.
-    if(active)
-      RDCLOG("Enabling NV workaround for descriptor buffers to preserve compute bindings");
-    nvidiaDescriptorBufferExtraBinding = true;
+    if(Major() < 591)
+    {
+      if(active)
+        RDCLOG(
+            "Enabling NV workaround for descriptor buffers to preserve compute bindings - update "
+            "to a newer driver for fix");
+      nvidiaDescriptorBufferExtraBinding = true;
+    }
   }
 
   if(driverProps.driverID == VK_DRIVER_ID_AMD_PROPRIETARY ||
@@ -1441,8 +1455,7 @@ VkDriverInfo::VkDriverInfo(const VkPhysicalDeviceProperties &physProps,
       if(active)
         RDCLOG(
             "Using host acceleration structure deserialisation commands on Mali - update to a "
-            "newer "
-            "driver for fix");
+            "newer driver for fix");
       maliBrokenASDeviceSerialisation = true;
     }
   }

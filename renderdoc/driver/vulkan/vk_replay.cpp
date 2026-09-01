@@ -1798,6 +1798,9 @@ void VulkanReplay::SavePipelineState(uint32_t eventId)
       fbState.attachments.push_back({});
 
       ResourceId viewid = GetResID(dyn.color[i].imageView);
+      if(state.dynamicRendering.beginCustomResolve &&
+         (dyn.color[i].resolveMode & VK_RESOLVE_MODE_CUSTOM_BIT_EXT))
+        viewid = GetResID(dyn.color[i].resolveImageView);
 
       if(viewid != ResourceId())
       {
@@ -1825,7 +1828,9 @@ void VulkanReplay::SavePipelineState(uint32_t eventId)
 
       rpState.colorAttachments.push_back(uint32_t(attIdx++));
 
-      if(dyn.color[i].resolveMode && dyn.color[i].resolveImageView != VK_NULL_HANDLE)
+      if((dyn.color[i].resolveMode != VK_RESOLVE_MODE_NONE) &&
+         !(dyn.color[i].resolveMode & VK_RESOLVE_MODE_CUSTOM_BIT_EXT) &&
+         (dyn.color[i].resolveImageView != VK_NULL_HANDLE))
       {
         fbState.attachments.push_back({});
 
@@ -1851,8 +1856,16 @@ void VulkanReplay::SavePipelineState(uint32_t eventId)
       fbState.attachments.push_back({});
 
       ResourceId viewid = GetResID(dyn.depth.imageView);
+      if(state.dynamicRendering.beginCustomResolve &&
+         (dyn.depth.resolveMode & VK_RESOLVE_MODE_CUSTOM_BIT_EXT))
+        viewid = GetResID(dyn.depth.resolveImageView);
       if(dyn.depth.imageView == VK_NULL_HANDLE)
+      {
         viewid = GetResID(dyn.stencil.imageView);
+        if(state.dynamicRendering.beginCustomResolve &&
+           (dyn.stencil.resolveMode & VK_RESOLVE_MODE_CUSTOM_BIT_EXT))
+          viewid = GetResID(dyn.stencil.resolveImageView);
+      }
 
       fbState.attachments.back().view = viewid;
       ret.currentPass.framebuffer.attachments[attIdx].resource = c.m_ImageView[viewid].image;

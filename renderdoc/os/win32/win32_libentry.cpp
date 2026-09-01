@@ -49,8 +49,8 @@ static BOOL add_hooks()
     return TRUE;
   }
 
-  // search for an exported symbol with this name, typically TinecmaTools__replay__marker
-  if(LibraryHooks::Detect(STRINGIZE(RDOC_BASE_NAME) "__replay__marker"))
+  // search for an exported symbol with this name, typically TinecmaTool__replay__marker
+  if(LibraryHooks::Detect("TinecmaTool__replay__marker"))
   {
     RDCDEBUG("Not creating hooks - in replay app");
 

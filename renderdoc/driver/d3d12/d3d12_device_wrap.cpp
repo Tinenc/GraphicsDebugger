@@ -1210,26 +1210,30 @@ bool WrappedID3D12Device::Serialise_CreateRootSignature(SerialiserType &ser, UIN
     }
     else
     {
+      // we deduplicated during capture but this could alias one of ours in theory
       if(GetResourceManager()->HasWrapper(ret))
       {
         ret->Release();
         ret = (ID3D12RootSignature *)GetResourceManager()->GetWrapper(ret);
-        ret->AddRef();
+
+        GetResourceManager()->ReplaceResource(pRootSignature, GetResID(ret));
       }
       else
       {
         ret = new WrappedID3D12RootSignature(pRootSignature, ret, this);
+
+        WrappedID3D12RootSignature *wrapped = (WrappedID3D12RootSignature *)ret;
+
+        wrapped->sig = DecodeRootSig(pBlobWithRootSignature, (size_t)blobLengthInBytes);
+
+        if(wrapped->sig.Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE)
+          wrapped->localRootSigIdx =
+              GetResourceManager()->GetRTManager()->RegisterLocalRootSig(wrapped->sig);
       }
 
-      WrappedID3D12RootSignature *wrapped = (WrappedID3D12RootSignature *)ret;
-
-      wrapped->sig = DecodeRootSig(pBlobWithRootSignature, (size_t)blobLengthInBytes);
-
-      if(wrapped->sig.Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE)
-        wrapped->localRootSigIdx =
-            GetResourceManager()->GetRTManager()->RegisterLocalRootSig(wrapped->sig);
-
       {
+        WrappedID3D12RootSignature *wrapped = (WrappedID3D12RootSignature *)ret;
+
         StructuredSerialiser structuriser(ser.GetStructuredFile().chunks.back(), &GetChunkName);
         structuriser.SetUserData(GetResourceManager());
 
@@ -1332,6 +1336,18 @@ HRESULT WrappedID3D12Device::CreateRootSignature(UINT nodeMask, const void *pBlo
 
             if(m_BindlessResourceUseActive)
               break;
+          }
+        }
+
+        if(m_BindlessResourceUseActive)
+        {
+          SCOPED_READLOCK(m_CapTransitionLock);
+          if(IsActiveCapturing(m_State))
+          {
+            SCOPED_LOCK(m_ResourceStatesLock);
+
+            for(auto it = m_BindlessFrameRefs.begin(); it != m_BindlessFrameRefs.end(); ++it)
+              GetResourceManager()->MarkResourceFrameReferenced(it->first, it->second);
           }
         }
       }
@@ -1887,7 +1903,8 @@ HRESULT WrappedID3D12Device::CreateQueryHeap(const D3D12_QUERY_HEAP_DESC *pDesc,
 
       record->AddChunk(scope.Get());
 
-      GetResourceManager()->MarkDirtyResource(wrapped->GetResourceID());
+      if(pDesc->Type == D3D12_QUERY_HEAP_TYPE_OCCLUSION)
+        GetResourceManager()->MarkDirtyResource(wrapped->GetResourceID());
     }
 
     *ppvHeap = (ID3D12QueryHeap *)wrapped;

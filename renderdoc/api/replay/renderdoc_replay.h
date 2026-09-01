@@ -47,10 +47,10 @@
 
 // this #define can be used to mark a program as a 'replay' program which should not be captured.
 // Any program used for such purpose must define and export this symbol in the main exe or one dll
-// that will be loaded before renderdoc.dll is loaded.
-#define REPLAY_PROGRAM_MARKER()                                                       \
-  extern "C" RENDERDOC_EXPORT_API void RENDERDOC_CC TinecmaTools__replay__marker()   \
-  {                                                                                   \
+// that will be loaded before the capture dll is loaded.
+#define REPLAY_PROGRAM_MARKER()                                                 \
+  extern "C" RENDERDOC_EXPORT_API void RENDERDOC_CC TinecmaTool__replay__marker() \
+  {                                                                             \
   }
 // declare ResourceId extremely early so that it can be referenced in structured_data.h
 
@@ -2444,8 +2444,7 @@ extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunUnitTests(const rdcstr &c
                                                                  const rdcarray<rdcstr> &args);
 
 DOCUMENT("INTERNAL: Run functional tests.");
-extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(int pythonMinorVersion,
-                                                                       const rdcarray<rdcstr> &args);
+extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(const rdcarray<rdcstr> &args);
 #endif
 
 #if !defined(SWIG)

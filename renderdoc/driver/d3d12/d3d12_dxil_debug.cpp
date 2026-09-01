@@ -22,8 +22,6 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
-#pragma once
-
 #include "d3d12_dxil_debug.h"
 #include "data/hlsl/hlsl_cbuffers.h"
 #include "driver/dxgi/dxgi_common.h"
@@ -492,9 +490,9 @@ static uint32_t GetSRVBufferStrideFromShaderMetadata(const DXIL::EntryPointInter
   return 0;
 }
 
-InterpolationMode GetInterpolationModeForInputParam(const SigParameter &sig,
-                                                    const rdcarray<SigParameter> &stageInputSig,
-                                                    const DXIL::Program *program)
+static InterpolationMode GetInterpolationModeForInputParam(const SigParameter &sig,
+                                                           const rdcarray<SigParameter> &stageInputSig,
+                                                           const DXIL::Program *program)
 {
   if(sig.varType == VarType::SInt || sig.varType == VarType::UInt)
     return InterpolationMode::INTERPOLATION_CONSTANT;

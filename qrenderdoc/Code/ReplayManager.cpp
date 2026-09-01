@@ -466,7 +466,7 @@ void ReplayManager::run(int proxyRenderer, const QString &capturefile, const Rep
     return;
   }
 
-  qInfo() << "QTinecmaTools - renderer created for" << capturefile;
+  qInfo() << "QTinecmaTool - renderer created for" << capturefile;
 
   m_Running = true;
 

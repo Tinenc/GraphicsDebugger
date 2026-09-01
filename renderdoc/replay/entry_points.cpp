@@ -333,7 +333,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_CreateBugReport(const rdcst
   if(report.empty())
   {
     report = FileIO::GetTempFolderFilename() +
-             StringFormat::sntimef(Timing::GetUTCTime(), "/renderdoc_report_%H%M%S.zip");
+StringFormat::sntimef(Timing::GetUTCTime(), "/TinecmaTool_report_%H%M%S.zip");
   }
 
   FileIO::Delete(report);
@@ -551,8 +551,8 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_StartSelfHostCapture(const 
   if(module == NULL)
     return;
 
-  pRENDERDOC_GetAPI get =
-      (pRENDERDOC_GetAPI)Process::GetFunctionAddress(module, "RENDERDOC_GetAPI");
+  pTINECMATOOL_GetAPI get =
+      (pTINECMATOOL_GetAPI)Process::GetFunctionAddress(module, "TINECMATOOL_GetAPI");
 
   if(get == NULL)
     return;
@@ -577,8 +577,8 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_EndSelfHostCapture(const rd
   if(module == NULL)
     return;
 
-  pRENDERDOC_GetAPI get =
-      (pRENDERDOC_GetAPI)Process::GetFunctionAddress(module, "RENDERDOC_GetAPI");
+  pTINECMATOOL_GetAPI get =
+      (pTINECMATOOL_GetAPI)Process::GetFunctionAddress(module, "TINECMATOOL_GetAPI");
 
   if(get == NULL)
     return;
@@ -681,7 +681,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_UpdateInstalledVersionNumbe
         Publisher[0] = 0;
 
       // if this is our key, set the version number
-      if(!strcmp(DisplayName, "RenderDoc") && !strcmp(Publisher, "Baldur Karlsson"))
+      if(!strcmp(DisplayName, "TinecmaTool") && !strcmp(Publisher, "Baldur Karlsson"))
       {
         DWORD Version = (RENDERDOC_VERSION_MAJOR << 24) | (RENDERDOC_VERSION_MINOR << 16);
         DWORD VersionMajor = RENDERDOC_VERSION_MAJOR;
@@ -891,8 +891,7 @@ static void TestPrintMsg(const rdcstr &msg)
   OSUtility::WriteOutput(OSUtility::Output_StdErr, msg.c_str());
 }
 
-extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(int pythonMinorVersion,
-                                                                       const rdcarray<rdcstr> &args)
+extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(const rdcarray<rdcstr> &args)
 {
 #if ENABLED(RDOC_WIN32)
   const char *moduledir = "/pymodules";
@@ -929,6 +928,26 @@ extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(int pytho
   if(!FileIO::exists(moduleFilename))
   {
     TestPrintMsg(StringFormat::Fmt("Couldn't locate python module at %s\n", moduleFilename.c_str()));
+    return 1;
+  }
+
+  void *moduleHandle = Process::LoadModule(moduleFilename);
+
+  int pythonMinorVersion = 0;
+
+  if(moduleHandle)
+  {
+    typedef int (*PFN_rd_python_minor_version)();
+
+    PFN_rd_python_minor_version py_ver_minor =
+        (PFN_rd_python_minor_version)Process::GetFunctionAddress(moduleHandle,
+                                                                 "_rd_python_minor_version");
+
+    pythonMinorVersion = py_ver_minor();
+  }
+  else
+  {
+    TestPrintMsg(StringFormat::Fmt("Couldn't load python module at %s\n", moduleFilename.c_str()));
     return 1;
   }
 

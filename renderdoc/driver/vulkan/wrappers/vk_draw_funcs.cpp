@@ -2559,8 +2559,7 @@ bool WrappedVulkan::Serialise_vkCmdClearAttachments(SerialiserType &ser,
                 {
                   actionNode.resourceUsage.push_back(make_rdcpair(
                       m_CreationInfo.m_ImageView[state.GetFramebufferAttachments()[att]].image,
-                      EventUsage(actionNode.action.eventId, ResourceUsage::Clear,
-                                 state.GetFramebufferAttachments()[att])));
+                      EventUsage(actionNode.action.eventId, ResourceUsage::Clear)));
                 }
               }
             }
@@ -2572,8 +2571,7 @@ bool WrappedVulkan::Serialise_vkCmdClearAttachments(SerialiserType &ser,
                 att = (uint32_t)rp.subpasses[state.subpass].depthstencilAttachment;
                 actionNode.resourceUsage.push_back(make_rdcpair(
                     m_CreationInfo.m_ImageView[state.GetFramebufferAttachments()[att]].image,
-                    EventUsage(actionNode.action.eventId, ResourceUsage::Clear,
-                               state.GetFramebufferAttachments()[att])));
+                    EventUsage(actionNode.action.eventId, ResourceUsage::Clear)));
               }
             }
           }
@@ -2586,24 +2584,21 @@ bool WrappedVulkan::Serialise_vkCmdClearAttachments(SerialiserType &ser,
           {
             actionNode.resourceUsage.push_back(
                 make_rdcpair(m_CreationInfo.m_ImageView[GetResID(dyn.color[a].imageView)].image,
-                             EventUsage(actionNode.action.eventId, ResourceUsage::Clear,
-                                        GetResID(dyn.color[a].imageView))));
+                             EventUsage(actionNode.action.eventId, ResourceUsage::Clear)));
           }
 
           if(dyn.depth.imageView != VK_NULL_HANDLE)
           {
             actionNode.resourceUsage.push_back(
                 make_rdcpair(m_CreationInfo.m_ImageView[GetResID(dyn.depth.imageView)].image,
-                             EventUsage(actionNode.action.eventId, ResourceUsage::Clear,
-                                        GetResID(dyn.depth.imageView))));
+                             EventUsage(actionNode.action.eventId, ResourceUsage::Clear)));
           }
 
           if(dyn.stencil.imageView != VK_NULL_HANDLE && dyn.depth.imageView != dyn.stencil.imageView)
           {
             actionNode.resourceUsage.push_back(
                 make_rdcpair(m_CreationInfo.m_ImageView[GetResID(dyn.stencil.imageView)].image,
-                             EventUsage(actionNode.action.eventId, ResourceUsage::Clear,
-                                        GetResID(dyn.stencil.imageView))));
+                             EventUsage(actionNode.action.eventId, ResourceUsage::Clear)));
           }
         }
       }

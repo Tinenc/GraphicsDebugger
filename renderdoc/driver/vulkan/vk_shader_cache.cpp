@@ -1056,6 +1056,22 @@ void VulkanShaderCache::MakeGraphicsPipelineInfo(VkGraphicsPipelineCreateInfo &p
     ret.pNext = &dynRenderCreate;
   }
 
+  static VkFormat customResColFormats[16] = {};
+  static VkCustomResolveCreateInfoEXT customResCreate = {
+      VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT, NULL, VK_FALSE, 0, customResColFormats};
+
+  if(pipeInfo.renderpass == ResourceId() && (pipeInfo.hasCustomResCreateInfo))
+  {
+    customResCreate.customResolve = pipeInfo.customResCreateInfo.customResolve;
+    customResCreate.colorAttachmentCount = (uint32_t)pipeInfo.customResCreateInfo.colorFormats.size();
+    memcpy(customResColFormats, pipeInfo.customResCreateInfo.colorFormats.data(),
+           pipeInfo.customResCreateInfo.colorFormats.byteSize());
+    customResCreate.depthAttachmentFormat = pipeInfo.customResCreateInfo.depthFormat;
+    customResCreate.stencilAttachmentFormat = pipeInfo.customResCreateInfo.stencilFormat;
+    customResCreate.pNext = ret.pNext;
+    ret.pNext = &customResCreate;
+  }
+
   static VkPipelineDiscardRectangleStateCreateInfoEXT discardRects = {
       VK_STRUCTURE_TYPE_PIPELINE_DISCARD_RECTANGLE_STATE_CREATE_INFO_EXT,
   };
@@ -1343,5 +1359,20 @@ void VulkanShaderCache::MakeShaderObjectInfo(VkShaderCreateInfoEXT &shadCreateIn
     specInfo.pData = specdata.data();
   }
 
+  static VkCustomResolveCreateInfoEXT customResCreate = {
+      VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT,
+      NULL,
+      VK_FALSE,
+      0,
+      NULL,
+      VK_FORMAT_UNDEFINED,
+      VK_FORMAT_UNDEFINED,
+  };
+  if(shadInfo.hasCustomResCreateInfo)
+  {
+    customResCreate.customResolve = shadInfo.customResolve;
+    customResCreate.pNext = ret.pNext;
+    ret.pNext = &customResCreate;
+  }
   shadCreateInfo = ret;
 }

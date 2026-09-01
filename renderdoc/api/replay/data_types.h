@@ -1888,7 +1888,6 @@ struct EventUsage
   EventUsage() : eventId(0), usage(ResourceUsage::Unused) {}
   EventUsage(const EventUsage &) = default;
   EventUsage(uint32_t e, ResourceUsage u) : eventId(e), usage(u) {}
-  EventUsage(uint32_t e, ResourceUsage u, ResourceId v) : eventId(e), usage(u), view(v) {}
   EventUsage &operator=(const EventUsage &) = default;
   bool operator<(const EventUsage &o) const
   {
@@ -1910,12 +1909,6 @@ struct EventUsage
 :type: ResourceUsage
 )");
   ResourceUsage usage;
-
-  DOCUMENT(R"(An optional :class:`ResourceId` identifying the view through which the use happened.
-
-:type: ResourceId
-)");
-  ResourceId view;
 };
 
 DECLARE_REFLECTION_STRUCT(EventUsage);

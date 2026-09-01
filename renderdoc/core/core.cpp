@@ -159,7 +159,7 @@ void WriteAnnotation(SDObject *obj, RENDERDOC_AnnotationType valueType, uint32_t
       return;
     }
 
-    const rdcinflexiblestr comps[] = {"x"_lit, "y"_lit, "z"_lit, "w"_lit};
+    const rdcinflexiblestr comps[] = {"1"_lit, "2"_lit, "3"_lit, "4"_lit};
 
     obj->type.basetype = SDBasic::Struct;
     obj->type.name = types[valueType][valueVectorWidth - 1];
@@ -881,36 +881,14 @@ void RenderDoc::InitialiseReplay(GlobalEnvironment env, const rdcarray<rdcstr> &
 
 #if ENABLED(RDOC_WIN32)
           for(const char *driverDLL : {
-                  "amdvlk32.dll",
-                  "amdvlk64.dll",
-                  "atiadlxx.dll",
-                  "atig6pxx.dll",
-                  "atig6txx.dll",
-                  "atigktxx.dll",
-                  "atiglpxx.dll",
-                  "atimuixx.dll",
-                  "atio6axx.dll",
-                  "atioglxx.dll",
-                  "ControlLib.dll",
-                  "ControlLib32.dll",
-                  "igd10iumd32.dll",
-                  "igd10iumd64.dll",
-                  "igd12umd32.dll",
-                  "igd12umd64.dll",
-                  "igc32.dll",
-                  "igc64.dll",
-                  "igvk32.dll",
-                  "igvk64.dll"
-                  "igxelpgicd32.dll",
-                  "igxelpgicd64.dll",
-                  "igxelpicd32.dll",
-                  "igxelpicd32.dll",
-                  "igxelpicd64.dll",
-                  "igxelpicd64.dll",
-                  "nvoglv32.dll",
-                  "nvoglv64.dll",
-                  "nvwgf2um.dll",
-                  "nvwgf2umx.dll",
+                  "amdvlk32.dll",     "amdvlk64.dll",     "atiadlxx.dll",    "atig6pxx.dll",
+                  "atig6txx.dll",     "atigktxx.dll",     "atiglpxx.dll",    "atimuixx.dll",
+                  "atio6axx.dll",     "atioglxx.dll",     "ControlLib.dll",  "ControlLib32.dll",
+                  "igd10iumd32.dll",  "igd10iumd64.dll",  "igd12umd32.dll",  "igd12umd64.dll",
+                  "igc32.dll",        "igc64.dll",        "igvk32.dll",      "igvk64.dll",
+                  "igxelpgicd32.dll", "igxelpgicd64.dll", "igxelpicd32.dll", "igxelpicd32.dll",
+                  "igxelpicd64.dll",  "igxelpicd64.dll",  "nvoglv32.dll",    "nvoglv64.dll",
+                  "nvwgf2um.dll",     "nvwgf2umx.dll",
               })
           {
             HMODULE mod = GetModuleHandleA(driverDLL);

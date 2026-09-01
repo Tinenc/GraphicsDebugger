@@ -109,6 +109,7 @@ static void AppendModifiedChainedStruct(byte *&tempMem, VkStruct *outputStruct,
   COPY_STRUCT(VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2, VkAttachmentReference2);                      \
   COPY_STRUCT(VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT,                                  \
               VkAttachmentReferenceStencilLayout);                                                    \
+  COPY_STRUCT(VK_STRUCTURE_TYPE_BEGIN_CUSTOM_RESOLVE_INFO_EXT, VkBeginCustomResolveInfoEXT);          \
   COPY_STRUCT(VK_STRUCTURE_TYPE_BIND_BUFFER_MEMORY_DEVICE_GROUP_INFO,                                 \
               VkBindBufferMemoryDeviceGroupInfo);                                                     \
   COPY_STRUCT(VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_DEVICE_GROUP_INFO,                                  \
@@ -271,6 +272,8 @@ static void AppendModifiedChainedStruct(byte *&tempMem, VkStruct *outputStruct,
               VkPhysicalDeviceCustomBorderColorFeaturesEXT);                                          \
   COPY_STRUCT(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_PROPERTIES_EXT,                   \
               VkPhysicalDeviceCustomBorderColorPropertiesEXT);                                        \
+  COPY_STRUCT(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_RESOLVE_FEATURES_EXT,                          \
+              VkPhysicalDeviceCustomResolveFeaturesEXT);                                              \
   COPY_STRUCT(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEDICATED_ALLOCATION_IMAGE_ALIASING_FEATURES_NV,      \
               VkPhysicalDeviceDedicatedAllocationImageAliasingFeaturesNV);                            \
   COPY_STRUCT(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLAMP_ZERO_ONE_FEATURES_KHR,                    \
@@ -1002,7 +1005,6 @@ static void AppendModifiedChainedStruct(byte *&tempMem, VkStruct *outputStruct,
   case VK_STRUCTURE_TYPE_ANTI_LAG_DATA_AMD:                                                     \
   case VK_STRUCTURE_TYPE_ANTI_LAG_PRESENTATION_INFO_AMD:                                        \
   case VK_STRUCTURE_TYPE_ATTACHMENT_SAMPLE_COUNT_INFO_AMD:                                      \
-  case VK_STRUCTURE_TYPE_BEGIN_CUSTOM_RESOLVE_INFO_EXT:                                         \
   case VK_STRUCTURE_TYPE_BIND_ACCELERATION_STRUCTURE_MEMORY_INFO_NV:                            \
   case VK_STRUCTURE_TYPE_BIND_DATA_GRAPH_PIPELINE_SESSION_MEMORY_INFO_ARM:                      \
   case VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT:                                                    \
@@ -1044,7 +1046,6 @@ static void AppendModifiedChainedStruct(byte *&tempMem, VkStruct *outputStruct,
   case VK_STRUCTURE_TYPE_CU_LAUNCH_INFO_NVX:                                                    \
   case VK_STRUCTURE_TYPE_CU_MODULE_CREATE_INFO_NVX:                                             \
   case VK_STRUCTURE_TYPE_CU_MODULE_TEXTURING_MODE_CREATE_INFO_NVX:                              \
-  case VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT:                                        \
   case VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_BUILTIN_MODEL_CREATE_INFO_QCOM:                    \
   case VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_COMPILER_CONTROL_CREATE_INFO_ARM:                  \
   case VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_CONSTANT_ARM:                                      \
@@ -1216,7 +1217,6 @@ static void AppendModifiedChainedStruct(byte *&tempMem, VkStruct *outputStruct,
   case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COVERAGE_REDUCTION_MODE_FEATURES_NV:                   \
   case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUBIC_CLAMP_FEATURES_QCOM:                             \
   case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUBIC_WEIGHTS_FEATURES_QCOM:                           \
-  case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_RESOLVE_FEATURES_EXT:                           \
   case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DATA_GRAPH_FEATURES_ARM:                               \
   case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DATA_GRAPH_MODEL_FEATURES_QCOM:                        \
   case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_CONTROL_FEATURES_EXT:                       \
@@ -1677,6 +1677,14 @@ size_t GetNextPatchSize(const void *pNext)
         memSize += info->regionCount * sizeof(VkImageCopy2);
         for(uint32_t i = 0; i < info->regionCount; i++)
           memSize += GetNextPatchSize(info->pRegions[i].pNext);
+        break;
+      }
+      case VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT:
+      {
+        memSize += sizeof(VkCustomResolveCreateInfoEXT);
+
+        VkCustomResolveCreateInfoEXT *info = (VkCustomResolveCreateInfoEXT *)next;
+        memSize += info->colorAttachmentCount * sizeof(VkFormat);
         break;
       }
       case VK_STRUCTURE_TYPE_DEPENDENCY_INFO:
@@ -2576,6 +2584,26 @@ void UnwrapNextChain(CaptureState state, const char *structName, byte *&tempMem,
           outRegions[i] = in->pRegions[i];
           UnwrapNextChain(state, "VkImageCopy2", tempMem, (VkBaseInStructure *)&outRegions[i]);
         }
+
+        break;
+      }
+      case VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT:
+      {
+        const VkCustomResolveCreateInfoEXT *in = (const VkCustomResolveCreateInfoEXT *)nextInput;
+        VkCustomResolveCreateInfoEXT *out = (VkCustomResolveCreateInfoEXT *)tempMem;
+
+        // append immediately so tempMem is incremented
+        AppendModifiedChainedStruct(tempMem, out, nextChainTail);
+
+        // allocate unwrapped array
+        VkFormat *outFormats = (VkFormat *)tempMem;
+        tempMem += sizeof(VkFormat) * in->colorAttachmentCount;
+
+        *out = *in;
+
+        out->pColorAttachmentFormats = outFormats;
+        for(uint32_t i = 0; i < in->colorAttachmentCount; i++)
+          outFormats[i] = in->pColorAttachmentFormats[i];
 
         break;
       }
@@ -3697,6 +3725,10 @@ void CopyNextChainForPatching(const char *structName, byte *&tempMem, VkBaseInSt
         break;
       case VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2:
         CopyNextChainedStruct(sizeof(VkCopyImageInfo2), tempMem, nextInput, nextChainTail);
+        break;
+      case VK_STRUCTURE_TYPE_CUSTOM_RESOLVE_CREATE_INFO_EXT:
+        CopyNextChainedStruct(sizeof(VkCustomResolveCreateInfoEXT), tempMem, nextInput,
+                              nextChainTail);
         break;
       case VK_STRUCTURE_TYPE_DEPENDENCY_INFO:
         CopyNextChainedStruct(sizeof(VkDependencyInfo), tempMem, nextInput, nextChainTail);

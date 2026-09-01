@@ -267,6 +267,14 @@ void VulkanRenderState::BeginRenderPassAndApplyState(WrappedVulkan *vk, VkComman
   {
     dynamicRendering.localRead.SetInputIndices(cmd);
   }
+
+  if(dynamicRendering.beginCustomResolve)
+  {
+    VkBeginCustomResolveInfoEXT beginInfo;
+    beginInfo.sType = VK_STRUCTURE_TYPE_BEGIN_CUSTOM_RESOLVE_INFO_EXT;
+    beginInfo.pNext = VK_NULL_HANDLE;
+    ObjDisp(cmd)->CmdBeginCustomResolveEXT(Unwrap(cmd), &beginInfo);
+  }
 }
 
 void VulkanRenderState::EndRenderPass(VkCommandBuffer cmd)

@@ -1126,6 +1126,25 @@ float4 main(v2f IN) : SV_Target0
     return Color;
   }
 #endif // #if (SM_6_0 || SM_6_2 || SM_6_6)
+  if(IN.tri == 111)
+  {
+    // first == false 
+    bool first = (intval == (int)IN.tri);
+    // second == true
+    bool second = (intval > (int)IN.tri);
+    bool result = true;
+    if (!(first)) 
+      result = !(second);
+    else 
+      result = true;
+
+    // result should be false
+    float4 Color = float4(0.0, 0.0, 0.0, 0.0);
+    if (result)
+      Color = float4(1.0, 1.0, 1.0, 1.0);
+
+    return Color;
+  }
   return float4(0.4f, 0.4f, 0.4f, 0.4f);
 }
 )EOSHADER";

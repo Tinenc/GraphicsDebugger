@@ -460,6 +460,21 @@ bool WrappedVulkan::Serialise_vkAllocateMemory(SerialiserType &ser, VkDevice dev
         VkMemoryRequirements mrq = {};
         ObjDisp(device)->GetBufferMemoryRequirements(Unwrap(device), buf, &mrq);
 
+        // Can't create a memory-spanning buffer for this allocation.
+        // For descriptor buffers try again if that is enabled as those memory types are sometimes unique.
+        if((((1 << AllocateInfo.memoryTypeIndex) & mrq.memoryTypeBits) == 0) && DescriptorBuffers())
+        {
+          ObjDisp(device)->DestroyBuffer(Unwrap(device), buf, NULL);
+
+          bufInfo.usage |= VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
+
+          ret = ObjDisp(device)->CreateBuffer(Unwrap(device), &bufInfo, NULL, &buf);
+          RDCASSERTEQUAL(ret, VK_SUCCESS);
+
+          mrq = {};
+          ObjDisp(device)->GetBufferMemoryRequirements(Unwrap(device), buf, &mrq);
+        }
+
         // check that this allocation type can actually be bound to a buffer. Allocations that can't
         // be used with buffers we can just skip and leave wholeMemBuf as NULL.
         if((1 << AllocateInfo.memoryTypeIndex) & mrq.memoryTypeBits)

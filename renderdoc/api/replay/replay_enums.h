@@ -2202,7 +2202,7 @@ tool.
 
 :param KnownShaderTool tool: The tool to get the input encoding for.
 :return: The encoding that this tool expects as an input by default.
-:rtype: renderdoc.ShaderEncoding
+:rtype: ShaderEncoding
 )");
 constexpr inline ShaderEncoding ToolInput(KnownShaderTool tool)
 {
@@ -2229,7 +2229,7 @@ tool.
 
 :param KnownShaderTool tool: The tool to get the output encoding for.
 :return: The encoding that this tool produces as an output by default.
-:rtype: renderdoc.ShaderEncoding
+:rtype: ShaderEncoding
 )");
 constexpr inline ShaderEncoding ToolOutput(KnownShaderTool tool)
 {

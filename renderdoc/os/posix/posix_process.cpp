@@ -797,11 +797,11 @@ void GetHookingEnvMods(rdcarray<EnvironmentModification> &modifications, const C
                                                   "RENDERDOC_ORIGPRELOAD",
                                                   Process::GetEnvVariable(PRELOAD_ENV_VAR)));
   modifications.push_back(
+      EnvironmentModification(EnvMod::Append, EnvSep::Platform, LIB_PATH_ENV_VAR, ownlibpath));
+  modifications.push_back(
       EnvironmentModification(EnvMod::Append, EnvSep::Platform, LIB_PATH_ENV_VAR, binpath));
   modifications.push_back(
       EnvironmentModification(EnvMod::Append, EnvSep::Platform, LIB_PATH_ENV_VAR, libpath));
-  modifications.push_back(
-      EnvironmentModification(EnvMod::Append, EnvSep::Platform, LIB_PATH_ENV_VAR, ownlibpath));
   modifications.push_back(
       EnvironmentModification(EnvMod::Append, EnvSep::Platform, PRELOAD_ENV_VAR, libfile));
   modifications.push_back(

@@ -947,9 +947,8 @@ void DoSerialise(SerialiserType &ser, EventUsage &el)
 {
   SERIALISE_MEMBER(eventId);
   SERIALISE_MEMBER(usage);
-  SERIALISE_MEMBER(view);
 
-  SIZE_CHECK(16);
+  SIZE_CHECK(8);
 }
 
 template <typename SerialiserType>

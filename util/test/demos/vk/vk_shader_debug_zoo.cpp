@@ -1675,6 +1675,15 @@ void main()
       Color = vec4(x, y, z, w);
       break;
     }
+    case 187:
+    {
+      uint a = zerou + 0x44b82a80;
+      int b = zeroi + 0x44b82a80;
+
+      Color = vec4(float(bitfieldExtract(a, 0, 32)), float(bitfieldExtract(b, 0, 32)),
+                   float(bitfieldExtract(a, 32, 0)), float(bitfieldExtract(b, 32, 0)));
+      break;
+    }
     default: break;
   }
 }

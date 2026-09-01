@@ -1640,6 +1640,8 @@ public:
     if(ret.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
        ret.Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
       ret.Alignment = 0;
+    if(ret.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+      ret.Alignment = 0;
     return ret;
   }
   virtual D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE GetGPUVirtualAddress()

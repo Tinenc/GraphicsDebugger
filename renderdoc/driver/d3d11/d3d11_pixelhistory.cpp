@@ -1082,33 +1082,33 @@ rdcarray<PixelModification> D3D11Replay::PixelHistory(rdcarray<EventUsage> event
     ID3D11ShaderResourceView *releaseStencilSRV = NULL;
 
     {
-      ID3D11DepthStencilView *dsv = NULL;
-
+      D3D11_DSV_DIMENSION dsvViewDim = D3D11_DSV_DIMENSION_UNKNOWN;
       if(events[ev].usage == ResourceUsage::Clear)
       {
         if(targetImageIsDepth)
         {
-          dsv =
-              (ID3D11DepthStencilView *)m_pDevice->GetResourceManager()->GetResource(events[ev].view);
-          dsv->AddRef();
+          depthBound = true;
+          depthRes = (ID3D11Resource *)m_pDevice->GetResourceManager()->GetResource(target);
+          depthRes->AddRef();
         }
       }
       else
       {
+        ID3D11DepthStencilView *dsv = NULL;
         m_pImmediateContext->OMGetRenderTargets(0, NULL, &dsv);
+        if(dsv)
+        {
+          depthBound = true;
+          D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
+          dsv->GetDesc(&dsvDesc);
+          dsvViewDim = dsvDesc.ViewDimension;
+          dsv->GetResource(&depthRes);
+          SAFE_RELEASE(dsv);
+        }
       }
 
-      if(dsv)
+      if(depthBound)
       {
-        depthBound = true;
-
-        dsv->GetResource(&depthRes);
-
-        D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
-        dsv->GetDesc(&dsvDesc);
-
-        SAFE_RELEASE(dsv);
-
         D3D11_RESOURCE_DIMENSION dim;
         depthRes->GetType(&dim);
 
@@ -1125,11 +1125,36 @@ rdcarray<PixelModification> D3D11Replay::PixelHistory(rdcarray<EventUsage> event
           desc2d.Width = desc1d.Width;
           desc2d.Height = 1;
           desc2d.BindFlags = desc1d.BindFlags;
+
+          if(dsvViewDim == D3D11_DSV_DIMENSION_UNKNOWN)
+          {
+            // Generate the DSV view from the DS resource description
+            dsvViewDim = D3D11_DSV_DIMENSION_TEXTURE1D;
+            if(desc1d.ArraySize > 1)
+              dsvViewDim = D3D11_DSV_DIMENSION_TEXTURE1DARRAY;
+          }
         }
         else if(dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D)
         {
           ID3D11Texture2D *tex = (ID3D11Texture2D *)depthRes;
           tex->GetDesc(&desc2d);
+
+          if(dsvViewDim == D3D11_DSV_DIMENSION_UNKNOWN)
+          {
+            // Generate the DSV view from the DS resource description
+            if(desc2d.SampleDesc.Count > 1)
+            {
+              dsvViewDim = D3D11_DSV_DIMENSION_TEXTURE2DMS;
+              if(desc2d.ArraySize > 1)
+                dsvViewDim = D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY;
+            }
+            else
+            {
+              dsvViewDim = D3D11_DSV_DIMENSION_TEXTURE2D;
+              if(desc2d.ArraySize > 1)
+                dsvViewDim = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+            }
+          }
         }
         else
         {
@@ -1142,18 +1167,18 @@ rdcarray<PixelModification> D3D11Replay::PixelHistory(rdcarray<EventUsage> event
                        (desc2d.BindFlags & D3D11_BIND_SHADER_RESOURCE) > 0;
 
         D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        if(dsvDesc.ViewDimension == D3D11_DSV_DIMENSION_TEXTURE2DMS)
+        if(dsvViewDim == D3D11_DSV_DIMENSION_TEXTURE2DMS)
         {
           srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMS;
         }
-        else if(dsvDesc.ViewDimension == D3D11_DSV_DIMENSION_TEXTURE2DARRAY)
+        else if(dsvViewDim == D3D11_DSV_DIMENSION_TEXTURE2DARRAY)
         {
           srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
 
           srvDesc.Texture2DArray.MipLevels = ~0U;
           srvDesc.Texture2DArray.ArraySize = ~0U;
         }
-        else if(dsvDesc.ViewDimension == D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY)
+        else if(dsvViewDim == D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY)
         {
           srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY;
 
@@ -1439,56 +1464,6 @@ rdcarray<PixelModification> D3D11Replay::PixelHistory(rdcarray<EventUsage> event
          events[i].usage == ResourceUsage::CopyDst || events[i].usage == ResourceUsage::Copy ||
          events[i].usage == ResourceUsage::Resolve ||
          events[i].usage == ResourceUsage::ResolveDst || events[i].usage == ResourceUsage::GenMips);
-
-    if(events[i].view != ResourceId())
-    {
-      // if the access is through a view, check the mip/slice matches
-      bool used = false;
-
-      ID3D11DeviceChild *view = m_pDevice->GetResourceManager()->GetResource(events[i].view);
-
-      if(WrappedID3D11RenderTargetView1::IsAlloc(view))
-      {
-        WrappedID3D11RenderTargetView1 *rtv = (WrappedID3D11RenderTargetView1 *)view;
-
-        if(rtv->GetResourceRange().Intersects(resourceRange))
-          used = true;
-      }
-      else if(WrappedID3D11DepthStencilView::IsAlloc(view))
-      {
-        WrappedID3D11DepthStencilView *dsv = (WrappedID3D11DepthStencilView *)view;
-
-        if(dsv->GetResourceRange().Intersects(resourceRange))
-          used = true;
-      }
-      else if(WrappedID3D11ShaderResourceView1::IsAlloc(view))
-      {
-        WrappedID3D11ShaderResourceView1 *srv = (WrappedID3D11ShaderResourceView1 *)view;
-
-        if(srv->GetResourceRange().Intersects(resourceRange))
-          used = true;
-      }
-      else if(WrappedID3D11UnorderedAccessView1::IsAlloc(view))
-      {
-        WrappedID3D11UnorderedAccessView1 *uav = (WrappedID3D11UnorderedAccessView1 *)view;
-
-        if(uav->GetResourceRange().Intersects(resourceRange))
-          used = true;
-      }
-      else
-      {
-        RDCWARN("Unexpected view type, ID %s. Assuming used...", ToStr(events[i].view).c_str());
-        used = true;
-      }
-
-      if(!used)
-      {
-        RDCDEBUG("Usage %d at %u didn't refer to the matching mip/slice (%u/%u)", events[i].usage,
-                 events[i].eventId, mip, slice);
-        occlData = 0;
-        clear = uavWrite = false;
-      }
-    }
 
     if(occlData > 0 || clear || uavWrite)
     {

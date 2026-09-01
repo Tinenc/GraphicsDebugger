@@ -110,7 +110,7 @@ static inline QString ToQStr(PyObject *value)
   return QString();
 }
 
-static wchar_t program_name[] = L"qTinecmaTools";
+static wchar_t program_name[] = L"qTinecmaTool";
 static wchar_t python_home[1024] = {0};
 
 struct OutputRedirector
@@ -233,7 +233,7 @@ void PythonContext::GlobalInit()
   qRegisterMetaType<QList<QString>>("QList<QString>");
 
   PyImport_AppendInittab("renderdoc", &PyInit_renderdoc);
-  PyImport_AppendInittab("qTinecmaTools", &PyInit_qrenderdoc);
+  PyImport_AppendInittab("qTinecmaTool", &PyInit_qrenderdoc);
 
 #if PY_VERSION_HEX > 0x030B0000
   PyConfig config;
@@ -292,7 +292,7 @@ void PythonContext::GlobalInit()
   PyObject *main_module = PyImport_AddModule("__main__");
 
   PyModule_AddObject(main_module, "renderdoc", PyImport_ImportModule("renderdoc"));
-  PyModule_AddObject(main_module, "qTinecmaTools", PyImport_ImportModule("qTinecmaTools"));
+  PyModule_AddObject(main_module, "qTinecmaTool", PyImport_ImportModule("qTinecmaTool"));
 
   main_dict = PyModule_GetDict(main_module);
 
@@ -333,6 +333,7 @@ void PythonContext::GlobalInit()
 
     PyObject *redirector = PyObject_CallFunction((PyObject *)&OutputRedirectorType, noparams);
     PyObject_SetAttrString(sysobj, "stdout", redirector);
+    PyObject_SetAttrString(sysobj, "_renderdoc_internal", redirector);
 
     OutputRedirector *output = (OutputRedirector *)redirector;
     output->isStdError = 0;
@@ -529,7 +530,7 @@ bool PythonContext::CheckInterfaces(rdcstr &log)
   errors |= CheckCoreInterface(log);
   errors |= CheckQtInterface(log);
 
-  for(rdcstr module_name : {"renderdoc", "qTinecmaTools"})
+  for(rdcstr module_name : {"renderdoc", "qTinecmaTool"})
   {
     PyObject *mod = PyImport_ImportModule(module_name.c_str());
     PyObject *dict = PyModule_GetDict(mod);
@@ -653,10 +654,10 @@ QString PythonContext::LoadExtension(ICaptureContext &ctx, const rdcstr &extensi
 
   PyObject *ext = NULL;
 
-  current_global_handle = PyObject_SafeGetAttrString(sysobj, "stdout");
+  current_global_handle = PyObject_SafeGetAttrString(sysobj, "_renderdoc_internal");
 
-  if(!syspath)
-    qCritical() << "couldn't get sys.stdout";
+  if(!current_global_handle)
+    qCritical() << "couldn't get _renderdoc_internal";
 
   QString typeStr;
   QString valueStr;
@@ -1346,7 +1347,7 @@ PyObject *PythonContext::outstream_write(PyObject *self, PyObject *args)
       }
 
       if(!message.empty())
-        RENDERDOC_LogMessage(redirector->isStdError ? LogType::Error : LogType::Comment, "EXTN",
+        RENDERDOC_LogMessage(redirector->isStdError ? LogType::Warning : LogType::Comment, "EXTN",
                              filename, line, message);
     }
   }
@@ -1444,9 +1445,10 @@ extern "C" PyObject *GetCurrentGlobalHandle()
   PyObject *sys = PyImport_ImportModule("sys");
   if(sys)
   {
-    PyObject *ret = PyObject_SafeGetAttrString(sys, "stdout");
+    PyObject *ret = PyObject_SafeGetAttrString(sys, "_renderdoc_internal");
+
     Py_XDECREF(sys);
-    return ret;
+    Py_XDECREF(ret);
   }
 
   return NULL;

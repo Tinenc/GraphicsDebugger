@@ -312,6 +312,16 @@ struct VulkanCreationInfo
     VkFormat depthFormat;
     VkFormat stencilFormat;
 
+    // VkCustomResolveCreateInfoEXT
+    bool hasCustomResCreateInfo = false;
+    struct CustomResInfo
+    {
+      bool customResolve;
+      rdcarray<VkFormat> colorFormats;
+      VkFormat depthFormat;
+      VkFormat stencilFormat;
+    } customResCreateInfo;
+
     // VkRenderingAttachmentLocationInfo and VkRenderingInputAttachmentIndexInfo
     DynamicRenderingLocalRead dynamicRenderingLocalRead;
 
@@ -491,6 +501,11 @@ struct VulkanCreationInfo
     // 64-bit aligned and with an offset equal to their ID. In other words this is big enough for the max ID
     uint32_t virtualSpecialisationByteSize = 0;
 
+    // VkCustomResolveCreateInfoEXT
+    bool hasCustomResCreateInfo = false;
+    // For Shader Objects only "customResolve" is used
+    bool customResolve;
+
     rdcarray<DescriptorAccess> staticDescriptorAccess;
   };
   std::unordered_map<ResourceId, ShaderObject> m_ShaderObject;
@@ -558,6 +573,7 @@ struct VulkanCreationInfo
 
       bool feedbackLoop;
       bool tileOnlyMSAAEnable;
+      bool customResolve;
     };
     rdcarray<Subpass> subpasses;
 

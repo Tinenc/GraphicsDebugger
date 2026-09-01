@@ -17,8 +17,8 @@
                 execve;
                 execvpe;
                 _exit;
-                RENDERDOC_*;
-                VK_LAYER_RENDERDOC_*;
+                TINECMATOOL_*;
+                VK_LAYER_TINECMATOOL_*;
         local:
                 *;
 };

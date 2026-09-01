@@ -7,9 +7,9 @@ set(includes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty ${CMAKE_SOURCE_DIR}/re
 set(libraries PRIVATE renderdoc)
 
 if(PythonLibs_FOUND)
-    add_definitions(-DPYTHON_VERSION_MINOR=${PYTHON_VERSION_MINOR})
+    add_definitions(-DPYTHON_AVAILALBE=1)
 else()
-    add_definitions(-DPYTHON_VERSION_MINOR=0)
+    add_definitions(-DPYTHON_AVAILALBE=0)
 endif()
 
 if(APPLE)

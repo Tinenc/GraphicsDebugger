@@ -2235,16 +2235,10 @@ static void AddMeshShaderOutputStores(const ShaderReflection &refl,
 
   newGlobals.push_back(outSlotAddr);
 
-  rdcspv::Id indextype;
   uint32_t indexCount = 3;
   for(const SigParameter &sig : refl.outputSignature)
-  {
     if(sig.systemValue == ShaderBuiltin::OutputIndices)
-    {
       indexCount = sig.compCount;
-      indextype = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<float>(), sig.compCount));
-    }
-  }
 
   rdcspv::Id entryID;
   rdcarray<rdcspv::Id> entryInterface;
