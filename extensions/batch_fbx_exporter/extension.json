@@ -1,0 +1,10 @@
+{
+    "extension_api": 1,
+    "name": "Batch FBX Exporter (Auto Matrix)",
+    "version": "2.0.1",
+    "minimum_renderdoc": "1.17",
+    "description": "Batch export FBX with real-time matrix reading for each EventID (with transpose fix)",
+    "author": "Maek",
+    "url": ""
+}
+

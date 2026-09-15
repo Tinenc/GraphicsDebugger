@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit-tests:
+    name: Unit Tests (no renderdoc)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DBUILD_TESTING=ON
+
+      - name: Build test-unit
+        run: cmake --build build --config Release --target test-unit
+
+      - name: Run unit tests
+        run: ctest --test-dir build -L unit -C Release --output-on-failure
+
+  integration-tests:
+    name: Integration Tests (renderdoc)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache renderdoc source and build
+        id: cache-renderdoc
+        uses: actions/cache@v4
+        with:
+          path: |
+            renderdoc-src
+          key: renderdoc-v1.36-${{ runner.os }}-msbuild-v3
+
+      - name: Clone renderdoc
+        if: steps.cache-renderdoc.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch v1.36 https://github.com/baldurk/renderdoc.git renderdoc-src
+
+      - name: Build renderdoc with MSBuild
+        if: steps.cache-renderdoc.outputs.cache-hit != 'true'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\common.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\crash_generation\crash_generation_client.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\handler\exception_handler.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\renderdoc.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+
+      - name: Configure CMake
+        run: >
+          cmake -B build -DBUILD_TESTING=ON
+          -DRENDERDOC_DIR=renderdoc-src
+          -DRENDERDOC_BUILD_DIR=renderdoc-src/x64/Release
+
+      - name: Build all
+        run: cmake --build build --config Release
+
+      - name: Run integration tests
+        run: ctest --test-dir build -L integration -C Release --output-on-failure
