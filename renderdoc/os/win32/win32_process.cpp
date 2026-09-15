@@ -1230,6 +1230,74 @@ static RDResult HandleRegError(HKEY keyNative, HKEY keyWow32, LSTATUS ret, const
     return HandleRegError(keyNative, keyWow32, ret, msg); \
   }
 
+// Work out what path to put into AppInit_DLLs for one of the shims.
+//
+// AppInit_DLLs is a space-delimited list of DLL paths, so an entry can only contain a space if it
+// is written in 8.3 short form. Short name creation is not guaranteed though: it can be disabled
+// globally, and by default every volume except the one Windows is installed on has it disabled.
+// GetShortPathNameW doesn't fail in that case, it just hands back the long path unchanged.
+//
+// That used to make the global hook refuse to install anywhere other than the system volume, with
+// an error about short paths being disabled. Instead, take the short path when there is one, and
+// otherwise fall back to the long path as long as AppInit can't split it in two. The hook then
+// works from any drive, including volumes where 8.3 names are turned off.
+//
+// Returns false only when the shim is missing entirely, or its path has spaces *and* no short path
+// is available - nothing can be loaded from AppInit_DLLs in that case.
+static bool GetAppInitShimPath(const rdcstr &shimpath, rdcwstr &appinitpath)
+{
+  // a path that doesn't resolve is not worth writing anywhere, and arming the hook with a broken
+  // entry leaves a registry value behind that silently loads nothing.
+  if(!FileIO::exists(shimpath))
+  {
+    RDCERR("Global hook shim '%s' does not exist, refusing to arm the global hook",
+           shimpath.c_str());
+    return false;
+  }
+
+  const rdcwstr wideshimpath = StringFormat::UTF82Wide(shimpath);
+
+  // ask how much room the short path needs. A NULL buffer with a zero count is the documented way
+  // to do this and it works whether or not the path actually has a short name.
+  DWORD shortsize = GetShortPathNameW(wideshimpath.c_str(), NULL, 0);
+
+  if(shortsize > 0)
+  {
+    rdcwstr shortpath(shortsize);
+    DWORD written =
+        GetShortPathNameW(wideshimpath.c_str(), shortpath.data(), (DWORD)shortpath.length());
+
+    // short names being disabled gives us the original path back, so only a genuinely shorter
+    // result is the short path. A partial shortening is still fine - all we need is something
+    // AppInit_DLLs can load, we don't care whether every component was shortened.
+    if(written > 0 && written <= shortsize && (written - 1) < wideshimpath.length() &&
+       wcschr(shortpath.c_str(), L' ') == NULL)
+    {
+      appinitpath = shortpath;
+      return true;
+    }
+  }
+
+  // no short path available. The long path is still usable as long as it has no spaces, which is
+  // the usual case for something like D:\Tools\GraphicsDebugger\x64\Development\...
+  if(wcschr(wideshimpath.c_str(), L' ') == NULL)
+  {
+    RDCWARN(
+        "No 8.3 short path available for '%s', falling back to the long path for the global hook. "
+        "If the shim fails to load, enable short names on that volume with "
+        "'fsutil 8dot3name set <drive>: 0'.",
+        shimpath.c_str());
+
+    appinitpath = wideshimpath;
+    return true;
+  }
+
+  RDCERR("Global hook shim '%s' contains spaces and has no 8.3 short path available",
+         shimpath.c_str());
+
+  return false;
+}
+
 // function to backup the previous settings for AppInit, then enable it and write our own paths.
 RDResult BackupAndChangeRegistry(GlobalHookData &hookdata, const rdcstr &shimpathWow32,
                                  const rdcstr &shimpathNative)
@@ -1237,32 +1305,31 @@ RDResult BackupAndChangeRegistry(GlobalHookData &hookdata, const rdcstr &shimpat
   HKEY keyNative = NULL;
   HKEY keyWow32 = NULL;
 
-  // AppInit_DLLs requires short paths, but short paths can be disabled globally or on a per-volume
-  // level. If short paths are disabled we'll get the long path back, we *always* expect the path to
-  // get shorter because the shim filename is bigger than 8.3.
+  // resolve both shim paths into a form AppInit_DLLs can load before touching anything, so that a
+  // failure leaves the registry exactly as we found it.
+  rdcwstr nativeAppInitPath;
+  rdcwstr wow32AppInitPath;
 
-  DWORD nativeShortSize = GetShortPathNameW(StringFormat::UTF82Wide(shimpathNative).c_str(), NULL,
-                                            (DWORD)shimpathNative.length());
-  if(nativeShortSize == (DWORD)shimpathNative.length() + 1)
+  if(!GetAppInitShimPath(shimpathNative, nativeAppInitPath))
   {
     RETURN_ERROR_RESULT(
         ResultCode::FileIOFailed,
-        "RenderDoc is installed on a volume or system that has short paths disabled.\n"
-        "For the global hook, short paths must be enabled where RenderDoc is installed.");
+        "The 64-bit global hook shim can't be used by AppInit_DLLs:\n%s\n\n"
+        "Either the file is missing, or its path contains spaces on a volume with no 8.3 short "
+        "names. Enable short names on that volume with 'fsutil 8dot3name set <drive>: 0', or "
+        "install RenderDoc somewhere without spaces in the path.",
+        shimpathNative.c_str());
   }
 
-  if(!shimpathWow32.empty())
+  if(!shimpathWow32.empty() && !GetAppInitShimPath(shimpathWow32, wow32AppInitPath))
   {
-    DWORD wow32ShortSize = GetShortPathNameW(StringFormat::UTF82Wide(shimpathWow32).c_str(), NULL,
-                                             (DWORD)shimpathWow32.length());
-
-    if(wow32ShortSize == (DWORD)shimpathWow32.length() + 1)
-    {
-      RETURN_ERROR_RESULT(
-          ResultCode::FileIOFailed,
-          "RenderDoc is installed on a volume or system that has short paths disabled.\n"
-          "For the global hook, short paths must be enabled where RenderDoc is installed.");
-    }
+    RETURN_ERROR_RESULT(
+        ResultCode::FileIOFailed,
+        "The 32-bit global hook shim can't be used by AppInit_DLLs:\n%s\n\n"
+        "Either the file is missing, or its path contains spaces on a volume with no 8.3 short "
+        "names. Enable short names on that volume with 'fsutil 8dot3name set <drive>: 0', or "
+        "install RenderDoc somewhere without spaces in the path.",
+        shimpathWow32.c_str());
   }
 
   // open the native key
@@ -1300,16 +1367,15 @@ RDResult BackupAndChangeRegistry(GlobalHookData &hookdata, const rdcstr &shimpat
   }
   REG_CHECK("Could not fetch AppInit_DLLs");
 
-  // set DWORD:1 for LoadAppInit_DLLs and convert our path to a short path then set it
+  // set DWORD:1 for LoadAppInit_DLLs and write the shim path we resolved above
   ret = RegSetValueExA(keyNative, "LoadAppInit_DLLs", 0, REG_DWORD, (const BYTE *)&one, sizeof(one));
   REG_CHECK("Could not set LoadAppInit_DLLs");
 
-  rdcwstr shortpath(shimpathNative.size());
-  GetShortPathNameW(StringFormat::UTF82Wide(shimpathNative).c_str(), shortpath.data(),
-                    (DWORD)shortpath.length());
-
-  ret = RegSetValueExW(keyNative, L"AppInit_DLLs", 0, REG_SZ, (const BYTE *)shortpath.data(),
-                       DWORD(shortpath.length() * sizeof(wchar_t)));
+  // write exactly the string plus its NULL terminator. This used to write the whole over-sized
+  // buffer, which left a value padded out with trailing NULs in the registry.
+  ret = RegSetValueExW(keyNative, L"AppInit_DLLs", 0, REG_SZ,
+                       (const BYTE *)nativeAppInitPath.c_str(),
+                       DWORD((nativeAppInitPath.length() + 1) * sizeof(wchar_t)));
   REG_CHECK("Could not set AppInit_DLLs");
 
   // if we're doing Wow32, repeat the process for those keys
@@ -1333,12 +1399,9 @@ RDResult BackupAndChangeRegistry(GlobalHookData &hookdata, const rdcstr &shimpat
     ret = RegSetValueExA(keyWow32, "LoadAppInit_DLLs", 0, REG_DWORD, (const BYTE *)&one, sizeof(one));
     REG_CHECK("Could not set LoadAppInit_DLLs");
 
-    shortpath = rdcwstr(shimpathWow32.size());
-    GetShortPathNameW(StringFormat::UTF82Wide(shimpathWow32).c_str(), shortpath.data(),
-                      (DWORD)shortpath.length());
-
-    ret = RegSetValueExW(keyWow32, L"AppInit_DLLs", 0, REG_SZ, (const BYTE *)shortpath.data(),
-                         DWORD(shortpath.length() * sizeof(wchar_t)));
+    ret = RegSetValueExW(keyWow32, L"AppInit_DLLs", 0, REG_SZ,
+                         (const BYTE *)wow32AppInitPath.c_str(),
+                         DWORD((wow32AppInitPath.length() + 1) * sizeof(wchar_t)));
     REG_CHECK("Could not set AppInit_DLLs");
   }
 
@@ -1545,6 +1608,17 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
   shimpathNative = renderdocPath + "\\renderdocshim32.dll";
 
 #endif
+
+  // if the 32-bit shim wasn't built next to us, skip the Wow64 half of the hook rather than
+  // arming it with a path that can never load.
+  if(!shimpathWow32.empty() && !FileIO::exists(shimpathWow32))
+  {
+    RDCWARN("32-bit shim '%s' not found, the global hook will only cover 64-bit processes",
+            shimpathWow32.c_str());
+
+    shimpathWow32.clear();
+    cmdpathWow32.clear();
+  }
 
   GlobalHookData hookdata;
 
