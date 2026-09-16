@@ -1,6 +1,6 @@
 # 王者场景还原 — 李白谪仙
 
-从 `李白谪仙.rdc`（Vulkan 抓帧，121 draws，1920×1080）反解并在 Blender 4.5 中还原完整场景。
+从 `李白谪仙.rdc`（Vulkan 抓帧，121 draws，1920×1080）反解并在 Blender 5.2 LTS 中还原完整场景。
 
 ![预览](preview_render.png)
 
@@ -68,5 +68,22 @@ z_b =  y
 - **RenderDoc 1.44 用 `st.code != rd.ResultCode.Succeeded`**，旧的 `rd.ReplayStatus` 会 AttributeError 秒退且无输出。
 - **Blender 不支持 ASCII FBX 导入** → 用 `fbx_ascii_import.py` 在 Blender 内直接解析（网格出自 GPU 索引缓冲，逐顶点读取无损）。
 - **不要从 agent 会话内启动 GUI Blender**，进程会随命令返回被回收 → 用 `.cmd` 双击启动。
+
+## Blender 版本要求：5.2 LTS
+
+**必须用 `E:\blender-5.2.0-windows-x64\blender.exe`** —— BlenderMCP addon 只支持 5.0+，
+4.5 装上 addon 也连不上 9876。脚本已同时兼容 4.x / 5.x，但 4.5 下会在日志里打 WARNING。
+
+5.2 相对 4.5 的实测 API 差异（`pipeline/probe_api_52.py` 可复跑验证）：
+
+| 项 | 4.5 | 5.2 | 脚本处理 |
+|---|---|---|---|
+| 渲染引擎 enum | `BLENDER_EEVEE_NEXT` | **只有 `BLENDER_EEVEE`** | `pick_render_engine()` 按可用项挑 |
+| `Material.shadow_method` | 有 | **已移除** | `_set_alpha_cutout()` 改用 `use_transparent_shadow` + `surface_render_method='DITHERED'` |
+| `Mesh.use_auto_smooth` | 有 | 已移除 | 未使用，无影响（走自定义法线） |
+| `normals_split_custom_set` / `color_attributes` / `uv_layers.new` | OK | OK | 不变 |
+| `use_nodes` | OK | OK 但告警将于 6.0 移除 | 暂留，6.0 前需改 |
+
+5.2 重建结果与 4.5 一致：25/25 物件、多套 UV 保留、`hero eid260 forward(y) 5.52..6.27`。
 
 完整可复用流程已存为 skill：`~/.workbuddy/skills/rdc-scene-to-blender/`

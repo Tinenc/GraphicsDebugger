@@ -188,10 +188,6 @@ def load_ascii_fbx(path, name=None):
     # ---- vertex colours
     if data['colors']:
         cols = data['colors']
-        per_v = [None] * nverts
-        # exporter writes Colors as IndexToDirect with ColorIndex == loop order
-        for li in range(min(nloops, len(cols) // 4)):
-            pass
         # Colors stream is ByPolygonVertex; fold to per-vertex like normals
         per_v = _per_vertex(cols, 4, data['pvi'], nverts)
         try:

@@ -149,6 +149,62 @@ def flush_log():
         print("[rebuild] could not write log: {0}".format(e))
 
 
+# ==================== version compatibility ====================
+# Target is Blender 5.2 LTS (BlenderMCP requires 5.0+), but keep the 4.x
+# paths alive so the same script still runs on an older install.
+#
+# Verified differences on 5.2.0 LTS (probe_api_52.py):
+#   * render engine enum is back to 'BLENDER_EEVEE' -- there is no
+#     'BLENDER_EEVEE_NEXT' anymore (that name only existed in 4.2-4.5).
+#   * Material.shadow_method was REMOVED. Alpha-hashed shadows are now
+#     driven by Material.use_transparent_shadow (bool) plus
+#     Material.surface_render_method in {'DITHERED','BLENDED'}.
+#   * Mesh.use_auto_smooth is gone (harmless -- we set custom normals).
+#   * normals_split_custom_set / color_attributes / uv_layers.new all OK.
+BL_VERSION = bpy.app.version
+IS_50_PLUS = BL_VERSION >= (5, 0, 0)
+
+
+def pick_render_engine(rs):
+    """Return the best available EEVEE engine id for this Blender build."""
+    try:
+        avail = list(rs.bl_rna.properties['engine'].enum_items.keys())
+    except Exception:
+        avail = []
+    for cand in ('BLENDER_EEVEE_NEXT', 'BLENDER_EEVEE'):
+        if cand in avail:
+            return cand
+    return rs.engine
+
+
+def _set_alpha_cutout(mat):
+    """Enable hashed alpha + transparent shadows across 4.x and 5.x."""
+    # 4.x: blend_method + shadow_method. 5.x keeps blend_method but replaced
+    # shadow_method with use_transparent_shadow / surface_render_method.
+    if hasattr(mat, "blend_method"):
+        try:
+            mat.blend_method = 'HASHED'
+        except Exception:
+            pass
+    if hasattr(mat, "shadow_method"):          # 4.x only
+        try:
+            mat.shadow_method = 'HASHED'
+        except Exception:
+            pass
+    if hasattr(mat, "use_transparent_shadow"):  # 5.x
+        try:
+            mat.use_transparent_shadow = True
+        except Exception:
+            pass
+    if hasattr(mat, "surface_render_method"):   # 5.x
+        try:
+            # DITHERED keeps the stochastic (hashed) look and still writes
+            # depth, which is what these hair/cloth/fx cards need.
+            mat.surface_render_method = 'DITHERED'
+        except Exception:
+            pass
+
+
 # ==================== coordinate transform ====================
 
 def view_to_blender(p):
@@ -280,10 +336,7 @@ def build_material(name, tex):
             # hair / cloth / fx cards rely on the alpha channel for cutout
             try:
                 nt.links.new(n.outputs["Alpha"], bsdf.inputs["Alpha"])
-                if hasattr(mat, "blend_method"):
-                    mat.blend_method = 'HASHED'
-                if hasattr(mat, "shadow_method"):
-                    mat.shadow_method = 'HASHED'
+                _set_alpha_cutout(mat)
             except Exception:
                 pass
 
@@ -317,6 +370,13 @@ def build_material(name, tex):
 # ==================== main ====================
 
 def main():
+    log("Blender {0} (target: 5.2 LTS, BlenderMCP needs 5.0+)".format(
+        bpy.app.version_string))
+    if not IS_50_PLUS:
+        log("WARNING: running on {0} -- BlenderMCP will NOT attach. "
+            "Use E:\\blender-5.2.0-windows-x64\\blender.exe".format(
+                bpy.app.version_string))
+
     if not os.path.isfile(SCENE_JSON):
         log("FATAL: scene.json not found at {0}".format(SCENE_JSON))
         flush_log()
@@ -535,8 +595,7 @@ def main():
     # so always produce one when running headless.
     if os.environ.get("LIBAI_RENDER", "1") != "0":
         try:
-            rs.engine = 'BLENDER_EEVEE_NEXT' if 'BLENDER_EEVEE_NEXT' in \
-                rs.bl_rna.properties['engine'].enum_items.keys() else 'BLENDER_EEVEE'
+            rs.engine = pick_render_engine(rs)
         except Exception:
             pass
         try:
