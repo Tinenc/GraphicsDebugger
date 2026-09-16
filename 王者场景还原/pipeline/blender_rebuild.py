@@ -128,6 +128,54 @@ RENDER_W, RENDER_H = 1920, 1080
 CLEAR_SCENE = True
 ROOT_NAME = "LiBai_ZheXian"
 
+# ==================== additive FX draws ====================
+# These draws are additive-blended effect ribbons (blend state src=SRC_ALPHA,
+# dst=ONE in the capture). The manifest classifies their textures as generic
+# "mask" maps, so build_material() would only park them as spare nodes and the
+# object renders as opaque geometry. They need the dedicated emissive graph in
+# build_fx_material() instead.
+#
+# Role detection is by measured alpha variance, not by manifest slot:
+#   * MASK  - alpha varies across v (a soft cross-ribbon gradient band)
+#   * NOISE - alpha is constant 1.0, the RGB carries a grayscale streak pattern
+#
+# Sub-pixel caveat (this cost several iterations - see FX_SUBPIXEL below).
+FX_RIBBON_EIDS = (307, 322, 334, 338, 353, 365, 377, 389, 407, 423)
+
+# Background FX cards: 3 textures, main map carries the alpha, one grayscale
+# ramp modulates it. Rendered as golden firefly streaks.
+FX_CARD_EIDS = (601, 719)
+
+# Sword-side mist wisps. Same additive family, but the manifest gives them no
+# basecolor at all so build_material() produced an untextured white surface
+# that rendered as a solid blob. eid429/456 pair a 128px alpha mask with a
+# 256x128 streak map; eid569's own 256px map is pure black in RGB, so it needs
+# the constant tint below instead of a vertex colour / texture product.
+FX_MIST_EIDS = (429, 456, 569)
+FX_MIST_TINT = (1.0, 0.72, 0.28, 1.0)   # warm gold, matches the capture
+
+# Draws whose ribbons are THINNER THAN ONE PIXEL at 1920x1080 (measured
+# ~0.7 px, aspect ratio 9-11 in screen space). The whole v=0..1 alpha gradient
+# collapses into a single texel, so EEVEE's point sampling grabs an arbitrary
+# value - usually near the 0.46/0.61 peak - and the ribbon renders as a solid
+# bright bar. The GPU original instead sees the *integral* of the gradient
+# (~0.10 / ~0.04), which is why these are almost invisible in the capture.
+# Fix: replace the point-sampled mask alpha with that pre-integrated constant.
+FX_SUBPIXEL_EIDS = (307, 322, 334, 377, 389)
+
+# mean alpha of each mask along v, i.e. what a correctly-filtered sub-pixel
+# sample would return. Measured from the exported PNGs.
+FX_MASK_INTEGRAL = {
+    "tex_149779.png": 0.1009,   # soft band, v in [0.276..0.724], peak 0.463
+    "tex_151089.png": 0.0383,   # narrow band, v in [0.402..0.591], peak 0.608
+}
+
+# Emission strength for the FX graphs. Keep this at 1.0: EEVEE's BLENDED
+# surface method adds emission straight into the framebuffer, so anything
+# above 1.0 multiplies the (deliberately tiny) alpha back up and the solid-bar
+# artefact returns.
+FX_EMISSION_STRENGTH = 1.0
+
 LOG_PATH = r"E:\GST\libai_scene\out\rebuild_log.txt"
 _LINES = []
 
@@ -302,6 +350,290 @@ def load_image(path, non_color=False):
     return img
 
 
+def _img_alpha_varies(img, threshold=0.05, budget=1500):
+    """True if the image's alpha channel actually varies (i.e. it is a mask).
+
+    Sampled rather than fully scanned - a 256x256 RGBA read through
+    img.pixels is ~260k floats and we do this for every FX draw.
+    """
+    try:
+        w, h = img.size
+        n = w * h
+        if n <= 0:
+            return False
+        px = img.pixels
+        step = max(1, n // budget)
+        lo, hi = 2.0, -1.0
+        for i in range(0, n, step):
+            a = px[i * 4 + 3]
+            if a < lo:
+                lo = a
+            if a > hi:
+                hi = a
+        return (hi - lo) > threshold
+    except Exception as e:
+        log("  alpha probe failed {0}: {1}".format(img.name, e))
+        return False
+
+
+def _fx_shell(mat, uv_name="map1"):
+    """Common additive-FX scaffold: Transparent/Emission mixed by an alpha value.
+
+    Returns (nt, uvmap, emission, mix_shader). The caller wires the Emission
+    colour and the MixShader Factor.
+    """
+    nt = mat.node_tree
+    for n in list(nt.nodes):
+        nt.nodes.remove(n)
+
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    out.location = (760, 0)
+    uvm = nt.nodes.new("ShaderNodeUVMap")
+    uvm.uv_map = uv_name
+    uvm.location = (-860, 0)
+    em = nt.nodes.new("ShaderNodeEmission")
+    em.location = (240, -180)
+    em.inputs["Strength"].default_value = FX_EMISSION_STRENGTH
+    tr = nt.nodes.new("ShaderNodeBsdfTransparent")
+    tr.location = (240, 70)
+    ms = nt.nodes.new("ShaderNodeMixShader")
+    ms.location = (520, 0)
+
+    # Factor 0 -> inputs[1] (Transparent), Factor 1 -> inputs[2] (Emission)
+    nt.links.new(tr.outputs["BSDF"], ms.inputs[1])
+    nt.links.new(em.outputs["Emission"], ms.inputs[2])
+    nt.links.new(ms.outputs["Shader"], out.inputs["Surface"])
+
+    # additive look: never occlude, never cast, never cull
+    try:
+        mat.blend_method = 'BLEND'
+    except Exception:
+        pass
+    for attr, val in (("surface_render_method", 'BLENDED'),
+                      ("use_transparent_shadow", True),
+                      ("use_backface_culling", False)):
+        if hasattr(mat, attr):
+            try:
+                setattr(mat, attr, val)
+            except Exception:
+                pass
+    return nt, uvm, em, ms
+
+
+def build_fx_ribbon_material(name, tex, subpixel):
+    """Additive emissive ribbon: vertexColor * noiseRGB, alpha = mask.a * luma.
+
+    `subpixel` swaps the point-sampled mask alpha for its pre-integrated
+    constant (see FX_SUBPIXEL_EIDS).
+    """
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+
+    # every texture the manifest knows about, whatever slot it landed in
+    paths = []
+    if tex.get("basecolor"):
+        paths.append(tex["basecolor"])
+    if tex.get("normal"):
+        paths.append(tex["normal"])
+    paths.extend(tex.get("mask", []))
+
+    mask_img = noise_img = None
+    for p in paths:
+        img = load_image(p)
+        if img is None:
+            continue
+        if mask_img is None and _img_alpha_varies(img):
+            mask_img = img
+        elif noise_img is None:
+            noise_img = img
+    if mask_img is None or noise_img is None:
+        log("  FX role detection failed for {0} (mask={1} noise={2})".format(
+            name, mask_img and mask_img.name, noise_img and noise_img.name))
+        return None
+
+    nt, uvm, em, ms = _fx_shell(mat)
+
+    tm = nt.nodes.new("ShaderNodeTexImage")
+    tm.image = mask_img
+    tm.location = (-620, 170)
+    tm.label = "FX mask (alpha band)"
+    tm.extension = 'EXTEND'
+    tn = nt.nodes.new("ShaderNodeTexImage")
+    tn.image = noise_img
+    tn.location = (-620, -190)
+    tn.label = "FX noise (streaks)"
+    vc = nt.nodes.new("ShaderNodeVertexColor")
+    vc.layer_name = "colorSet1"
+    vc.location = (-620, -470)
+
+    mul = nt.nodes.new("ShaderNodeMix")
+    mul.data_type = 'RGBA'
+    mul.blend_type = 'MULTIPLY'
+    mul.location = (-300, -290)
+    mul.inputs["Factor"].default_value = 1.0
+    bw = nt.nodes.new("ShaderNodeRGBToBW")
+    bw.location = (-300, -50)
+    amul = nt.nodes.new("ShaderNodeMath")
+    amul.operation = 'MULTIPLY'
+    amul.location = (-60, 120)
+    amul.label = "fx alpha"
+
+    nt.links.new(uvm.outputs["UV"], tm.inputs["Vector"])
+    nt.links.new(uvm.outputs["UV"], tn.inputs["Vector"])
+    # ShaderNodeMix RGBA sockets are indices 6 (A) and 7 (B); result is 2.
+    nt.links.new(vc.outputs["Color"], mul.inputs[6])
+    nt.links.new(tn.outputs["Color"], mul.inputs[7])
+    nt.links.new(mul.outputs[2], em.inputs["Color"])
+    nt.links.new(tn.outputs["Color"], bw.inputs["Color"])
+    nt.links.new(bw.outputs["Val"], amul.inputs[1])
+    if subpixel:
+        integ = FX_MASK_INTEGRAL.get(mask_img.name)
+        if integ is None:
+            log("  no integral for {0}, falling back to point sample".format(
+                mask_img.name))
+            nt.links.new(tm.outputs["Alpha"], amul.inputs[0])
+        else:
+            amul.inputs[0].default_value = integ
+            amul.label = "fx alpha (v-integral {0:.4f})".format(integ)
+    else:
+        nt.links.new(tm.outputs["Alpha"], amul.inputs[0])
+    nt.links.new(amul.outputs["Value"], ms.inputs["Factor"])
+    return mat
+
+
+def build_fx_card_material(name, tex):
+    """Background FX card: main*secondary tinted, alpha = main.a * luma(ramp)."""
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+
+    paths = []
+    if tex.get("basecolor"):
+        paths.append(tex["basecolor"])
+    if tex.get("normal"):
+        paths.append(tex["normal"])
+    paths.extend(tex.get("mask", []))
+
+    imgs = [i for i in (load_image(p) for p in paths) if i is not None]
+    if len(imgs) < 2:
+        log("  FX card {0}: need >=2 textures, got {1}".format(name, len(imgs)))
+        return None
+
+    main = next((i for i in imgs if _img_alpha_varies(i)), None)
+    if main is None:
+        log("  FX card {0}: no alpha-carrying map".format(name))
+        return None
+    rest = [i for i in imgs if i is not main]
+    # the grayscale ramp is the opaque one with the widest luminance spread;
+    # with only one candidate left it doubles as the secondary tint.
+    ramp = rest[-1]
+    second = rest[0]
+
+    nt, uvm, em, ms = _fx_shell(mat)
+
+    tmain = nt.nodes.new("ShaderNodeTexImage")
+    tmain.image = main
+    tmain.location = (-620, 180)
+    tmain.label = "FX main (alpha)"
+    tsec = nt.nodes.new("ShaderNodeTexImage")
+    tsec.image = second
+    tsec.location = (-620, -140)
+    tsec.label = "FX tint"
+    tramp = nt.nodes.new("ShaderNodeTexImage")
+    tramp.image = ramp
+    tramp.location = (-620, -460)
+    tramp.label = "FX ramp"
+
+    mul = nt.nodes.new("ShaderNodeMix")
+    mul.data_type = 'RGBA'
+    mul.blend_type = 'MULTIPLY'
+    mul.location = (-300, -110)
+    mul.inputs["Factor"].default_value = 1.0
+    bw = nt.nodes.new("ShaderNodeRGBToBW")
+    bw.location = (-300, -430)
+    amul = nt.nodes.new("ShaderNodeMath")
+    amul.operation = 'MULTIPLY'
+    amul.location = (-60, 120)
+    amul.label = "fx alpha"
+
+    for t in (tmain, tsec, tramp):
+        nt.links.new(uvm.outputs["UV"], t.inputs["Vector"])
+    nt.links.new(tmain.outputs["Color"], mul.inputs[6])
+    nt.links.new(tsec.outputs["Color"], mul.inputs[7])
+    nt.links.new(mul.outputs[2], em.inputs["Color"])
+    nt.links.new(tramp.outputs["Color"], bw.inputs["Color"])
+    nt.links.new(tmain.outputs["Alpha"], amul.inputs[0])
+    nt.links.new(bw.outputs["Val"], amul.inputs[1])
+    nt.links.new(amul.outputs["Value"], ms.inputs["Factor"])
+    return mat
+
+
+def build_fx_mist_material(name, tex):
+    """Sword-side mist wisp: constant warm tint, alpha = mask.a * luma(streak).
+
+    Unlike the ribbons these draws have no usable vertex colour and (for
+    eid569) no usable RGB either, so the emission colour is the constant
+    FX_MIST_TINT and the textures only shape the alpha.
+    """
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+
+    paths = []
+    if tex.get("basecolor"):
+        paths.append(tex["basecolor"])
+    if tex.get("normal"):
+        paths.append(tex["normal"])
+    paths.extend(tex.get("mask", []))
+
+    imgs = []
+    for p in paths:
+        img = load_image(p)
+        # the 4x4 stubs are engine dummies (flat colour), never real maps
+        if img is not None and min(img.size) >= 16:
+            imgs.append(img)
+    if not imgs:
+        log("  FX mist {0}: no usable texture".format(name))
+        return None
+
+    mask_img = next((i for i in imgs if _img_alpha_varies(i)), None)
+    if mask_img is None:
+        log("  FX mist {0}: no alpha-carrying map ({1})".format(
+            name, [i.name for i in imgs]))
+        return None
+    detail = next((i for i in imgs if i is not mask_img), None)
+
+    nt, uvm, em, ms = _fx_shell(mat)
+    em.inputs["Color"].default_value = FX_MIST_TINT
+
+    tm = nt.nodes.new("ShaderNodeTexImage")
+    tm.image = mask_img
+    tm.location = (-600, 160)
+    tm.label = "FX mist mask"
+    tm.extension = 'EXTEND'
+    nt.links.new(uvm.outputs["UV"], tm.inputs["Vector"])
+
+    if detail is None:
+        nt.links.new(tm.outputs["Alpha"], ms.inputs["Factor"])
+        return mat
+
+    td = nt.nodes.new("ShaderNodeTexImage")
+    td.image = detail
+    td.location = (-600, -180)
+    td.label = "FX mist streaks"
+    bw = nt.nodes.new("ShaderNodeRGBToBW")
+    bw.location = (-320, -180)
+    amul = nt.nodes.new("ShaderNodeMath")
+    amul.operation = 'MULTIPLY'
+    amul.location = (-60, 80)
+    amul.label = "fx alpha"
+
+    nt.links.new(uvm.outputs["UV"], td.inputs["Vector"])
+    nt.links.new(td.outputs["Color"], bw.inputs["Color"])
+    nt.links.new(tm.outputs["Alpha"], amul.inputs[0])
+    nt.links.new(bw.outputs["Val"], amul.inputs[1])
+    nt.links.new(amul.outputs["Value"], ms.inputs["Factor"])
+    return mat
+
+
 def build_material(name, tex):
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
@@ -445,18 +777,49 @@ def main():
             me.update()
 
             tex = texmap.get(eid, {})
-            mat = build_material("mat_eid{0}".format(eid), tex)
+            mat = None
+            kind = "pbr"
+            if eid in FX_RIBBON_EIDS:
+                mat = build_fx_ribbon_material(
+                    "mat_eid{0}".format(eid), tex,
+                    subpixel=eid in FX_SUBPIXEL_EIDS)
+                kind = "fx-ribbon/sub" if eid in FX_SUBPIXEL_EIDS else "fx-ribbon"
+            elif eid in FX_CARD_EIDS:
+                mat = build_fx_card_material("mat_eid{0}".format(eid), tex)
+                kind = "fx-card"
+            elif eid in FX_MIST_EIDS:
+                mat = build_fx_mist_material("mat_eid{0}".format(eid), tex)
+                kind = "fx-mist"
+            if mat is None:
+                # role detection failed, or a plain opaque draw
+                if kind != "pbr":
+                    log("  eid{0}: FX build failed, using PBR".format(eid))
+                    kind = "pbr(fx-fallback)"
+                mat = build_material("mat_eid{0}".format(eid), tex)
+            elif kind.startswith("fx"):
+                # additive FX must not throw shadows into the scene
+                obj.visible_shadow = False
             me.materials.clear()
             me.materials.append(mat)
 
             total += 1
-            log("eid{0}: v={1} tri={2} uv={3} bc={4} nm={5}".format(
+            log("eid{0}: v={1} tri={2} uv={3} mat={4} bc={5} nm={6}".format(
                 eid, len(me.vertices), len(me.polygons),
-                len(me.uv_layers),
+                len(me.uv_layers), kind,
                 os.path.basename(tex.get("basecolor", "-")),
                 os.path.basename(tex.get("normal", "-"))))
 
     log("built {0} object(s); failed={1}".format(total, failed or "none"))
+
+    # eid699 is a byte-for-byte duplicate of eid692 (same 6657 indices, same
+    # base colour tex_149993) that the engine issues a second time into the
+    # 04_bg_board pass. Keeping both co-planar copies visible causes
+    # z-fighting on the sash, so the duplicate is hidden but not deleted.
+    dup = bpy.data.objects.get("eid699")
+    if dup:
+        dup.hide_render = True
+        dup.hide_viewport = True
+        log("hid eid699 (duplicate of eid692, z-fighting)")
 
     # Background / ground pieces stay in their own collections (03_props for the
     # rock, 04_bg_board for the sky + fx cards) so the whole backdrop can be

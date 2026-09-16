@@ -61,6 +61,58 @@ z_b =  y
 - `(x,y,z)->(x,z,y)` 这种纯轴交换 det = −1，是**镜像**，角色左右手会互换——看起来正立但已经错了。靠 `-x` 拉回真旋转。
 - RenderDoc 按 Vulkan 原始行序导出图像，所以 `_reference/` 里的参考图**上下颠倒**（脚在上）。它不是还原目标，误当目标会把 Y 再翻一次。
 
+## 加性 FX 的还原：亚像素条带陷阱
+
+25 个 draw 里有 **13 个是加性混合特效**（blend state `src=SRC_ALPHA, dst=ONE`），
+它们在 manifest 里没有 basecolor，贴图全被归为 `mask`。若走通用 PBR 分支，
+结果是「实心金条」和「实心白团」——这是本次还原里最费时间的一段。
+
+脚本按 eid 分成四类处理（见 `blender_rebuild.py` 顶部的 `FX_*` 常量）：
+
+| 类别 | eid | 图形 | 做法 |
+|---|---|---|---|
+| `fx-ribbon` | 338/353/365/407/423 | 金色流光带 | vertexColor × noiseRGB → Emission，alpha = mask.a × luma(noise) |
+| `fx-ribbon/sub` | 307/322/334/377/389 | 亚像素细丝 | 同上，但 mask.a 换成**沿 v 的积分常量** |
+| `fx-card` | 601/719 | 金色流萤 | main × secondary → Emission，alpha = main.a × luma(ramp) |
+| `fx-mist` | 429/456/569 | 剑侧金烟 | 常量金色 `(1.0,0.72,0.28)`，贴图只塑形 alpha |
+
+### 为什么需要「积分常量」这个特殊处理
+
+这是整个还原里最反直觉的一处。那 5 个条带在 1920×1080 下的屏幕宽度实测只有
+**0.7 像素**（几何 0.22 单位宽 × 15 单位长，屏幕长宽比 9~11）。
+
+遮罩的 alpha 是一条沿 v 的软渐变带（`tex_149779` 峰值 0.463、有效区间 v∈[0.276,0.724]；
+`tex_151089` 峰值 0.608、区间 v∈[0.402,0.591]），但整条 v=0→1 的渐变
+被压进了不到一个 texel。EEVEE 点采样只能命中其中任意一个值——通常接近峰值，
+于是条带渲成一条不透明亮线。而 GPU 原帧看到的是这条渐变的**积分**
+（分别只有 0.1009 和 0.0383），所以在捕获里它们几乎不可见。
+
+修法：把点采样的 `mask.a` 直接替换为该积分常量，噪波 luma 仍保留沿长度的变化。
+
+排查时走过的三条弯路，记下来免得重犯：
+
+1. **以为是 UV 方向错了**。顶点级 UV.v 只有 0/1 两个值，误判成"采不到渐变带"，
+   于是加 `ShaderNodeMapping` 把 v 重映射到 [0.37, 0.63]。**这是错的**——
+   片元级 v 本来就会在条带宽度上插值出完整 0→1，Mapping 反而把软渐变压成了
+   接近均匀的峰值，条带更实了。
+2. **以为提高分辨率/采样能解决**。`taa_render_samples=128` + 100% 分辨率
+   + `filter_size=1.5` 只让金条变淡，没有消除——亚像素几何在 EEVEE 里
+   本质上无法正确解析，必须在着色器侧补偿。
+3. **忘了 emission strength 会把 alpha 乘回来**。已经把 alpha 压到 0.1 之后，
+   金条依然亮，因为 `Emission Strength=3.0`。EEVEE 的 `BLENDED` 表面方法
+   把 emission 直接加进帧缓冲，任何 >1.0 的强度都会把刻意压低的 alpha 抵消掉。
+   → `FX_EMISSION_STRENGTH` 必须保持 1.0。
+
+另外贴图角色**不能信 manifest 的 slot**，要按实测 alpha 方差判定：
+alpha 有变化的是遮罩，alpha 恒为 1.0 的是噪波（`_img_alpha_varies()`）。
+`4x4` 尺寸的贴图是引擎占位 dummy，一律跳过。
+
+### eid699 是重复 draw
+
+`eid699` 与 `eid692` 逐字节相同（同为 6657 索引、同 `tex_149993`），
+引擎向 `04_bg_board` 又发了一次。两份共面副本同时可见会在腰带处 z-fighting，
+脚本将其 `hide_render` + `hide_viewport`，保留不删。
+
 ## 已知环境坑
 
 - **renderdoc-cli / renderdoccmd 在 agent 沙箱内必挂**（`0xC0000409`，故障模块 `tsbx.dll`），官方版同样挂 → 只能走 `qTinecmaTool --python`。
