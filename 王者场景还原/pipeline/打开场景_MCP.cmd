@@ -2,9 +2,11 @@
 REM ============================================================
 REM  Open the rebuilt 李白谪仙 scene with BlenderMCP auto-connected.
 REM
-REM  Double-click this file. The BlenderMCP addon auto-starts its
-REM  server on localhost:9876 during registration, so the agent can
-REM  drive the scene as soon as the window is up.
+REM  Double-click this file. Nothing else to click: the scene has
+REM  blendermcp_auto_start_server=True baked in and the addon is
+REM  enabled in user prefs, so port 9876 comes up on open.
+REM  (The addon does NOT open the port during register() -- that
+REM  scene flag is what actually starts the listener.)
 REM
 REM  Launch it yourself rather than letting the agent spawn it: a
 REM  GUI process started from inside the agent sandbox gets reaped
@@ -37,5 +39,5 @@ if not exist "%SCENE%" (
 
 echo Opening %SCENE%
 echo Blender: %BLENDER%
-echo BlenderMCP will listen on localhost:9876
+echo BlenderMCP listens on localhost:9876 (auto-start baked into the scene)
 start "" "%BLENDER%" "%SCENE%" --python "%BOOT%"

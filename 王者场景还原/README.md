@@ -86,4 +86,15 @@ z_b =  y
 
 5.2 重建结果与 4.5 一致：25/25 物件、多套 UV 保留、`hero eid260 forward(y) 5.52..6.27`。
 
+### MCP 桥接（已烘进场景）
+
+addon 的 `register()` **不开端口**——真正的开关是场景属性 `blendermcp_auto_start_server`，
+且必须存进 `.blend`。已用 `pipeline/bake_mcp_autostart.py` 烘好，所以现在**双击
+`打开场景_MCP.cmd` 打开即通 9876，不用点任何按钮**。
+
+- 算子命名空间是 `bpy.ops.blendermcp.*`（无下划线），`bpy.ops.blender_mcp.*` 不存在
+- `pipeline/check_mcp_addon.py` 可复验 addon 在当前 Blender 上能否 enable
+  （注意 `--background` 下没有事件循环，端口不会真的监听，headless 验不了连通性）
+- MCP 报 `[WinError 10053] Connection to Blender lost` 基本就是 Blender 没在跑
+
 完整可复用流程已存为 skill：`~/.workbuddy/skills/rdc-scene-to-blender/`
