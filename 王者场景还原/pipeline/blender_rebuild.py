@@ -140,11 +140,16 @@ ROOT_NAME = "LiBai_ZheXian"
 #   * NOISE - alpha is constant 1.0, the RGB carries a grayscale streak pattern
 #
 # Sub-pixel caveat (this cost several iterations - see FX_SUBPIXEL below).
-FX_RIBBON_EIDS = (307, 322, 334, 338, 353, 365, 377, 389, 407, 423)
+#
+# 391/411 were found in the background-expansion pass: they carry the exact
+# same texture pair (150547, 151089) as the 03_props ribbons, i.e. the first
+# export simply missed two members of the same family.
+FX_RIBBON_EIDS = (307, 322, 334, 338, 353, 365, 377, 389, 391, 407, 411, 423)
 
 # Background FX cards: 3 textures, main map carries the alpha, one grayscale
 # ramp modulates it. Rendered as golden firefly streaks.
-FX_CARD_EIDS = (601, 719)
+# 596/619 share (150696, 151094) with 601/719 -> same family, also missed.
+FX_CARD_EIDS = (596, 601, 619, 719)
 
 # Sword-side mist wisps. Same additive family, but the manifest gives them no
 # basecolor at all so build_material() produced an untextured white surface
@@ -161,10 +166,21 @@ FX_MIST_TINT = (1.0, 0.72, 0.28, 1.0)   # warm gold, matches the capture
 # bright bar. The GPU original instead sees the *integral* of the gradient
 # (~0.10 / ~0.04), which is why these are almost invisible in the capture.
 # Fix: replace the point-sampled mask alpha with that pre-integrated constant.
-FX_SUBPIXEL_EIDS = (307, 322, 334, 377, 389)
+#
+# These were the eids measured by hand on the first pass. They are kept only as
+# a fallback / cross-check: measure_subpixel_ribbons() below re-derives the set
+# from the actual camera at build time, so newly imported ribbons are covered
+# automatically instead of silently rendering as solid bars.
+FX_SUBPIXEL_EIDS_MEASURED = (307, 322, 334, 377, 389)
+
+# a ribbon narrower than this many pixels cannot resolve its alpha gradient
+FX_SUBPIXEL_PX = 1.0
+# ...and only treat it as a ribbon (not a flat card) above this aspect ratio
+FX_SUBPIXEL_ASPECT = 4.0
 
 # mean alpha of each mask along v, i.e. what a correctly-filtered sub-pixel
-# sample would return. Measured from the exported PNGs.
+# sample would return. Measured lazily from the exported PNGs by
+# _mask_v_integral(), with these known values as a fast path.
 FX_MASK_INTEGRAL = {
     "tex_149779.png": 0.1009,   # soft band, v in [0.276..0.724], peak 0.463
     "tex_151089.png": 0.0383,   # narrow band, v in [0.402..0.591], peak 0.608
@@ -175,6 +191,26 @@ FX_MASK_INTEGRAL = {
 # above 1.0 multiplies the (deliberately tiny) alpha back up and the solid-bar
 # artefact returns.
 FX_EMISSION_STRENGTH = 1.0
+
+# Scene-dressing elements (05_backdrop + 07_scene_detail): thin shells, decals,
+# glints and set dressing that are NOT standard PBR. They are vertex-colour /
+# texture-tinted quads with an alpha mask, drawn in three blend regimes. The
+# blend factors were read straight from the capture (probe_blend.py):
+#   additive   src_alpha/one                -> emission, never occludes
+#   alpha      src_alpha/one-minus-src_alpha -> transparent BSDF
+#   opaque     blending disabled            -> principled BSDF
+# Group 06_fx_extra (391/411/596/619) and the 04_bg_board FX already route to
+# the dedicated FX builders above, so they are NOT in these lists.
+SCENE_DETAIL_ADDITIVE_EIDS = (
+    238, 449,
+    313, 344, 397, 398, 512, 516, 523, 544, 548, 583, 608, 612, 626, 640,
+    754, 757,
+)
+SCENE_DETAIL_ALPHA_EIDS = (
+    470, 484, 491, 505, 537, 555, 576, 589, 633, 654, 655, 656, 663, 670,
+    677, 685, 712, 726, 730, 732, 736, 740, 744, 750,
+)
+SCENE_DETAIL_OPAQUE_EIDS = (231, 463, 477, 498, 530)
 
 LOG_PATH = r"E:\GST\libai_scene\out\rebuild_log.txt"
 _LINES = []
@@ -350,6 +386,135 @@ def load_image(path, non_color=False):
     return img
 
 
+def _mask_v_integral(img):
+    """Mean alpha of the image along v -- what a filtered sub-pixel tap returns.
+
+    The FX masks are a soft gradient band running across the ribbon width (v).
+    A ribbon narrower than one pixel cannot resolve that band, so the shader
+    has to use this integral in place of a point sample. Known masks are in
+    FX_MASK_INTEGRAL; anything else is measured once and cached there.
+    """
+    hit = FX_MASK_INTEGRAL.get(img.name)
+    if hit is not None:
+        return hit
+    try:
+        w, h = img.size
+        if w <= 0 or h <= 0:
+            return None
+        px = img.pixels
+        # average over the whole image; per-row then overall is the same value
+        # for a v-only gradient, and this way one pass is enough.
+        step = max(1, (w * h) // 20000)
+        tot = cnt = 0
+        for i in range(0, w * h, step):
+            tot += px[i * 4 + 3]
+            cnt += 1
+        val = tot / float(cnt) if cnt else None
+    except Exception as e:
+        log("  mask integral failed {0}: {1}".format(img.name, e))
+        return None
+    if val is not None:
+        FX_MASK_INTEGRAL[img.name] = val
+        log("  measured v-integral {0} = {1:.4f}".format(img.name, val))
+    return val
+
+
+def measure_subpixel_ribbons(eids):
+    """Which of `eids` render thinner than one pixel from the scene camera?
+
+    Hard-coding the list is fragile: the background-expansion pass added more
+    ribbons, and any of them could be sub-pixel too. Measuring against the
+    actual camera keeps the fix automatic.
+
+    Returns a set of eids whose median polygon is narrower than
+    FX_SUBPIXEL_PX pixels while being at least FX_SUBPIXEL_ASPECT times longer
+    than it is wide (i.e. a thin streak, not a small flat card).
+    """
+    try:
+        import bpy_extras.object_utils as ou
+    except Exception as e:
+        log("  bpy_extras unavailable, falling back to measured list: {0}".format(e))
+        return set(FX_SUBPIXEL_EIDS_MEASURED)
+
+    sc = bpy.context.scene
+    cam = sc.camera
+    if cam is None:
+        log("  no camera yet, falling back to measured sub-pixel list")
+        return set(FX_SUBPIXEL_EIDS_MEASURED)
+
+    px_w = sc.render.resolution_x * sc.render.resolution_percentage / 100.0
+    px_h = sc.render.resolution_y * sc.render.resolution_percentage / 100.0
+
+    out = set()
+    for eid in eids:
+        ob = bpy.data.objects.get("eid{0}".format(eid))
+        if ob is None or ob.type != 'MESH':
+            continue
+        me = ob.data
+        if not me.polygons:
+            continue
+        mw = ob.matrix_world
+        mins = []
+        for p in me.polygons:
+            xs = []
+            ys = []
+            for li in p.loop_indices:
+                co = mw @ me.vertices[me.loops[li].vertex_index].co
+                q = ou.world_to_camera_view(sc, cam, co)
+                xs.append(q.x)
+                ys.append(q.y)
+            mins.append(min((max(xs) - min(xs)) * px_w,
+                            (max(ys) - min(ys)) * px_h))
+        mins.sort()
+        med = mins[len(mins) // 2]
+
+        # object-level aspect, to tell a thin streak from a small flat card
+        pts = [ou.world_to_camera_view(sc, cam, mw @ v.co) for v in me.vertices]
+        ex = (max(p.x for p in pts) - min(p.x for p in pts)) * px_w
+        ey = (max(p.y for p in pts) - min(p.y for p in pts)) * px_h
+        aspect = max(ex, ey) / max(1e-6, min(ex, ey))
+
+        if med < FX_SUBPIXEL_PX and aspect >= FX_SUBPIXEL_ASPECT:
+            out.add(eid)
+            log("  eid{0}: {1:.2f}px wide, aspect {2:.1f} -> sub-pixel".format(
+                eid, med, aspect))
+    return out
+
+
+def apply_subpixel_fix(eids):
+    """Swap point-sampled mask alpha for its v-integral on the given draws.
+
+    Run AFTER the camera exists, because the decision depends on it. The graph
+    built by build_fx_ribbon_material() feeds mask.Alpha into input 0 of the
+    Math node labelled "fx alpha"; here that link is dropped and the socket
+    gets the constant instead.
+    """
+    fixed = []
+    for eid in sorted(eids):
+        mat = bpy.data.materials.get("mat_eid{0}".format(eid))
+        if mat is None or not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+        amul = next((n for n in nt.nodes
+                     if n.type == 'MATH' and n.label.startswith("fx alpha")), None)
+        if amul is None or not amul.inputs[0].is_linked:
+            continue
+        src = amul.inputs[0].links[0].from_node
+        if src.type != 'TEX_IMAGE' or src.image is None:
+            continue
+        integ = _mask_v_integral(src.image)
+        if integ is None:
+            continue
+        nt.links.remove(amul.inputs[0].links[0])
+        amul.inputs[0].default_value = integ
+        amul.label = "fx alpha (v-integral {0:.4f})".format(integ)
+        fixed.append(eid)
+    if fixed:
+        log("sub-pixel alpha fix applied to {0}".format(
+            ", ".join("eid{0}".format(e) for e in fixed)))
+    return fixed
+
+
 def _img_alpha_varies(img, threshold=0.05, budget=1500):
     """True if the image's alpha channel actually varies (i.e. it is a mask).
 
@@ -420,11 +585,12 @@ def _fx_shell(mat, uv_name="map1"):
     return nt, uvm, em, ms
 
 
-def build_fx_ribbon_material(name, tex, subpixel):
+def build_fx_ribbon_material(name, tex):
     """Additive emissive ribbon: vertexColor * noiseRGB, alpha = mask.a * luma.
 
-    `subpixel` swaps the point-sampled mask alpha for its pre-integrated
-    constant (see FX_SUBPIXEL_EIDS).
+    Always built with the point-sampled mask alpha. Ribbons that turn out to be
+    thinner than a pixel get patched afterwards by apply_subpixel_fix(), which
+    needs the camera to exist before it can measure them.
     """
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
@@ -486,17 +652,7 @@ def build_fx_ribbon_material(name, tex, subpixel):
     nt.links.new(mul.outputs[2], em.inputs["Color"])
     nt.links.new(tn.outputs["Color"], bw.inputs["Color"])
     nt.links.new(bw.outputs["Val"], amul.inputs[1])
-    if subpixel:
-        integ = FX_MASK_INTEGRAL.get(mask_img.name)
-        if integ is None:
-            log("  no integral for {0}, falling back to point sample".format(
-                mask_img.name))
-            nt.links.new(tm.outputs["Alpha"], amul.inputs[0])
-        else:
-            amul.inputs[0].default_value = integ
-            amul.label = "fx alpha (v-integral {0:.4f})".format(integ)
-    else:
-        nt.links.new(tm.outputs["Alpha"], amul.inputs[0])
+    nt.links.new(tm.outputs["Alpha"], amul.inputs[0])
     nt.links.new(amul.outputs["Value"], ms.inputs["Factor"])
     return mat
 
@@ -699,6 +855,102 @@ def build_material(name, tex):
     return mat
 
 
+def build_scene_detail_material(name, tex, kind):
+    """Scene dressing: texture-RGB tint + mask alpha, in one of three blends.
+
+    These background bits are thin shells / decals / glints whose colour comes
+    from the texture RGB (or vertex colour) and whose shape comes from an alpha
+    mask. kind selects the framebuffer blend the capture used:
+        'additive' -> emission (src_alpha / one)
+        'alpha'    -> transparent BSDF (src_alpha / one-minus-src_alpha)
+        'opaque'   -> principled BSDF, blending disabled
+    """
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+
+    paths = []
+    if tex.get("basecolor"):
+        paths.append(tex["basecolor"])
+    paths.extend(tex.get("mask", []))
+    # drop the 4x4 engine dummies (flat colour, never a real map)
+    imgs = [i for i in (load_image(p) for p in paths)
+            if i is not None and min(i.size) >= 16]
+    if not imgs:
+        log("  scene detail {0}: no usable texture".format(name))
+        return None
+
+    # basecolor sits first in `paths`, so imgs[0] is the most colourful tint;
+    # a greyscale mask is the fallback. The alpha-carrying map shapes the cut.
+    color_img = imgs[0]
+    mask_img = next((i for i in imgs if _img_alpha_varies(i)), color_img)
+
+    if kind == "additive":
+        nt, uvm, em, ms = _fx_shell(mat)
+        tc = nt.nodes.new("ShaderNodeTexImage")
+        tc.image = color_img
+        tc.location = (-600, 200)
+        tc.label = "scene tint"
+        nt.links.new(uvm.outputs["UV"], tc.inputs["Vector"])
+        nt.links.new(tc.outputs["Color"], em.inputs["Color"])
+        if mask_img is color_img:
+            nt.links.new(tc.outputs["Alpha"], ms.inputs["Factor"])
+        else:
+            tm = nt.nodes.new("ShaderNodeTexImage")
+            tm.image = mask_img
+            tm.location = (-600, -140)
+            tm.label = "scene mask"
+            nt.links.new(uvm.outputs["UV"], tm.inputs["Vector"])
+            nt.links.new(tm.outputs["Alpha"], ms.inputs["Factor"])
+        return mat
+
+    # opaque and alpha share a principled skeleton
+    nt = mat.node_tree
+    for n in list(nt.nodes):
+        nt.nodes.remove(n)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    out.location = (760, 0)
+    uvm = nt.nodes.new("ShaderNodeUVMap")
+    uvm.uv_map = "map1"
+    uvm.location = (-860, 0)
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.location = (280, 0)
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    tc = nt.nodes.new("ShaderNodeTexImage")
+    tc.image = color_img
+    tc.location = (-600, 200)
+    tc.label = "scene tint"
+    nt.links.new(uvm.outputs["UV"], tc.inputs["Vector"])
+    nt.links.new(tc.outputs["Color"], bsdf.inputs["Base Color"])
+    try:
+        bsdf.inputs["Roughness"].default_value = 0.65
+    except Exception:
+        pass
+
+    alpha_src = tc
+    if mask_img is not color_img:
+        tm = nt.nodes.new("ShaderNodeTexImage")
+        tm.image = mask_img
+        tm.location = (-600, -140)
+        tm.label = "scene mask"
+        nt.links.new(uvm.outputs["UV"], tm.inputs["Vector"])
+        alpha_src = tm
+    nt.links.new(alpha_src.outputs["Alpha"], bsdf.inputs["Alpha"])
+
+    if kind == "alpha":
+        mat.blend_method = 'BLEND'
+        try:
+            mat.surface_render_method = 'BLENDED'
+        except Exception:
+            pass
+        try:
+            mat.use_transparent_shadow = True
+        except Exception:
+            pass
+    else:  # opaque -> alpha-tested cutout
+        _set_alpha_cutout(mat)
+    return mat
+
+
 # ==================== main ====================
 
 def main():
@@ -780,23 +1032,33 @@ def main():
             mat = None
             kind = "pbr"
             if eid in FX_RIBBON_EIDS:
-                mat = build_fx_ribbon_material(
-                    "mat_eid{0}".format(eid), tex,
-                    subpixel=eid in FX_SUBPIXEL_EIDS)
-                kind = "fx-ribbon/sub" if eid in FX_SUBPIXEL_EIDS else "fx-ribbon"
+                mat = build_fx_ribbon_material("mat_eid{0}".format(eid), tex)
+                kind = "fx-ribbon"
             elif eid in FX_CARD_EIDS:
                 mat = build_fx_card_material("mat_eid{0}".format(eid), tex)
                 kind = "fx-card"
             elif eid in FX_MIST_EIDS:
                 mat = build_fx_mist_material("mat_eid{0}".format(eid), tex)
                 kind = "fx-mist"
+            elif eid in SCENE_DETAIL_ADDITIVE_EIDS:
+                mat = build_scene_detail_material(
+                    "mat_eid{0}".format(eid), tex, "additive")
+                kind = "detail-additive"
+            elif eid in SCENE_DETAIL_ALPHA_EIDS:
+                mat = build_scene_detail_material(
+                    "mat_eid{0}".format(eid), tex, "alpha")
+                kind = "detail-alpha"
+            elif eid in SCENE_DETAIL_OPAQUE_EIDS:
+                mat = build_scene_detail_material(
+                    "mat_eid{0}".format(eid), tex, "opaque")
+                kind = "detail-opaque"
             if mat is None:
                 # role detection failed, or a plain opaque draw
                 if kind != "pbr":
-                    log("  eid{0}: FX build failed, using PBR".format(eid))
-                    kind = "pbr(fx-fallback)"
+                    log("  eid{0}: {1} build failed, using PBR".format(eid, kind))
+                    kind = "pbr(" + kind + "-fallback)"
                 mat = build_material("mat_eid{0}".format(eid), tex)
-            elif kind.startswith("fx"):
+            elif kind.startswith("fx") or kind == "detail-additive":
                 # additive FX must not throw shadows into the scene
                 obj.visible_shadow = False
             me.materials.clear()
@@ -821,14 +1083,22 @@ def main():
         dup.hide_viewport = True
         log("hid eid699 (duplicate of eid692, z-fighting)")
 
-    # Background / ground pieces stay in their own collections (03_props for the
-    # rock, 04_bg_board for the sky + fx cards) so the whole backdrop can be
-    # switched off with one click while the 10 character parts in 01_hero /
-    # 02_hero_extraUV stay put. They are left VISIBLE by default.
-    for name in ("03_props", "04_bg_board"):
+    # Background / ground pieces stay in their own collections so the whole
+    # backdrop can be switched off with one click while the character parts in
+    # 01_hero / 02_hero_extraUV stay put. They are left VISIBLE by default.
+    #   03_props        rock + the FX ribbons
+    #   04_bg_board     sky plate + firefly cards
+    #   05_backdrop     sky dome / far plate (drawn before the hero)
+    #   06_fx_extra     ribbons & cards the first export pass missed
+    #   07_scene_detail rock detail, foliage, set dressing
+    for name, tag in (("03_props", 'COLOR_03'),
+                      ("04_bg_board", 'COLOR_05'),
+                      ("05_backdrop", 'COLOR_05'),
+                      ("06_fx_extra", 'COLOR_03'),
+                      ("07_scene_detail", 'COLOR_04')):
         c = bpy.data.collections.get(name)
         if c:
-            c.color_tag = 'COLOR_03' if name == "03_props" else 'COLOR_05'
+            c.color_tag = tag
 
     # ---------------- lighting rigs ----------------
     # Both rigs are built; only ACTIVE_RIG is left visible. Toggle the eye /
@@ -935,6 +1205,20 @@ def main():
             bg.inputs[1].default_value = cfg["world_strength"]
     except Exception:
         pass
+
+    # ---------------- sub-pixel FX alpha fix ----------------
+    # Must run here, not during material build: deciding whether a ribbon is
+    # narrower than a pixel needs the camera and the render resolution, both of
+    # which only exist at this point.
+    sub = measure_subpixel_ribbons(FX_RIBBON_EIDS)
+    if sub:
+        apply_subpixel_fix(sub)
+    else:
+        log("no sub-pixel ribbons detected")
+    expected = set(FX_SUBPIXEL_EIDS_MEASURED)
+    if sub and sub != expected:
+        log("note: measured sub-pixel set {0} differs from the recorded {1}"
+            .format(sorted(sub), sorted(expected)))
 
     # ---------------- report framing ----------------
     # sanity: how much of the frame does the hero fill?

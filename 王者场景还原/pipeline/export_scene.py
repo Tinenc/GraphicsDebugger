@@ -30,12 +30,46 @@ from collections import defaultdict
 
 import renderdoc as rd
 
-# Pull in the proven FBX writer / unpack helpers from the headless exporter.
-EXPORTER_DIR = r"E:\GraphicsDebugger\extensions\batch_fbx_exporter_ExtraUV"
-if EXPORTER_DIR not in sys.path:
-    sys.path.insert(0, EXPORTER_DIR)
+# Pull in the proven FBX writer / unpack helpers from the batch FBX exporter
+# extension that ships in the build tree.
+#
+# NOTE: this used to point at a standalone `headless_carbody_export.py` under
+# extensions/batch_fbx_exporter_ExtraUV, which no longer exists. The helpers now
+# live in the extension package itself. It must be imported as a PACKAGE (its
+# __init__ does `from .batch_dialog import ...`), so the PLUGINS dir goes on
+# sys.path -- not the package dir. The package also pulls in PySide2 +
+# qrenderdoc, which is fine because we run inside the qrenderdoc GUI process.
+PLUGINS_DIR = r"E:\GraphicsDebugger\x64\Development\Plugins"
+if PLUGINS_DIR not in sys.path:
+    sys.path.insert(0, PLUGINS_DIR)
 
-import headless_carbody_export as HX  # noqa: E402
+import batch_fbx_exporter_ExtraUV as HX  # noqa: E402
+
+
+def _find_action(controller, eid):
+    """Locate the action/draw with this exact eventId.
+
+    The exporter package only offers find_draws_in_range(); this is the
+    single-eid equivalent, walking the action tree the same way.
+    """
+    found = []
+
+    def walk(act):
+        if found:
+            return
+        if act.eventId == eid:
+            found.append(act)
+            return
+        for child in act.children:
+            walk(child)
+            if found:
+                return
+
+    for root in controller.GetRootActions():
+        walk(root)
+        if found:
+            break
+    return found[0] if found else None
 
 
 # ==================== CONFIG ====================
@@ -44,18 +78,48 @@ RDC_PATH = r"E:\GST\libai_scene\libai.rdc"
 OUT_ROOT = r"E:\GST\libai_scene\scene_export"
 
 # Draw calls to export, grouped for tidy output folders.
-# Derived from out/survey.txt: the 7 shadow-casting "hero" parts, the two
-# extra-UV variants, the mid-size props, and the two background boards.
+# Derived from out/survey.txt. The frame has 121 draws total; the ones left out
+# are the 1024x1024 shadow pass (eid 160-209, duplicates of the hero parts),
+# the bloom down/up-sample chain (eid 779-977, viewports shrinking 480->30),
+# the swapchain blits (eid 16-124, 1002) and the sub-24-index UI bits.
+#
+# Groups 05-07 were added in the "scene background" expansion pass. Selection
+# rule for those: viewport 1920x1080, hasDepth, numAttrs >= 3, numIndices >= 24
+# and not already covered above -> 50 draws, 15567 indices.
 GROUPS = {
     "01_hero": [260, 279, 562, 692, 274, 253, 246],
     "02_hero_extraUV": [647, 267, 569],
     "03_props": [365, 353, 334, 322, 338, 377, 407, 389, 423, 307],
     "04_bg_board": [699, 429, 456, 601, 719],
+
+    # Drawn BEFORE the hero (eid 231/238) -> sky dome / backdrop plate, plus
+    # the large 1710-index board at 449.
+    "05_backdrop": [231, 238, 449],
+
+    # Same texture sets as the group 03/04 FX, i.e. ribbons and firefly cards
+    # the first export pass simply missed:
+    #   391/411 share (150547, 151089) with the 03_props ribbons
+    #   596/619 share (150696, 151094) with the 601/719 firefly cards
+    "06_fx_extra": [391, 411, 596, 619],
+
+    # Remaining scene geometry: rock detail, foliage, small set dressing.
+    "07_scene_detail": [
+        313, 344, 397, 398,                     # tex 151182 family
+        463, 470, 477, 484, 491, 498, 505,      # tex 149950 / 149627 families
+        512, 516, 523, 530, 537, 544, 548,
+        555, 576, 583, 589, 608, 612, 626, 633,
+        640, 654, 655, 656, 663, 670, 677, 685,
+        712, 726, 730, 732, 736, 740, 744,
+        750, 754, 757,
+    ],
 }
 
 # Draws whose positions are ALREADY in showcase/world space (probe_verts showed
 # z ~ 125 with large extents) -> do not apply the model-view matrix.
-NO_TRANSFORM_EIDS = set([365, 353, 334, 322, 338, 377, 407, 389, 423, 307])
+# The 06_fx_extra ribbons belong to the same families as the 03_props ones, so
+# they get the same treatment.
+NO_TRANSFORM_EIDS = set([365, 353, 334, 322, 338, 377, 407, 389, 423, 307,
+                         391, 411])
 
 # Name of the CB variable holding the per-draw model-view matrix.
 MV_VAR_CANDIDATES = ["_child1", "_child0", "_child3"]
@@ -300,7 +364,7 @@ def save_textures_detailed(controller, tex_dir, log):
 # ==================== per-draw export ====================
 
 def export_draw(controller, eid, out_dir, log):
-    draw = HX.find_action(controller, eid)
+    draw = _find_action(controller, eid)
     if draw is None:
         log("  EID {0}: not a draw / not found".format(eid))
         return None
@@ -369,7 +433,10 @@ def export_draw(controller, eid, out_dir, log):
     # --- FBX ---
     fbx_name = "eid{0}.fbx".format(eid)
     fbx_path = os.path.join(out_dir, fbx_name)
-    if HX.export_fbx(fbx_path, mapper, data, attr_list):
+    # NOTE: export_fbx takes a trailing `controller` arg that its body never
+    # actually touches (verified: the name appears only in the signature), so
+    # passing the real controller is harmless and keeps the call honest.
+    if HX.export_fbx(fbx_path, mapper, data, attr_list, controller):
         meta["fbx"] = fbx_name
         uvsets = [k for k in ["UV", "UV2", "UV3", "UV4", "UV5"] if mapper.get(k)]
         log("    FBX -> {0}  ({1} UV set(s))".format(fbx_name, len(uvsets)))
@@ -388,16 +455,21 @@ def main():
 
     lines = []
 
-    def log(m):
-        print(m)
-        lines.append(str(m))
-
     def flush():
         try:
             with open(os.path.join(OUT_ROOT, "export_log.txt"), "w", encoding="utf-8") as f:
                 f.write("\n".join(lines))
         except Exception:
             pass
+
+    # NOTE: qTinecmaTool swallows stdout and the sandbox can hard-kill the
+    # process tree, so the log must hit disk on every line -- otherwise a hang
+    # is indistinguishable from a silent crash. Flushing 500 short lines costs
+    # nothing next to the replay work.
+    def log(m):
+        print(m)
+        lines.append(str(m))
+        flush()
 
     log("scene export: {0}".format(RDC_PATH))
     cap = rd.OpenCaptureFile()

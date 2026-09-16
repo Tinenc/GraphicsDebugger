@@ -2222,6 +2222,3889 @@
     ],
     "fbx": "eid719.fbx"
    }
+  ],
+  "05_backdrop": [
+   {
+    "eventId": 231,
+    "numIndices": 1080,
+    "uniqueVerts": 260,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "",
+     "UV": "_input1",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child0",
+     "matrix": [
+      -1.0,
+      0.0,
+      -8.742278367890322e-08,
+      -5.360001087188721,
+      0.0,
+      1.0,
+      0.0,
+      -3.5329999923706055,
+      8.742278367890322e-08,
+      0.0,
+      -1.0,
+      99.91000366210938,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151555,
+      "file": "tex_151555.png"
+     }
+    ],
+    "fbx": "eid231.fbx"
+   },
+   {
+    "eventId": 238,
+    "numIndices": 204,
+    "uniqueVerts": 136,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151569,
+      "file": "tex_151569.png"
+     }
+    ],
+    "fbx": "eid238.fbx"
+   },
+   {
+    "eventId": 449,
+    "numIndices": 1710,
+    "uniqueVerts": 438,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      -4.641404151916504,
+      -0.6200849413871765,
+      -0.07032643258571625,
+      7.119048595428467,
+      -0.5839701890945435,
+      0.08316294103860855,
+      0.593648374080658,
+      -0.5854195356369019,
+      -1.4419026374816895,
+      4.859787940979004,
+      -0.031095365062355995,
+      116.266357421875,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151574,
+      "file": "tex_151574.png"
+     },
+     {
+      "slot": 1,
+      "id": 151579,
+      "file": "tex_151579.png"
+     }
+    ],
+    "fbx": "eid449.fbx"
+   }
+  ],
+  "06_fx_extra": [
+   {
+    "eventId": 391,
+    "numIndices": 1152,
+    "uniqueVerts": 388,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151089,
+      "file": "tex_151089.png"
+     },
+     {
+      "slot": 1,
+      "id": 150547,
+      "file": "tex_150547.png"
+     }
+    ],
+    "fbx": "eid391.fbx"
+   },
+   {
+    "eventId": 411,
+    "numIndices": 1152,
+    "uniqueVerts": 388,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151089,
+      "file": "tex_151089.png"
+     },
+     {
+      "slot": 1,
+      "id": 150547,
+      "file": "tex_150547.png"
+     }
+    ],
+    "fbx": "eid411.fbx"
+   },
+   {
+    "eventId": 596,
+    "numIndices": 648,
+    "uniqueVerts": 148,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input2",
+     "UV": "_input3",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child3",
+     "matrix": [
+      -2.355562925338745,
+      -0.42133086919784546,
+      -0.980177640914917,
+      6.724374771118164,
+      -0.7986260652542114,
+      -0.07330245524644852,
+      2.9598312377929688,
+      -5.062921524047852,
+      -0.5426952242851257,
+      1.936653971672058,
+      -0.1012139618396759,
+      115.87539672851562,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151094,
+      "file": "tex_151094.png"
+     },
+     {
+      "slot": 1,
+      "id": 150597,
+      "file": "tex_150597.png"
+     },
+     {
+      "slot": 2,
+      "id": 150696,
+      "file": "tex_150696.png"
+     }
+    ],
+    "fbx": "eid596.fbx"
+   },
+   {
+    "eventId": 619,
+    "numIndices": 648,
+    "uniqueVerts": 148,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input2",
+     "UV": "_input3",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child3",
+     "matrix": [
+      1.3520927429199219,
+      0.8463815450668335,
+      -0.754657506942749,
+      -2.114278793334961,
+      -0.8513251543045044,
+      0.07008274644613266,
+      -1.4934340715408325,
+      2.493919849395752,
+      -0.6052213311195374,
+      1.7922741174697876,
+      0.4147765040397644,
+      113.35917663574219,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151094,
+      "file": "tex_151094.png"
+     },
+     {
+      "slot": 1,
+      "id": 150221,
+      "file": "tex_150221.png"
+     },
+     {
+      "slot": 2,
+      "id": 150696,
+      "file": "tex_150696.png"
+     }
+    ],
+    "fbx": "eid619.fbx"
+   }
+  ],
+  "07_scene_detail": [
+   {
+    "eventId": 313,
+    "numIndices": 120,
+    "uniqueVerts": 80,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151182,
+      "file": "tex_151182.png"
+     },
+     {
+      "slot": 1,
+      "id": 151182,
+      "file": "tex_151182.png"
+     }
+    ],
+    "fbx": "eid313.fbx"
+   },
+   {
+    "eventId": 344,
+    "numIndices": 186,
+    "uniqueVerts": 124,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151182,
+      "file": "tex_151182.png"
+     },
+     {
+      "slot": 1,
+      "id": 151182,
+      "file": "tex_151182.png"
+     }
+    ],
+    "fbx": "eid344.fbx"
+   },
+   {
+    "eventId": 397,
+    "numIndices": 42,
+    "uniqueVerts": 28,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151182,
+      "file": "tex_151182.png"
+     },
+     {
+      "slot": 1,
+      "id": 151182,
+      "file": "tex_151182.png"
+     }
+    ],
+    "fbx": "eid397.fbx"
+   },
+   {
+    "eventId": 398,
+    "numIndices": 42,
+    "uniqueVerts": 28,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151182,
+      "file": "tex_151182.png"
+     },
+     {
+      "slot": 1,
+      "id": 151182,
+      "file": "tex_151182.png"
+     }
+    ],
+    "fbx": "eid398.fbx"
+   },
+   {
+    "eventId": 463,
+    "numIndices": 30,
+    "uniqueVerts": 12,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child0",
+     "matrix": [
+      -1.2599999904632568,
+      0.0,
+      -8.940696716308594e-08,
+      0.0,
+      0.0,
+      1.2599999904632568,
+      0.0,
+      -1.149999976158142,
+      8.940696716308594e-08,
+      0.0,
+      -1.2599999904632568,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149627,
+      "file": "tex_149627.png"
+     }
+    ],
+    "fbx": "eid463.fbx"
+   },
+   {
+    "eventId": 470,
+    "numIndices": 30,
+    "uniqueVerts": 12,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child0",
+     "matrix": [
+      -1.2599999904632568,
+      0.0,
+      -8.940696716308594e-08,
+      0.0,
+      0.0,
+      1.2599999904632568,
+      0.0,
+      -1.149999976158142,
+      8.940696716308594e-08,
+      0.0,
+      -1.2599999904632568,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149627,
+      "file": "tex_149627.png"
+     }
+    ],
+    "fbx": "eid470.fbx"
+   },
+   {
+    "eventId": 477,
+    "numIndices": 180,
+    "uniqueVerts": 64,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child0",
+     "matrix": [
+      -1.2599999904632568,
+      0.0,
+      -8.940696716308594e-08,
+      0.0,
+      0.0,
+      1.2599999904632568,
+      0.0,
+      -1.149999976158142,
+      8.940696716308594e-08,
+      0.0,
+      -1.2599999904632568,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149950,
+      "file": "tex_149950.png"
+     }
+    ],
+    "fbx": "eid477.fbx"
+   },
+   {
+    "eventId": 484,
+    "numIndices": 180,
+    "uniqueVerts": 64,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child0",
+     "matrix": [
+      -1.2599999904632568,
+      0.0,
+      -8.940696716308594e-08,
+      0.0,
+      0.0,
+      1.2599999904632568,
+      0.0,
+      -1.149999976158142,
+      8.940696716308594e-08,
+      0.0,
+      -1.2599999904632568,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149950,
+      "file": "tex_149950.png"
+     }
+    ],
+    "fbx": "eid484.fbx"
+   },
+   {
+    "eventId": 491,
+    "numIndices": 144,
+    "uniqueVerts": 52,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      -1.04999577999115,
+      0.0,
+      -1.4901161193847656e-07,
+      0.0,
+      0.0,
+      1.04999577999115,
+      0.0,
+      -1.149999976158142,
+      1.4901161193847656e-07,
+      0.0,
+      -1.04999577999115,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150830,
+      "file": "tex_150830.png"
+     },
+     {
+      "slot": 1,
+      "id": 149892,
+      "file": "tex_149892.png"
+     }
+    ],
+    "fbx": "eid491.fbx"
+   },
+   {
+    "eventId": 498,
+    "numIndices": 90,
+    "uniqueVerts": 34,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child0",
+     "matrix": [
+      -1.2599999904632568,
+      0.0,
+      -8.940696716308594e-08,
+      0.0,
+      0.0,
+      1.2599999904632568,
+      0.0,
+      -1.149999976158142,
+      8.940696716308594e-08,
+      0.0,
+      -1.2599999904632568,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149950,
+      "file": "tex_149950.png"
+     }
+    ],
+    "fbx": "eid498.fbx"
+   },
+   {
+    "eventId": 505,
+    "numIndices": 90,
+    "uniqueVerts": 34,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child0",
+     "matrix": [
+      -1.2599999904632568,
+      0.0,
+      -8.940696716308594e-08,
+      0.0,
+      0.0,
+      1.2599999904632568,
+      0.0,
+      -1.149999976158142,
+      8.940696716308594e-08,
+      0.0,
+      -1.2599999904632568,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149950,
+      "file": "tex_149950.png"
+     }
+    ],
+    "fbx": "eid505.fbx"
+   },
+   {
+    "eventId": 512,
+    "numIndices": 192,
+    "uniqueVerts": 84,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151104,
+      "file": "tex_151104.png"
+     },
+     {
+      "slot": 1,
+      "id": 151351,
+      "file": "tex_151351.png"
+     }
+    ],
+    "fbx": "eid512.fbx"
+   },
+   {
+    "eventId": 516,
+    "numIndices": 192,
+    "uniqueVerts": 84,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149803,
+      "file": "tex_149803.png"
+     },
+     {
+      "slot": 1,
+      "id": 150295,
+      "file": "tex_150295.png"
+     }
+    ],
+    "fbx": "eid516.fbx"
+   },
+   {
+    "eventId": 523,
+    "numIndices": 90,
+    "uniqueVerts": 60,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150940,
+      "file": "tex_150940.png"
+     }
+    ],
+    "fbx": "eid523.fbx"
+   },
+   {
+    "eventId": 530,
+    "numIndices": 63,
+    "uniqueVerts": 22,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child0",
+     "matrix": [
+      -1.2599999904632568,
+      0.0,
+      -8.940696716308594e-08,
+      0.0,
+      0.0,
+      1.2599999904632568,
+      0.0,
+      -1.149999976158142,
+      8.940696716308594e-08,
+      0.0,
+      -1.2599999904632568,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149950,
+      "file": "tex_149950.png"
+     }
+    ],
+    "fbx": "eid530.fbx"
+   },
+   {
+    "eventId": 537,
+    "numIndices": 63,
+    "uniqueVerts": 22,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child0",
+     "matrix": [
+      -1.2599999904632568,
+      0.0,
+      -8.940696716308594e-08,
+      0.0,
+      0.0,
+      1.2599999904632568,
+      0.0,
+      -1.149999976158142,
+      8.940696716308594e-08,
+      0.0,
+      -1.2599999904632568,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149950,
+      "file": "tex_149950.png"
+     }
+    ],
+    "fbx": "eid537.fbx"
+   },
+   {
+    "eventId": 544,
+    "numIndices": 192,
+    "uniqueVerts": 84,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 29879,
+      "file": "tex_29879.png"
+     },
+     {
+      "slot": 1,
+      "id": 151351,
+      "file": "tex_151351.png"
+     }
+    ],
+    "fbx": "eid544.fbx"
+   },
+   {
+    "eventId": 548,
+    "numIndices": 192,
+    "uniqueVerts": 84,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150992,
+      "file": "tex_150992.png"
+     },
+     {
+      "slot": 1,
+      "id": 151351,
+      "file": "tex_151351.png"
+     }
+    ],
+    "fbx": "eid548.fbx"
+   },
+   {
+    "eventId": 555,
+    "numIndices": 702,
+    "uniqueVerts": 202,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.03779101371765137,
+      0.4693254828453064,
+      0.8822159767150879,
+      0.10176028311252594,
+      -0.9968313574790955,
+      0.07954078912734985,
+      0.0003860890865325928,
+      0.4149742126464844,
+      -0.0699908435344696,
+      -0.8794353008270264,
+      0.4708445072174072,
+      105.99079895019531,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 29879,
+      "file": "tex_29879.png"
+     },
+     {
+      "slot": 1,
+      "id": 149774,
+      "file": "tex_149774.png"
+     }
+    ],
+    "fbx": "eid555.fbx"
+   },
+   {
+    "eventId": 576,
+    "numIndices": 240,
+    "uniqueVerts": 55,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151021,
+      "file": "tex_151021.png"
+     },
+     {
+      "slot": 1,
+      "id": 150295,
+      "file": "tex_150295.png"
+     }
+    ],
+    "fbx": "eid576.fbx"
+   },
+   {
+    "eventId": 583,
+    "numIndices": 72,
+    "uniqueVerts": 21,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.11100080609321594,
+      -0.029529234394431114,
+      0.009476212784647942,
+      4.383277893066406,
+      0.016435815021395683,
+      0.20209720730781555,
+      -0.00034648049040697515,
+      0.5598801374435425,
+      -0.011452898383140564,
+      0.0038299381267279387,
+      0.0913456529378891,
+      118.48759460449219,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150397,
+      "file": "tex_150397.png"
+     },
+     {
+      "slot": 1,
+      "id": 150810,
+      "file": "tex_150810.png"
+     }
+    ],
+    "fbx": "eid583.fbx"
+   },
+   {
+    "eventId": 589,
+    "numIndices": 144,
+    "uniqueVerts": 42,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150397,
+      "file": "tex_150397.png"
+     },
+     {
+      "slot": 1,
+      "id": 150810,
+      "file": "tex_150810.png"
+     }
+    ],
+    "fbx": "eid589.fbx"
+   },
+   {
+    "eventId": 608,
+    "numIndices": 192,
+    "uniqueVerts": 84,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151104,
+      "file": "tex_151104.png"
+     },
+     {
+      "slot": 1,
+      "id": 151351,
+      "file": "tex_151351.png"
+     }
+    ],
+    "fbx": "eid608.fbx"
+   },
+   {
+    "eventId": 612,
+    "numIndices": 192,
+    "uniqueVerts": 84,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149803,
+      "file": "tex_149803.png"
+     },
+     {
+      "slot": 1,
+      "id": 150295,
+      "file": "tex_150295.png"
+     }
+    ],
+    "fbx": "eid612.fbx"
+   },
+   {
+    "eventId": 626,
+    "numIndices": 240,
+    "uniqueVerts": 55,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151356,
+      "file": "tex_151356.png"
+     },
+     {
+      "slot": 1,
+      "id": 151413,
+      "file": "tex_151413.png"
+     }
+    ],
+    "fbx": "eid626.fbx"
+   },
+   {
+    "eventId": 633,
+    "numIndices": 81,
+    "uniqueVerts": 29,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      -1.04999577999115,
+      0.0,
+      -1.4901161193847656e-07,
+      0.0,
+      0.0,
+      1.04999577999115,
+      0.0,
+      -1.149999976158142,
+      1.4901161193847656e-07,
+      0.0,
+      -1.04999577999115,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150830,
+      "file": "tex_150830.png"
+     },
+     {
+      "slot": 1,
+      "id": 149892,
+      "file": "tex_149892.png"
+     }
+    ],
+    "fbx": "eid633.fbx"
+   },
+   {
+    "eventId": 640,
+    "numIndices": 702,
+    "uniqueVerts": 202,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.03779101371765137,
+      0.4693254828453064,
+      0.8822159767150879,
+      0.10176028311252594,
+      -0.9968313574790955,
+      0.07954078912734985,
+      0.0003860890865325928,
+      0.4149742126464844,
+      -0.0699908435344696,
+      -0.8794353008270264,
+      0.4708445072174072,
+      105.99079895019531,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149774,
+      "file": "tex_149774.png"
+     },
+     {
+      "slot": 1,
+      "id": 151444,
+      "file": "tex_151444.png"
+     }
+    ],
+    "fbx": "eid640.fbx"
+   },
+   {
+    "eventId": 654,
+    "numIndices": 90,
+    "uniqueVerts": 60,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151219,
+      "file": "tex_151219.png"
+     }
+    ],
+    "fbx": "eid654.fbx"
+   },
+   {
+    "eventId": 655,
+    "numIndices": 54,
+    "uniqueVerts": 36,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151219,
+      "file": "tex_151219.png"
+     }
+    ],
+    "fbx": "eid655.fbx"
+   },
+   {
+    "eventId": 656,
+    "numIndices": 60,
+    "uniqueVerts": 40,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151219,
+      "file": "tex_151219.png"
+     }
+    ],
+    "fbx": "eid656.fbx"
+   },
+   {
+    "eventId": 663,
+    "numIndices": 816,
+    "uniqueVerts": 175,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149882,
+      "file": "tex_149882.png"
+     },
+     {
+      "slot": 1,
+      "id": 149803,
+      "file": "tex_149803.png"
+     }
+    ],
+    "fbx": "eid663.fbx"
+   },
+   {
+    "eventId": 670,
+    "numIndices": 84,
+    "uniqueVerts": 23,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      -0.9136123657226562,
+      0.4065868854522705,
+      0.0,
+      0.14296954870224,
+      0.0,
+      -1.1920928955078125e-07,
+      1.0000001192092896,
+      0.9137586355209351,
+      0.4065868854522705,
+      0.9136122465133667,
+      -1.1920928955078125e-07,
+      105.89835357666016,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149638,
+      "file": "tex_149638.png"
+     },
+     {
+      "slot": 1,
+      "id": 151026,
+      "file": "tex_151026.png"
+     }
+    ],
+    "fbx": "eid670.fbx"
+   },
+   {
+    "eventId": 677,
+    "numIndices": 522,
+    "uniqueVerts": 120,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      -6.999175548553467,
+      8.664568901062012,
+      -4.353855133056641,
+      -4.3217997550964355,
+      -0.14893119037151337,
+      4.520022392272949,
+      9.904654502868652,
+      -2.23360013961792,
+      15.886929512023926,
+      3.859652042388916,
+      -1.8252910375595093,
+      114.79180145263672,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150035,
+      "file": "tex_150035.png"
+     },
+     {
+      "slot": 1,
+      "id": 151212,
+      "file": "tex_151212.png"
+     }
+    ],
+    "fbx": "eid677.fbx"
+   },
+   {
+    "eventId": 685,
+    "numIndices": 24,
+    "uniqueVerts": 16,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151279,
+      "file": "tex_151279.png"
+     },
+     {
+      "slot": 1,
+      "id": 29879,
+      "file": "tex_29879.png"
+     }
+    ],
+    "fbx": "eid685.fbx"
+   },
+   {
+    "eventId": 712,
+    "numIndices": 336,
+    "uniqueVerts": 80,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151279,
+      "file": "tex_151279.png"
+     },
+     {
+      "slot": 1,
+      "id": 29879,
+      "file": "tex_29879.png"
+     }
+    ],
+    "fbx": "eid712.fbx"
+   },
+   {
+    "eventId": 726,
+    "numIndices": 840,
+    "uniqueVerts": 180,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149685,
+      "file": "tex_149685.png"
+     },
+     {
+      "slot": 1,
+      "id": 150005,
+      "file": "tex_150005.png"
+     }
+    ],
+    "fbx": "eid726.fbx"
+   },
+   {
+    "eventId": 730,
+    "numIndices": 396,
+    "uniqueVerts": 92,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149685,
+      "file": "tex_149685.png"
+     },
+     {
+      "slot": 1,
+      "id": 150567,
+      "file": "tex_150567.png"
+     }
+    ],
+    "fbx": "eid730.fbx"
+   },
+   {
+    "eventId": 732,
+    "numIndices": 396,
+    "uniqueVerts": 92,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149685,
+      "file": "tex_149685.png"
+     },
+     {
+      "slot": 1,
+      "id": 150567,
+      "file": "tex_150567.png"
+     }
+    ],
+    "fbx": "eid732.fbx"
+   },
+   {
+    "eventId": 736,
+    "numIndices": 480,
+    "uniqueVerts": 105,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149685,
+      "file": "tex_149685.png"
+     },
+     {
+      "slot": 1,
+      "id": 151366,
+      "file": "tex_151366.png"
+     }
+    ],
+    "fbx": "eid736.fbx"
+   },
+   {
+    "eventId": 740,
+    "numIndices": 480,
+    "uniqueVerts": 105,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149685,
+      "file": "tex_149685.png"
+     },
+     {
+      "slot": 1,
+      "id": 151366,
+      "file": "tex_151366.png"
+     }
+    ],
+    "fbx": "eid740.fbx"
+   },
+   {
+    "eventId": 744,
+    "numIndices": 360,
+    "uniqueVerts": 84,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149685,
+      "file": "tex_149685.png"
+     },
+     {
+      "slot": 1,
+      "id": 151084,
+      "file": "tex_151084.png"
+     }
+    ],
+    "fbx": "eid744.fbx"
+   },
+   {
+    "eventId": 750,
+    "numIndices": 210,
+    "uniqueVerts": 140,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150897,
+      "file": "tex_150897.png"
+     },
+     {
+      "slot": 1,
+      "id": 29879,
+      "file": "tex_29879.png"
+     }
+    ],
+    "fbx": "eid750.fbx"
+   },
+   {
+    "eventId": 754,
+    "numIndices": 162,
+    "uniqueVerts": 108,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149855,
+      "file": "tex_149855.png"
+     },
+     {
+      "slot": 1,
+      "id": 29879,
+      "file": "tex_29879.png"
+     }
+    ],
+    "fbx": "eid754.fbx"
+   },
+   {
+    "eventId": 757,
+    "numIndices": 60,
+    "uniqueVerts": 40,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149855,
+      "file": "tex_149855.png"
+     },
+     {
+      "slot": 1,
+      "id": 150345,
+      "file": "tex_150345.png"
+     }
+    ],
+    "fbx": "eid757.fbx"
+   }
   ]
  }
 }

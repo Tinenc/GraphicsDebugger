@@ -8,11 +8,26 @@
 
 | 项目 | 结果 |
 |---|---|
-| 网格物件 | **25 个**（10 角色部件 + 15 环境部件），全部带 2-3 套 UV |
-| 贴图 | **54 张**，按角色分为 basecolor 14 / normal 9 / mask_packed 23 / lut_ramp 8 |
+| 网格物件 | **76 个**（10 角色部件 + 51 环境/FX 部件 + 15 背景/场景细节），全部带 1-3 套 UV |
+| 贴图 | **98 张**，按角色分为 basecolor 23 / normal 9 / mask_packed 57 / lut_ramp 9 |
 | 相机 | fovX 50.91° / fovY 29.97°，等效 37.82mm，宽高比 1.7782（≈1920/1080 自检通过） |
 | 平行光 | 方向 `(-0.179, 0.175, -0.968)`，取自全部 10 个 1024² 阴影 pass 一致的光矩阵 |
 | 成品 | `libai_scene_rebuilt.blend`（双灯光组可切换） |
+
+### 背景扩充（2026-09-16）
+
+在 25 个物件基础上扩到 76 个，新增 51 个 draw：
+
+| 分组 | 数量 | 内容 | 材质 |
+|---|---|---|---|
+| `05_backdrop` | 3 | 天空穹顶 / 远景背景板（角色之前绘制） | opaque 1 + additive 2 |
+| `06_fx_extra` | 4 | 漏导的同族 FX（391/411 飘带、596/619 流萤） | fx-ribbon 2 + fx-card 2 |
+| `07_scene_detail` | 44 | 岩石碎屑 / 光点 / 植被贴花等场景细节 | additive 17 + alpha 23 + opaque 4 |
+
+场景细节（07_scene_detail）不是标准 PBR：它们是「贴图 RGB 上色 + 遮罩 alpha」的薄壳/贴花/光点，
+按抓帧的混合状态三分流——加性（`src_alpha/one`）走 emission、标准 alpha
+（`src_alpha/one-minus-src_alpha`）走透明 BSDF、不透明走 Principled。混合因子由
+`probe_blend.py` 从抓帧读取（`GetColorBlends()`，非 `blendState` 属性）。
 
 ## 流程
 
@@ -25,13 +40,14 @@
 | 2 | `probe_matrices.py` | 找 VS 常量缓冲里的仿射矩阵，判定哪个是 model-view（本例 `cb0._child1`） |
 | 3 | `probe_verts.py` | 确认原始顶点在物体空间（每网格居中、extent 0.1–4） |
 | 4 | `probe_light_cam.py` | 反推相机投影矩阵与太阳方向 |
-| 5 | `export_scene.py` | 导出 FBX + PS 绑定贴图（复用 `batch_fbx_exporter_ExtraUV`） |
-| 6 | `classify_textures.py` | 自写 PNG 解码器统计 RGB，给贴图定角色 |
-| 7 | `export_reference.py` | 导出原始帧作比对基准 + 投影自检 |
-| 8 | `blender_rebuild.py` | Blender 内组装（网格/材质/灯光/相机）并渲染预览 |
-| 9 | `organize_assets.py` | 整理交付目录 |
+| 5 | `export_scene.py` | 导出 FBX + PS 绑定贴图（复用 `x64\Development\Plugins\batch_fbx_exporter_ExtraUV` 包） |
+| 6 | `probe_blend.py` | 读 `GetColorBlends()` 给场景细节定混合类型（加性/alpha/不透明） |
+| 7 | `classify_textures.py` | 自写 PNG 解码器统计 RGB，给贴图定角色 |
+| 8 | `export_reference.py` | 导出原始帧作比对基准 + 投影自检 |
+| 9 | `blender_rebuild.py` | Blender 内组装（网格/材质/灯光/相机）并渲染预览 |
+| 10 | `organize_assets.py` | 整理交付目录 |
 
-`fbx_ascii_import.py` 是 8 的依赖；`打开场景_MCP.cmd` 双击可打开带 MCP 的成品场景。
+`fbx_ascii_import.py` 是第 9 步的依赖；`打开场景_MCP.cmd` 双击可打开带 MCP 的成品场景。
 
 ## 三个关键技术判断
 
