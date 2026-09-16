@@ -1,0 +1,463 @@
+# -*- coding: utf-8 -*-
+"""
+Scene exporter for the 李白谪仙 character-showcase capture.
+
+Run:
+    qTinecmaTool.exe --python E:\\GST\\libai_scene\\export_scene.py
+
+What it does, per selected draw call:
+  * reads the vertex streams and index buffer
+  * maps attributes with an EXPLICIT layout rule (see infer_mapper_explicit)
+  * applies the per-draw `_child1` model-view matrix so every part lands in the
+    same showcase space the original frame had
+  * writes a multi-UV ASCII FBX + all bound fragment textures
+  * records material/binding metadata to scene.json for the Blender rebuild
+
+Reuses the FBX writer + unpack helpers from batch_fbx_exporter_ExtraUV.
+"""
+
+from __future__ import division
+from __future__ import print_function
+from __future__ import absolute_import
+
+import os
+import sys
+import json
+import struct
+import shutil
+import traceback
+from collections import defaultdict
+
+import renderdoc as rd
+
+# Pull in the proven FBX writer / unpack helpers from the headless exporter.
+EXPORTER_DIR = r"E:\GraphicsDebugger\extensions\batch_fbx_exporter_ExtraUV"
+if EXPORTER_DIR not in sys.path:
+    sys.path.insert(0, EXPORTER_DIR)
+
+import headless_carbody_export as HX  # noqa: E402
+
+
+# ==================== CONFIG ====================
+
+RDC_PATH = r"E:\GST\libai_scene\libai.rdc"
+OUT_ROOT = r"E:\GST\libai_scene\scene_export"
+
+# Draw calls to export, grouped for tidy output folders.
+# Derived from out/survey.txt: the 7 shadow-casting "hero" parts, the two
+# extra-UV variants, the mid-size props, and the two background boards.
+GROUPS = {
+    "01_hero": [260, 279, 562, 692, 274, 253, 246],
+    "02_hero_extraUV": [647, 267, 569],
+    "03_props": [365, 353, 334, 322, 338, 377, 407, 389, 423, 307],
+    "04_bg_board": [699, 429, 456, 601, 719],
+}
+
+# Draws whose positions are ALREADY in showcase/world space (probe_verts showed
+# z ~ 125 with large extents) -> do not apply the model-view matrix.
+NO_TRANSFORM_EIDS = set([365, 353, 334, 322, 338, 377, 407, 389, 423, 307])
+
+# Name of the CB variable holding the per-draw model-view matrix.
+MV_VAR_CANDIDATES = ["_child1", "_child0", "_child3"]
+
+EXPORT_TEXTURES = True
+
+
+# ==================== explicit attribute mapping ====================
+
+def infer_mapper_explicit(meshInputs, log):
+    """Map attributes for THIS capture's layouts.
+
+    Observed families (from out/survey.txt), all components float unless noted:
+        A) _input0:3F _input1:3F _input2:4F _input3:2F _input4:2F  [+_input5:2F/3F]
+           -> pos, normal, tangent(4), uv, uv2 [, uv3]
+        B) _input0:3F _input1:4UNorm _input2:2F [_input3:2F]
+           -> pos, color, uv [, uv2]
+        C) _input0:3F _input1:3F _input2:4UNorm _input3:2F
+           -> pos, normal, color, uv
+        D) _input0:3F _input1:4F _input2:2F [_input3:2F]
+           -> pos, tangent(4), uv [, uv2]
+
+    Rule set (positional, not the generic float-is-always-UV heuristic which
+    would swallow the normal/tangent streams in family A):
+      * first float attr with >=3 comps        -> POSITION
+      * a 3-comp float attr right after pos    -> NORMAL
+      * a 4-comp FLOAT attr                    -> TANGENT (xyz + handedness w)
+      * a 4-comp UNorm attr                    -> COLOR
+      * every 2-comp float attr, in order      -> UV, UV2, UV3...
+      * a trailing 3-comp float (after UVs)    -> UV3 (.xy)
+    """
+    attrs = []
+    for mi in meshInputs:
+        fmt = mi.format
+        if fmt.Special():
+            continue
+        attrs.append({
+            "name": str(mi.name),
+            "compCount": int(fmt.compCount),
+            "compType": str(fmt.compType).replace("CompType.", ""),
+            "byteWidth": int(fmt.compByteWidth),
+            "isFloat": fmt.compType == rd.CompType.Float,
+        })
+
+    mapper = {k: "" for k in ["POSITION", "NORMAL", "BINORMAL", "TANGENT",
+                              "COLOR", "UV", "UV2", "UV3", "UV4", "UV5"]}
+    used = set()
+
+    # POSITION: first float attr with >= 3 components
+    for a in attrs:
+        if a["isFloat"] and a["compCount"] >= 3:
+            mapper["POSITION"] = a["name"]
+            used.add(a["name"])
+            break
+
+    # NORMAL: next 3-component float
+    for a in attrs:
+        if a["name"] in used:
+            continue
+        if a["isFloat"] and a["compCount"] == 3:
+            mapper["NORMAL"] = a["name"]
+            used.add(a["name"])
+            break
+
+    # TANGENT: 4-component float (xyz direction + w handedness)
+    for a in attrs:
+        if a["name"] in used:
+            continue
+        if a["isFloat"] and a["compCount"] == 4:
+            mapper["TANGENT"] = a["name"]
+            used.add(a["name"])
+            break
+
+    # COLOR: 4-component UNorm / single-byte
+    for a in attrs:
+        if a["name"] in used:
+            continue
+        if a["compCount"] == 4 and ("UNorm" in a["compType"] or a["byteWidth"] == 1):
+            mapper["COLOR"] = a["name"]
+            used.add(a["name"])
+            break
+
+    # UV sets: every remaining 2-component float, in layout order
+    uv_slots = ["UV", "UV2", "UV3", "UV4", "UV5"]
+    ui = 0
+    for a in attrs:
+        if a["name"] in used or not a["isFloat"]:
+            continue
+        if a["compCount"] == 2 and ui < len(uv_slots):
+            mapper[uv_slots[ui]] = a["name"]
+            used.add(a["name"])
+            ui += 1
+
+    # trailing 3-comp float after the UVs -> one more UV set (.xy)
+    for a in attrs:
+        if a["name"] in used or not a["isFloat"]:
+            continue
+        if a["compCount"] == 3 and ui < len(uv_slots):
+            mapper[uv_slots[ui]] = a["name"] + ".xy"
+            used.add(a["name"])
+            ui += 1
+
+    log("    layout: " + " | ".join(
+        "{0}:{1}x{2}".format(a["name"], a["compCount"], a["compType"]) for a in attrs))
+    log("    mapped: " + " ".join(
+        "{0}={1}".format(k, mapper[k]) for k in
+        ["POSITION", "NORMAL", "TANGENT", "COLOR", "UV", "UV2", "UV3"] if mapper[k]))
+    return mapper, attrs
+
+
+# ==================== matrix ====================
+
+def get_modelview(controller, log):
+    """Read the per-draw model-view matrix from the VS constant blocks.
+
+    Returns a ROW-major 16-tuple suitable for HX.transform_vertices_with_matrix
+    (which indexes m[0..3] as the first row including translation in m[3]).
+
+    The capture stores it COLUMN-major (translation at m[12..14]), so we
+    transpose on the way out.
+    """
+    try:
+        state = controller.GetPipelineState()
+        refl = state.GetShaderReflection(rd.ShaderStage.Vertex)
+        if not refl:
+            return None, None
+        runtime_cbs = state.GetConstantBlocks(rd.ShaderStage.Vertex)
+
+        for cb_index, cb_refl in enumerate(refl.constantBlocks):
+            runtime_cb = runtime_cbs[cb_index] if cb_index < len(runtime_cbs) else None
+            if runtime_cb is None:
+                continue
+            try:
+                desc = runtime_cb.descriptor
+                buf = controller.GetBufferData(desc.resource,
+                                               getattr(desc, "byteOffset", 0),
+                                               getattr(desc, "byteSize", cb_refl.byteSize))
+            except Exception:
+                continue
+
+            byname = {}
+            for var in cb_refl.variables:
+                try:
+                    byname[str(var.name)] = getattr(var, "byteOffset",
+                                                    getattr(var, "offset", 0))
+                except Exception:
+                    continue
+
+            for cand in MV_VAR_CANDIDATES:
+                if cand not in byname:
+                    continue
+                off = byname[cand]
+                if len(buf) < off + 64:
+                    continue
+                try:
+                    m = struct.unpack_from('16f', buf, off)
+                except Exception:
+                    continue
+                # column-major affine check: last row is (0,0,0,1)
+                if not (abs(m[12]) < 1e-6 and abs(m[13]) < 1e-6 and
+                        abs(m[14]) < 1e-6 and abs(m[15] - 1.0) < 1e-6):
+                    # already row-major affine? translation in m[3],m[7],m[11]
+                    if (abs(m[3]) < 1e-6 and abs(m[7]) < 1e-6 and
+                            abs(m[11]) < 1e-6 and abs(m[15] - 1.0) < 1e-6):
+                        # rows are (m0..m3),(m4..m7)... translation already in col 4
+                        # but our captures put translation in row 4 -> transpose it
+                        rowmajor = (m[0], m[4], m[8], m[12],
+                                    m[1], m[5], m[9], m[13],
+                                    m[2], m[6], m[10], m[14],
+                                    0.0, 0.0, 0.0, 1.0)
+                        return rowmajor, cand
+                    continue
+                # transpose column-major -> row-major with translation in col 4
+                rowmajor = (m[0], m[4], m[8], m[12],
+                            m[1], m[5], m[9], m[13],
+                            m[2], m[6], m[10], m[14],
+                            0.0, 0.0, 0.0, 1.0)
+                return rowmajor, cand
+        return None, None
+    except Exception as e:
+        log("    matrix error: {0}".format(e))
+        return None, None
+
+
+# ==================== textures ====================
+
+def save_textures_detailed(controller, tex_dir, log):
+    """Export bound fragment textures, returning metadata per slot."""
+    try:
+        os.makedirs(tex_dir, exist_ok=True)
+    except Exception:
+        pass
+    state = controller.GetPipelineState()
+    out = []
+    seen = set()
+    try:
+        used = state.GetReadOnlyResources(rd.ShaderStage.Fragment)
+    except Exception as e:
+        log("    tex enumerate failed: {0}".format(e))
+        return out
+
+    for slot, ud in enumerate(used):
+        try:
+            res = ud.descriptor.resource
+        except Exception:
+            continue
+        if res == rd.ResourceId.Null():
+            continue
+        rid = int(res)
+        entry = {"slot": slot, "id": rid}
+        try:
+            t = controller.GetTexture(res)
+            if t is not None:
+                entry["w"] = int(t.width)
+                entry["h"] = int(t.height)
+                entry["mips"] = int(t.mips)
+                entry["fmt"] = str(t.format.Name())
+                entry["cubemap"] = bool(getattr(t, "cubemap", False))
+        except Exception:
+            pass
+
+        fname = "tex_{0}.png".format(rid)
+        path = os.path.join(tex_dir, fname)
+        if rid not in seen:
+            seen.add(rid)
+            if not os.path.isfile(path):
+                ts = rd.TextureSave()
+                ts.resourceId = res
+                ts.mip = 0
+                ts.slice.sliceIndex = 0
+                ts.alpha = rd.AlphaMapping.Preserve
+                ts.destType = rd.FileType.PNG
+                try:
+                    controller.SaveTexture(ts, path)
+                except Exception as e:
+                    entry["error"] = str(e)
+        entry["file"] = fname
+        out.append(entry)
+    return out
+
+
+# ==================== per-draw export ====================
+
+def export_draw(controller, eid, out_dir, log):
+    draw = HX.find_action(controller, eid)
+    if draw is None:
+        log("  EID {0}: not a draw / not found".format(eid))
+        return None
+
+    controller.SetFrameEvent(eid, True)
+    meshInputs = HX.getMeshInputs(controller, draw)
+    if not meshInputs:
+        log("  EID {0}: no mesh inputs".format(eid))
+        return None
+
+    log("  EID {0}: indices={1}".format(eid, draw.numIndices))
+    mapper, attr_meta = infer_mapper_explicit(meshInputs, log)
+
+    indices = HX.getIndices(controller, meshInputs[0])
+    if not indices:
+        log("    no indices")
+        return None
+
+    data = defaultdict(list)
+    attr_list = set()
+    max_idx = max(indices)
+    for attr in meshInputs:
+        if attr.format.Special():
+            continue
+        attr_list.add(attr.name)
+        size = (max_idx + 1) * attr.vertexByteStride
+        try:
+            full = controller.GetBufferData(attr.vertexResourceId,
+                                            attr.vertexByteOffset, size)
+            for idx in indices:
+                off = idx * attr.vertexByteStride
+                data[attr.name].append(HX.unpackData(attr.format, full[off:]))
+        except Exception as e:
+            log("    attr {0} failed: {1}".format(attr.name, e))
+    data["IDX"] = indices
+
+    meta = {
+        "eventId": eid,
+        "numIndices": int(draw.numIndices),
+        "uniqueVerts": len(set(indices)),
+        "mapper": mapper,
+        "attributes": attr_meta,
+    }
+
+    # --- transform into showcase space ---
+    if eid in NO_TRANSFORM_EIDS:
+        log("    transform: skipped (already showcase space)")
+        meta["transform"] = None
+    else:
+        m, var = get_modelview(controller, log)
+        if m:
+            data = HX.transform_vertices_with_matrix(data, m, mapper)
+            meta["transform"] = {"var": var, "matrix": [float(x) for x in m]}
+            log("    transform: applied from '{0}' trans=({1:.2f},{2:.2f},{3:.2f})".format(
+                var, m[3], m[7], m[11]))
+        else:
+            meta["transform"] = None
+            log("    transform: no matrix found -> object space")
+
+    # --- textures ---
+    if EXPORT_TEXTURES:
+        texs = save_textures_detailed(controller, os.path.join(out_dir, "textures"), log)
+        meta["textures"] = texs
+        log("    textures: {0}".format(len(texs)))
+
+    # --- FBX ---
+    fbx_name = "eid{0}.fbx".format(eid)
+    fbx_path = os.path.join(out_dir, fbx_name)
+    if HX.export_fbx(fbx_path, mapper, data, attr_list):
+        meta["fbx"] = fbx_name
+        uvsets = [k for k in ["UV", "UV2", "UV3", "UV4", "UV5"] if mapper.get(k)]
+        log("    FBX -> {0}  ({1} UV set(s))".format(fbx_name, len(uvsets)))
+        return meta
+    log("    FBX export FAILED")
+    return None
+
+
+def main():
+    if os.path.isdir(OUT_ROOT):
+        pass
+    try:
+        os.makedirs(OUT_ROOT, exist_ok=True)
+    except Exception:
+        pass
+
+    lines = []
+
+    def log(m):
+        print(m)
+        lines.append(str(m))
+
+    def flush():
+        try:
+            with open(os.path.join(OUT_ROOT, "export_log.txt"), "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+        except Exception:
+            pass
+
+    log("scene export: {0}".format(RDC_PATH))
+    cap = rd.OpenCaptureFile()
+    st = cap.OpenFile(RDC_PATH, '', None)
+    if st.code != rd.ResultCode.Succeeded:
+        log("FATAL OpenFile {0}".format(st.code))
+        flush()
+        return
+    st, controller = cap.OpenCapture(rd.ReplayOptions(), None)
+    if st.code != rd.ResultCode.Succeeded:
+        log("FATAL OpenCapture {0}".format(st.code))
+        cap.Shutdown()
+        flush()
+        return
+
+    scene = {"rdc": RDC_PATH, "groups": {}}
+    try:
+        for group, eids in sorted(GROUPS.items()):
+            gdir = os.path.join(OUT_ROOT, group)
+            try:
+                os.makedirs(gdir, exist_ok=True)
+            except Exception:
+                pass
+            log("")
+            log("=" * 62)
+            log("group {0}  ({1} draws)".format(group, len(eids)))
+            log("=" * 62)
+            items = []
+            for eid in eids:
+                try:
+                    meta = export_draw(controller, eid, gdir, log)
+                    if meta:
+                        items.append(meta)
+                except Exception as e:
+                    log("  EID {0} FATAL: {1}".format(eid, e))
+                    log(traceback.format_exc())
+            scene["groups"][group] = items
+            log("group {0}: {1}/{2} exported".format(group, len(items), len(eids)))
+
+        with open(os.path.join(OUT_ROOT, "scene.json"), "w", encoding="utf-8") as f:
+            json.dump(scene, f, ensure_ascii=False, indent=1)
+        total = sum(len(v) for v in scene["groups"].values())
+        log("")
+        log("TOTAL exported: {0}".format(total))
+        log("scene.json written")
+    except Exception as e:
+        log("FATAL {0}".format(e))
+        log(traceback.format_exc())
+    finally:
+        try:
+            controller.Shutdown()
+        except Exception:
+            pass
+        try:
+            cap.Shutdown()
+        except Exception:
+            pass
+        flush()
+
+
+if __name__ == "__main__":
+    main()
+    sys.exit(0)

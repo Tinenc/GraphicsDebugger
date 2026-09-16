@@ -1,0 +1,63 @@
+texture classification (54 files)
+
+mask_packed  (23 file(s))
+   id=140995 1024x1024 slot=6  eids=246,253,260,274,279    high  dead channel R=0.99 G=0.00 B=0.00
+   id=140995 1024x1024 slot=7  eids=267,569,647            high  dead channel R=0.99 G=0.00 B=0.00
+   id=149769  512x512  slot=1  eids=253                    high  dead channel R=0.93 G=0.00 B=0.83
+   id=151192  512x512  slot=0  eids=562                    low   sat=0.15 fallback
+   id=144780  256x256  slot=2  eids=267                    med   sat=0.00 greyscale
+   id=149690  256x256  slot=1  eids=334,365,377,407        med   sat=0.00 greyscale
+   id=149708  256x128  slot=1  eids=429                    med   sat=0.00 greyscale
+   id=150370  256x256  slot=0  eids=569                    med   sat=0.00 greyscale
+   id=150547  256x256  slot=1  eids=307,322,338,353,389    med   sat=0.04 greyscale
+   id=150691  256x256  slot=2  eids=647                    high  dead channel R=0.83 G=0.00 B=0.99
+   id=150701  256x128  slot=1  eids=456                    med   sat=0.00 greyscale
+   id=150706  256x256  slot=1  eids=267                    high  dead channel R=0.80 G=0.00 B=0.87
+   id=148853  128x128  slot=5  eids=246,253,260,274,279    med   sat=0.01 greyscale
+   id=148853  128x128  slot=6  eids=267,569,647            med   sat=0.01 greyscale
+   id=149779  128x128  slot=0  eids=334,365,377,407        med   sat=0.00 greyscale
+   id=150243  128x128  slot=0  eids=429,456                low   sat=0.17 fallback
+   id=150332  128x128  slot=1  eids=699                    med   sat=0.00 greyscale
+   id=150597  128x128  slot=1  eids=601                    med   sat=0.00 greyscale
+   id=150696  128x128  slot=2  eids=601,719                med   sat=0.00 greyscale
+   id=151089  128x128  slot=0  eids=307,322,338,353,389    med   sat=0.00 greyscale
+   id=150955   64x64   slot=1  eids=719                    med   sat=0.00 greyscale
+   id=29977    32x32   slot=4  eids=246,253,260,274,279    high  dead channel R=0.74 G=0.07 B=0.00
+   id=29977    32x32   slot=5  eids=267,569,647            high  dead channel R=0.74 G=0.07 B=0.00
+
+basecolor  (14 file(s))
+   id=149993  512x512  slot=0  eids=692                    high  sat=0.39 slot=0
+   id=149993  512x512  slot=0  eids=699                    high  sat=0.39 slot=0
+   id=150040  512x512  slot=1  eids=562                    high  sat=0.94 slot=1
+   id=150067  512x512  slot=0  eids=253                    high  sat=0.43 slot=0
+   id=150203  512x512  slot=0  eids=647                    high  sat=0.28 slot=0
+   id=150748  512x512  slot=1  eids=260                    high  sat=0.93 slot=1
+   id=150913  512x512  slot=0  eids=260                    high  sat=0.20 slot=0
+   id=151036  512x512  slot=1  eids=692                    high  sat=0.95 slot=1
+   id=149749  256x256  slot=1  eids=246                    high  sat=0.90 slot=1
+   id=150350  256x256  slot=0  eids=274                    high  sat=0.36 slot=0
+   id=150355  256x256  slot=0  eids=267                    high  sat=0.34 slot=0
+   id=150777  256x256  slot=0  eids=279                    high  sat=0.28 slot=0
+   id=151428  256x256  slot=0  eids=246                    high  sat=0.46 slot=0
+   id=151094  128x128  slot=0  eids=601,719                high  sat=0.72 slot=0
+
+normal  (9 file(s))
+   id=150045  512x512  slot=3  eids=562                    high  RG~0.5 B=0.97 (tangent-space)
+   id=150057  512x512  slot=3  eids=692                    high  RG~0.5 B=0.93 (tangent-space)
+   id=150875  512x512  slot=3  eids=253                    high  RG~0.5 B=0.98 (tangent-space)
+   id=151321  512x512  slot=3  eids=260                    high  RG~0.5 B=0.97 (tangent-space)
+   id=149935  256x256  slot=4  eids=647                    high  RG~0.5 B=1.00 (tangent-space)
+   id=150305  256x256  slot=3  eids=246                    high  RG~0.5 B=0.97 (tangent-space)
+   id=150679  256x256  slot=4  eids=279                    high  RG~0.5 B=0.94 (tangent-space)
+   id=151155  256x256  slot=2  eids=279                    med   RG~0.5 B=0.80 B-RG=0.27
+   id=151326  256x256  slot=6  eids=267                    high  RG~0.5 B=0.96 (tangent-space)
+
+lut_ramp  (8 file(s))
+   id=29984   256x16   slot=8  eids=569,647                high  tiny 256x16
+   id=29875     4x4    slot=4  eids=274                    high  tiny 4x4
+   id=29875     4x4    slot=3  eids=569                    high  tiny 4x4
+   id=29879     4x4    slot=1  eids=274,279                high  tiny 4x4
+   id=29879     4x4    slot=1  eids=267,569,647            high  tiny 4x4
+   id=29882     4x4    slot=2  eids=246,253,260,274,279    high  tiny 4x4
+   id=29882     4x4    slot=3  eids=267,569,647            high  tiny 4x4
+   id=29900     4x4    slot=4  eids=253                    high  tiny 4x4

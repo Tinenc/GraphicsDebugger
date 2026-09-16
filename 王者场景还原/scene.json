@@ -1,0 +1,2227 @@
+{
+ "rdc": "E:\\GST\\libai_scene\\libai.rdc",
+ "groups": {
+  "01_hero": [
+   {
+    "eventId": 260,
+    "numIndices": 38130,
+    "uniqueVerts": 8551,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "_input2",
+     "COLOR": "",
+     "UV": "_input3",
+     "UV2": "_input4",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input4",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.03104722499847412,
+      0.46942874789237976,
+      0.8824242353439331,
+      0.10156632214784622,
+      -0.9978199005126953,
+      0.06599414348602295,
+      -8.940696716308594e-08,
+      0.26846766471862793,
+      -0.05823475122451782,
+      -0.8805005550384521,
+      0.4704543948173523,
+      105.99115753173828,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150913,
+      "file": "tex_150913.png"
+     },
+     {
+      "slot": 1,
+      "id": 150748,
+      "file": "tex_150748.png"
+     },
+     {
+      "slot": 2,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 3,
+      "id": 151321,
+      "file": "tex_151321.png"
+     },
+     {
+      "slot": 4,
+      "id": 29977,
+      "file": "tex_29977.png"
+     },
+     {
+      "slot": 5,
+      "id": 148853,
+      "file": "tex_148853.png"
+     },
+     {
+      "slot": 6,
+      "id": 140995,
+      "file": "tex_140995.png"
+     }
+    ],
+    "fbx": "eid260.fbx"
+   },
+   {
+    "eventId": 279,
+    "numIndices": 9582,
+    "uniqueVerts": 2242,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "_input2",
+     "COLOR": "",
+     "UV": "_input3",
+     "UV2": "_input4",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input4",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      -0.16188180446624756,
+      -0.9178683757781982,
+      0.3623710870742798,
+      -0.4757061302661896,
+      0.6072251796722412,
+      0.19680750370025635,
+      0.7697694301605225,
+      0.16734802722930908,
+      -0.7778642177581787,
+      0.34465205669403076,
+      0.5254926681518555,
+      106.0342025756836,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150777,
+      "file": "tex_150777.png"
+     },
+     {
+      "slot": 1,
+      "id": 29879,
+      "file": "tex_29879.png"
+     },
+     {
+      "slot": 2,
+      "id": 151155,
+      "file": "tex_151155.png"
+     },
+     {
+      "slot": 3,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 4,
+      "id": 150679,
+      "file": "tex_150679.png"
+     },
+     {
+      "slot": 5,
+      "id": 29977,
+      "file": "tex_29977.png"
+     },
+     {
+      "slot": 6,
+      "id": 148853,
+      "file": "tex_148853.png"
+     },
+     {
+      "slot": 7,
+      "id": 140995,
+      "file": "tex_140995.png"
+     }
+    ],
+    "fbx": "eid279.fbx"
+   },
+   {
+    "eventId": 562,
+    "numIndices": 7893,
+    "uniqueVerts": 1865,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "_input2",
+     "COLOR": "",
+     "UV": "_input3",
+     "UV2": "_input4",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input4",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.03104722499847412,
+      0.46942874789237976,
+      0.8824242353439331,
+      0.10156632214784622,
+      -0.9978199005126953,
+      0.06599414348602295,
+      -8.940696716308594e-08,
+      0.26846766471862793,
+      -0.05823475122451782,
+      -0.8805005550384521,
+      0.4704543948173523,
+      105.99115753173828,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151192,
+      "file": "tex_151192.png"
+     },
+     {
+      "slot": 1,
+      "id": 150040,
+      "file": "tex_150040.png"
+     },
+     {
+      "slot": 2,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 3,
+      "id": 150045,
+      "file": "tex_150045.png"
+     },
+     {
+      "slot": 4,
+      "id": 29977,
+      "file": "tex_29977.png"
+     },
+     {
+      "slot": 5,
+      "id": 148853,
+      "file": "tex_148853.png"
+     },
+     {
+      "slot": 6,
+      "id": 140995,
+      "file": "tex_140995.png"
+     }
+    ],
+    "fbx": "eid562.fbx"
+   },
+   {
+    "eventId": 692,
+    "numIndices": 6657,
+    "uniqueVerts": 1627,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "_input2",
+     "COLOR": "",
+     "UV": "_input3",
+     "UV2": "_input4",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input4",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.03779101371765137,
+      0.4693254828453064,
+      0.8822159767150879,
+      0.10176028311252594,
+      -0.9968313574790955,
+      0.07954078912734985,
+      0.0003860890865325928,
+      0.4149742126464844,
+      -0.0699908435344696,
+      -0.8794353008270264,
+      0.4708445072174072,
+      105.99079895019531,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149993,
+      "file": "tex_149993.png"
+     },
+     {
+      "slot": 1,
+      "id": 151036,
+      "file": "tex_151036.png"
+     },
+     {
+      "slot": 2,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 3,
+      "id": 150057,
+      "file": "tex_150057.png"
+     },
+     {
+      "slot": 4,
+      "id": 29977,
+      "file": "tex_29977.png"
+     },
+     {
+      "slot": 5,
+      "id": 148853,
+      "file": "tex_148853.png"
+     },
+     {
+      "slot": 6,
+      "id": 140995,
+      "file": "tex_140995.png"
+     }
+    ],
+    "fbx": "eid692.fbx"
+   },
+   {
+    "eventId": 274,
+    "numIndices": 6144,
+    "uniqueVerts": 1128,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "_input2",
+     "COLOR": "",
+     "UV": "_input3",
+     "UV2": "_input4",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input4",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.6133800745010376,
+      0.016385234892368317,
+      -0.7896180152893066,
+      0.024267438799142838,
+      0.19483792781829834,
+      0.9657449126243591,
+      0.17139138281345367,
+      1.2367981672286987,
+      0.7653778791427612,
+      -0.2589755654335022,
+      0.5891761779785156,
+      105.98036193847656,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150350,
+      "file": "tex_150350.png"
+     },
+     {
+      "slot": 1,
+      "id": 29879,
+      "file": "tex_29879.png"
+     },
+     {
+      "slot": 2,
+      "id": 29879,
+      "file": "tex_29879.png"
+     },
+     {
+      "slot": 3,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 4,
+      "id": 29875,
+      "file": "tex_29875.png"
+     },
+     {
+      "slot": 5,
+      "id": 29977,
+      "file": "tex_29977.png"
+     },
+     {
+      "slot": 6,
+      "id": 148853,
+      "file": "tex_148853.png"
+     },
+     {
+      "slot": 7,
+      "id": 140995,
+      "file": "tex_140995.png"
+     }
+    ],
+    "fbx": "eid274.fbx"
+   },
+   {
+    "eventId": 253,
+    "numIndices": 5889,
+    "uniqueVerts": 1309,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "_input2",
+     "COLOR": "",
+     "UV": "_input3",
+     "UV2": "_input4",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input4",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      -1.2599999904632568,
+      0.0,
+      -8.940696716308594e-08,
+      0.0,
+      0.0,
+      1.2599999904632568,
+      0.0,
+      -1.149999976158142,
+      8.940696716308594e-08,
+      0.0,
+      -1.2599999904632568,
+      106.05999755859375,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150067,
+      "file": "tex_150067.png"
+     },
+     {
+      "slot": 1,
+      "id": 149769,
+      "file": "tex_149769.png"
+     },
+     {
+      "slot": 2,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 3,
+      "id": 150875,
+      "file": "tex_150875.png"
+     },
+     {
+      "slot": 4,
+      "id": 29900,
+      "file": "tex_29900.png"
+     },
+     {
+      "slot": 5,
+      "id": 29977,
+      "file": "tex_29977.png"
+     },
+     {
+      "slot": 6,
+      "id": 148853,
+      "file": "tex_148853.png"
+     },
+     {
+      "slot": 7,
+      "id": 140995,
+      "file": "tex_140995.png"
+     }
+    ],
+    "fbx": "eid253.fbx"
+   },
+   {
+    "eventId": 246,
+    "numIndices": 2340,
+    "uniqueVerts": 543,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "_input2",
+     "COLOR": "",
+     "UV": "_input3",
+     "UV2": "_input4",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input4",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.42059779167175293,
+      0.9072279930114746,
+      -0.005945444107055664,
+      0.35588064789772034,
+      0.09789454936981201,
+      -0.03886818885803223,
+      0.9944379329681396,
+      0.6364699006080627,
+      0.901950478553772,
+      -0.4188406467437744,
+      -0.10516083240509033,
+      105.65057373046875,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151428,
+      "file": "tex_151428.png"
+     },
+     {
+      "slot": 1,
+      "id": 149749,
+      "file": "tex_149749.png"
+     },
+     {
+      "slot": 2,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 3,
+      "id": 150305,
+      "file": "tex_150305.png"
+     },
+     {
+      "slot": 4,
+      "id": 29977,
+      "file": "tex_29977.png"
+     },
+     {
+      "slot": 5,
+      "id": 148853,
+      "file": "tex_148853.png"
+     },
+     {
+      "slot": 6,
+      "id": 140995,
+      "file": "tex_140995.png"
+     }
+    ],
+    "fbx": "eid246.fbx"
+   }
+  ],
+  "02_hero_extraUV": [
+   {
+    "eventId": 647,
+    "numIndices": 16164,
+    "uniqueVerts": 3024,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "_input2",
+     "COLOR": "",
+     "UV": "_input3",
+     "UV2": "_input4",
+     "UV3": "_input5",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input4",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input5",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.11070102453231812,
+      0.45774731040000916,
+      0.8821637034416199,
+      0.08206120133399963,
+      -0.9730104207992554,
+      0.23074907064437866,
+      0.0023674964904785156,
+      0.7560948133468628,
+      -0.20247477293014526,
+      -0.8586165308952332,
+      0.47093701362609863,
+      106.02692413330078,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150203,
+      "file": "tex_150203.png"
+     },
+     {
+      "slot": 1,
+      "id": 29879,
+      "file": "tex_29879.png"
+     },
+     {
+      "slot": 2,
+      "id": 150691,
+      "file": "tex_150691.png"
+     },
+     {
+      "slot": 3,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 4,
+      "id": 149935,
+      "file": "tex_149935.png"
+     },
+     {
+      "slot": 5,
+      "id": 29977,
+      "file": "tex_29977.png"
+     },
+     {
+      "slot": 6,
+      "id": 148853,
+      "file": "tex_148853.png"
+     },
+     {
+      "slot": 7,
+      "id": 140995,
+      "file": "tex_140995.png"
+     },
+     {
+      "slot": 8,
+      "id": 29984,
+      "file": "tex_29984.png"
+     }
+    ],
+    "fbx": "eid647.fbx"
+   },
+   {
+    "eventId": 267,
+    "numIndices": 2616,
+    "uniqueVerts": 740,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "_input2",
+     "COLOR": "",
+     "UV": "_input3",
+     "UV2": "_input4",
+     "UV3": "_input5.xy",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input4",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input5",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      -0.04303060099482536,
+      -0.9787958860397339,
+      0.2002667337656021,
+      -20.103286743164062,
+      -0.25287652015686035,
+      -0.18325449526309967,
+      -0.9499847292900085,
+      100.97452545166016,
+      0.966541051864624,
+      -0.0915212482213974,
+      -0.2396288514137268,
+      25.451669692993164,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150355,
+      "file": "tex_150355.png"
+     },
+     {
+      "slot": 1,
+      "id": 150706,
+      "file": "tex_150706.png"
+     },
+     {
+      "slot": 2,
+      "id": 144780,
+      "file": "tex_144780.png"
+     },
+     {
+      "slot": 3,
+      "id": 29879,
+      "file": "tex_29879.png"
+     },
+     {
+      "slot": 4,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 5,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 6,
+      "id": 151326,
+      "file": "tex_151326.png"
+     },
+     {
+      "slot": 7,
+      "id": 29977,
+      "file": "tex_29977.png"
+     },
+     {
+      "slot": 8,
+      "id": 148853,
+      "file": "tex_148853.png"
+     },
+     {
+      "slot": 9,
+      "id": 140995,
+      "file": "tex_140995.png"
+     }
+    ],
+    "fbx": "eid267.fbx"
+   },
+   {
+    "eventId": 569,
+    "numIndices": 342,
+    "uniqueVerts": 82,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "_input2",
+     "COLOR": "",
+     "UV": "_input3",
+     "UV2": "_input4",
+     "UV3": "_input5",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input4",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input5",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      -0.07497906684875488,
+      0.24530848860740662,
+      -0.9665417671203613,
+      0.0689355731010437,
+      -0.994186282157898,
+      0.05673038959503174,
+      0.09152135252952576,
+      1.1564067602157593,
+      0.07728376984596252,
+      0.9677841663360596,
+      0.2396281361579895,
+      106.04926300048828,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150370,
+      "file": "tex_150370.png"
+     },
+     {
+      "slot": 1,
+      "id": 29879,
+      "file": "tex_29879.png"
+     },
+     {
+      "slot": 2,
+      "id": 29882,
+      "file": "tex_29882.png"
+     },
+     {
+      "slot": 3,
+      "id": 29875,
+      "file": "tex_29875.png"
+     },
+     {
+      "slot": 4,
+      "id": 29977,
+      "file": "tex_29977.png"
+     },
+     {
+      "slot": 5,
+      "id": 148853,
+      "file": "tex_148853.png"
+     },
+     {
+      "slot": 6,
+      "id": 140995,
+      "file": "tex_140995.png"
+     },
+     {
+      "slot": 7,
+      "id": 29984,
+      "file": "tex_29984.png"
+     }
+    ],
+    "fbx": "eid569.fbx"
+   }
+  ],
+  "03_props": [
+   {
+    "eventId": 365,
+    "numIndices": 6354,
+    "uniqueVerts": 2124,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149779,
+      "file": "tex_149779.png"
+     },
+     {
+      "slot": 1,
+      "id": 149690,
+      "file": "tex_149690.png"
+     }
+    ],
+    "fbx": "eid365.fbx"
+   },
+   {
+    "eventId": 353,
+    "numIndices": 5544,
+    "uniqueVerts": 1854,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151089,
+      "file": "tex_151089.png"
+     },
+     {
+      "slot": 1,
+      "id": 150547,
+      "file": "tex_150547.png"
+     }
+    ],
+    "fbx": "eid353.fbx"
+   },
+   {
+    "eventId": 334,
+    "numIndices": 4236,
+    "uniqueVerts": 1416,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149779,
+      "file": "tex_149779.png"
+     },
+     {
+      "slot": 1,
+      "id": 149690,
+      "file": "tex_149690.png"
+     }
+    ],
+    "fbx": "eid334.fbx"
+   },
+   {
+    "eventId": 322,
+    "numIndices": 3696,
+    "uniqueVerts": 1236,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151089,
+      "file": "tex_151089.png"
+     },
+     {
+      "slot": 1,
+      "id": 150547,
+      "file": "tex_150547.png"
+     }
+    ],
+    "fbx": "eid322.fbx"
+   },
+   {
+    "eventId": 338,
+    "numIndices": 2466,
+    "uniqueVerts": 828,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151089,
+      "file": "tex_151089.png"
+     },
+     {
+      "slot": 1,
+      "id": 150547,
+      "file": "tex_150547.png"
+     }
+    ],
+    "fbx": "eid338.fbx"
+   },
+   {
+    "eventId": 377,
+    "numIndices": 2418,
+    "uniqueVerts": 810,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149779,
+      "file": "tex_149779.png"
+     },
+     {
+      "slot": 1,
+      "id": 149690,
+      "file": "tex_149690.png"
+     }
+    ],
+    "fbx": "eid377.fbx"
+   },
+   {
+    "eventId": 407,
+    "numIndices": 2418,
+    "uniqueVerts": 810,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149779,
+      "file": "tex_149779.png"
+     },
+     {
+      "slot": 1,
+      "id": 149690,
+      "file": "tex_149690.png"
+     }
+    ],
+    "fbx": "eid407.fbx"
+   },
+   {
+    "eventId": 389,
+    "numIndices": 2184,
+    "uniqueVerts": 732,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151089,
+      "file": "tex_151089.png"
+     },
+     {
+      "slot": 1,
+      "id": 150547,
+      "file": "tex_150547.png"
+     }
+    ],
+    "fbx": "eid389.fbx"
+   },
+   {
+    "eventId": 423,
+    "numIndices": 2184,
+    "uniqueVerts": 732,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151089,
+      "file": "tex_151089.png"
+     },
+     {
+      "slot": 1,
+      "id": 150547,
+      "file": "tex_150547.png"
+     }
+    ],
+    "fbx": "eid423.fbx"
+   },
+   {
+    "eventId": 307,
+    "numIndices": 1644,
+    "uniqueVerts": 552,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input1",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": null,
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151089,
+      "file": "tex_151089.png"
+     },
+     {
+      "slot": 1,
+      "id": 150547,
+      "file": "tex_150547.png"
+     }
+    ],
+    "fbx": "eid307.fbx"
+   }
+  ],
+  "04_bg_board": [
+   {
+    "eventId": 699,
+    "numIndices": 6657,
+    "uniqueVerts": 1627,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.03779101371765137,
+      0.4693254828453064,
+      0.8822159767150879,
+      0.10176028311252594,
+      -0.9968313574790955,
+      0.07954078912734985,
+      0.0003860890865325928,
+      0.4149742126464844,
+      -0.0699908435344696,
+      -0.8794353008270264,
+      0.4708445072174072,
+      105.99079895019531,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 149993,
+      "file": "tex_149993.png"
+     },
+     {
+      "slot": 1,
+      "id": 150332,
+      "file": "tex_150332.png"
+     }
+    ],
+    "fbx": "eid699.fbx"
+   },
+   {
+    "eventId": 429,
+    "numIndices": 2112,
+    "uniqueVerts": 405,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.9506735801696777,
+      0.2523457407951355,
+      0.18039241433143616,
+      -0.1587197333574295,
+      0.07265634834766388,
+      -0.7465205192565918,
+      0.6613843441009521,
+      0.697655439376831,
+      0.3015640079975128,
+      -0.6156539916992188,
+      -0.7280318737030029,
+      106.00536346435547,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150243,
+      "file": "tex_150243.png"
+     },
+     {
+      "slot": 1,
+      "id": 149708,
+      "file": "tex_149708.png"
+     }
+    ],
+    "fbx": "eid429.fbx"
+   },
+   {
+    "eventId": 456,
+    "numIndices": 2112,
+    "uniqueVerts": 405,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "",
+     "BINORMAL": "",
+     "TANGENT": "_input1",
+     "COLOR": "",
+     "UV": "_input2",
+     "UV2": "_input3",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 4,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child1",
+     "matrix": [
+      0.9506735801696777,
+      0.2523457407951355,
+      0.18039241433143616,
+      -0.1587197333574295,
+      0.07265634834766388,
+      -0.7465205192565918,
+      0.6613843441009521,
+      0.697655439376831,
+      0.3015640079975128,
+      -0.6156539916992188,
+      -0.7280318737030029,
+      106.00536346435547,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 150243,
+      "file": "tex_150243.png"
+     },
+     {
+      "slot": 1,
+      "id": 150701,
+      "file": "tex_150701.png"
+     }
+    ],
+    "fbx": "eid456.fbx"
+   },
+   {
+    "eventId": 601,
+    "numIndices": 1080,
+    "uniqueVerts": 244,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input2",
+     "UV": "_input3",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child3",
+     "matrix": [
+      0.7922593951225281,
+      0.06719794869422913,
+      0.5631116032600403,
+      1.5154905319213867,
+      -0.3115246593952179,
+      -0.05492125451564789,
+      1.4254812002182007,
+      3.0583996772766113,
+      0.05982452630996704,
+      -1.1758975982666016,
+      -0.034398555755615234,
+      117.71499633789062,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151094,
+      "file": "tex_151094.png"
+     },
+     {
+      "slot": 1,
+      "id": 150597,
+      "file": "tex_150597.png"
+     },
+     {
+      "slot": 2,
+      "id": 150696,
+      "file": "tex_150696.png"
+     }
+    ],
+    "fbx": "eid601.fbx"
+   },
+   {
+    "eventId": 719,
+    "numIndices": 1080,
+    "uniqueVerts": 244,
+    "mapper": {
+     "POSITION": "_input0",
+     "NORMAL": "_input1",
+     "BINORMAL": "",
+     "TANGENT": "",
+     "COLOR": "_input2",
+     "UV": "_input3",
+     "UV2": "",
+     "UV3": "",
+     "UV4": "",
+     "UV5": ""
+    },
+    "attributes": [
+     {
+      "name": "_input0",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input1",
+      "compCount": 3,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     },
+     {
+      "name": "_input2",
+      "compCount": 4,
+      "compType": "UNorm",
+      "byteWidth": 1,
+      "isFloat": false
+     },
+     {
+      "name": "_input3",
+      "compCount": 2,
+      "compType": "Float",
+      "byteWidth": 4,
+      "isFloat": true
+     }
+    ],
+    "transform": {
+     "var": "_child3",
+     "matrix": [
+      -1.263241171836853,
+      -0.19089078903198242,
+      -0.09502644836902618,
+      -2.493539333343506,
+      -0.02692042849957943,
+      0.6495883464813232,
+      -0.9972871541976929,
+      -0.8891799449920654,
+      0.2284126579761505,
+      -0.9791656732559204,
+      -0.6430847644805908,
+      112.20628356933594,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "textures": [
+     {
+      "slot": 0,
+      "id": 151094,
+      "file": "tex_151094.png"
+     },
+     {
+      "slot": 1,
+      "id": 150955,
+      "file": "tex_150955.png"
+     },
+     {
+      "slot": 2,
+      "id": 150696,
+      "file": "tex_150696.png"
+     }
+    ],
+    "fbx": "eid719.fbx"
+   }
+  ]
+ }
+}

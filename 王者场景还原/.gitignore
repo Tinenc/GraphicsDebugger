@@ -1,0 +1,6 @@
+﻿# 抓帧原文件太大（~93MB），不入库
+*.rdc
+
+# Blender 成品与中间产物走本地目录 E:\GST\libai_scene
+*.blend
+*.blend1
