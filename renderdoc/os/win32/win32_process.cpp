@@ -1483,6 +1483,53 @@ static void GlobalHookThread()
   }
 }
 
+extern "C" const rdcstr VulkanLayerJSONBasename;
+
+// Vulkan implicit layers are env-gated (TinecmaTool.json / renderdoc.json). Tie that gate to
+// Global Hook so SD and other apps are not injected while the hook is off, and capture works
+// again as soon as the user enables Global Hook.
+static void SetVulkanCaptureEnvForGlobalHook(bool enable)
+{
+  rdcstr enableName = "ENABLE_VULKAN_" + strupper(VulkanLayerJSONBasename) + "_CAPTURE";
+  rdcstr disableName = "DISABLE_VULKAN_" + strupper(VulkanLayerJSONBasename) + "_CAPTURE_1_44";
+  rdcwstr enableW = StringFormat::UTF82Wide(enableName);
+  rdcwstr disableW = StringFormat::UTF82Wide(disableName);
+
+  HKEY envKey = NULL;
+  if(RegCreateKeyExW(HKEY_CURRENT_USER, L"Environment", 0, NULL, 0, KEY_SET_VALUE, NULL, &envKey,
+                     NULL) == ERROR_SUCCESS)
+  {
+    if(enable)
+    {
+      const wchar_t one[] = L"1";
+      RegSetValueExW(envKey, enableW.c_str(), 0, REG_SZ, (const BYTE *)one, sizeof(one));
+      RegDeleteValueW(envKey, disableW.c_str());
+      // leftover hard-disable from the SD crash workaround
+      RegDeleteValueW(envKey, L"DISABLE_VULKAN_TINECMATOOL_CAPTURE_1_44");
+      RegDeleteValueW(envKey, L"DISABLE_VULKAN_RENDERDOC_CAPTURE_1_44");
+    }
+    else
+    {
+      RegDeleteValueW(envKey, enableW.c_str());
+    }
+    RegCloseKey(envKey);
+  }
+
+  SetEnvironmentVariableW(enableW.c_str(), enable ? L"1" : NULL);
+  if(enable)
+  {
+    SetEnvironmentVariableW(disableW.c_str(), NULL);
+    SetEnvironmentVariableW(L"DISABLE_VULKAN_TINECMATOOL_CAPTURE_1_44", NULL);
+    SetEnvironmentVariableW(L"DISABLE_VULKAN_RENDERDOC_CAPTURE_1_44", NULL);
+  }
+
+  DWORD_PTR dummy = 0;
+  SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"Environment", SMTO_ABORTIFHUNG,
+                      1000, &dummy);
+
+  RDCLOG("Global hook Vulkan capture env %s = %s", enableName.c_str(), enable ? "1" : "(cleared)");
+}
+
 RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capturefile,
                                   const CaptureOptions &opts)
 {
@@ -1705,6 +1752,8 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
 
   globalHook->pipeThread = Threading::CreateThread(&GlobalHookThread);
 
+  SetVulkanCaptureEnvForGlobalHook(true);
+
   return RDResult();
 }
 
@@ -1716,6 +1765,8 @@ void Process::StopGlobalHook()
 {
   if(!globalHook)
     return;
+
+  SetVulkanCaptureEnvForGlobalHook(false);
 
   // set the finished flag and join to the thread so it closes the pipes (and so the child
   // processes)
