@@ -141,7 +141,7 @@
 enum
 {
   RenderDoc_FirstTargetControlPort = 38920,
-  RenderDoc_LastTargetControlPort = RenderDoc_FirstTargetControlPort + 7,
+  RenderDoc_LastTargetControlPort = RenderDoc_FirstTargetControlPort + 19,
   RenderDoc_RemoteServerPort = 39920,
 
   RenderDoc_ForwardPortBase = 38950,
