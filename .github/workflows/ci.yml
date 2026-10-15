@@ -272,14 +272,14 @@ jobs:
     - if: matrix.configuration == 'Development'
       name: Running core unit tests
       run: |
-        if ! ./*/Development/renderdoccmd.exe test unit -o test.log; then
+        if ! ./*/Development/TinecmaToolcmd.exe test unit -o test.log; then
           echo "::error::$(cat test.log)" | tr -d '\r' |  tr '\n' '\001' | sed -e 's#\x01#%0D%0A#g';
           exit 1;
         fi
     - if: matrix.configuration == 'Development'
       name: Running UI unit tests
       run: |
-        if ! ./*/Development/qrenderdoc.exe --unittest log=test.log; then
+        if ! ./*/Development/qTinecmaTool.exe --unittest log=test.log; then
           echo "::error::$(cat test.log)" | tr -d '\r' |  tr '\n' '\001' | sed -e 's#\x01#%0D%0A#g';
           exit 1;
         fi
