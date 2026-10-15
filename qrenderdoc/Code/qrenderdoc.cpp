@@ -647,7 +647,7 @@ int main(int argc, char *argv[])
       }
       Analytics::Prompt(ctx, config);
 
-      ANALYTIC_SET(Metadata.RenderDocVersion, lit(FULL_VERSION_STRING));
+      ANALYTIC_SET(Metadata.TinecmaToolVersion, lit(FULL_VERSION_STRING));
 #if defined(DISTRIBUTION_VERSION)
       ANALYTIC_SET(Metadata.DistributionVersion, lit(DISTRIBUTION_NAME));
 #endif

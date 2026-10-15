@@ -75,7 +75,9 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Development|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <!-- Link into IntDir first so MSBuild succeeds when the deploy copy is locked (Global Hook). -->
+    <OutDir>$(IntDir)</OutDir>
+    <DeployDir>$(SolutionDir)$(Platform)\$(Configuration)\</DeployDir>
     <TargetName>$(ProjectName)32</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Development|x64'">
@@ -116,6 +118,11 @@
       <EntryPointSymbol>dll_entry</EntryPointSymbol>
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /Y "$(TargetPath)" "$(DeployDir)$(TargetFileName)" &gt;nul 2&gt;&amp;1
+if errorlevel 1 echo WARNING: Could not copy $(TargetFileName) to $(DeployDir) - file may be locked. Built DLL: $(TargetPath)
+exit /b 0</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Development|x64'">
     <ClCompile>
