@@ -159,6 +159,9 @@ HRESULT WrappedID3D12Device::CreateCommandQueue1(const D3D12_COMMAND_QUEUE_DESC 
     WrappedID3D12CommandQueue *wrapped =
         new WrappedID3D12CommandQueue(ResourceId(), real, this, m_State);
 
+    RDCLOG("Graphics queue wrapped: api=CreateCommandQueue1 device=%p queue=%p real=%p type=%u",
+           (ID3D12Device *)this, (ID3D12CommandQueue *)wrapped, real, (uint32_t)pDesc->Type);
+
     if(IsCaptureMode(m_State))
     {
       CACHE_THREAD_SERIALISER();

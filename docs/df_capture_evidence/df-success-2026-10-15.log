@@ -1,0 +1,30 @@
+RDOC 093480: [20:06:00]   win32_libentry.cpp(  68) - Log     - Loading into D:\WeGameApps\rail_apps\DeltaForce(2001918)\DeltaForce\Binaries\Win64\DeltaForceClient-Win64-Shipping.exe
+RDOC 093480: [20:06:13]       win32_hook.cpp( 316) - Log     - Graphics resolved delay hook installed: moduleBase=0000000140000000 import=d3d12.dll!D3D12CreateDevice entry=000000015DB31B68 real=00007FF9D79965E0 hook=00007FF87E00E180
+RDOC 093480: [20:06:14]     dxgi_wrapped.cpp( 177) - Log     - Graphics native factory bridge installed: factory=000000004097A190 table=00007FFA01C82438 methods=1
+RDOC 093480: [20:06:14]     dxgi_wrapped.cpp( 177) - Log     - Graphics native factory bridge installed: factory=000000004097A190 table=00007FFA01C82438 methods=4
+RDOC 093480: [20:06:14]      d3d12_hooks.cpp( 923) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=0000000001C1FBC0 adapter=00000000134095D0 featureLevel=0xb000
+RDOC 093480: [20:06:15]      d3d12_hooks.cpp( 923) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=0000000001C1FBC0 adapter=00000000134095D0 featureLevel=0xb000
+RDOC 093480: [20:06:15]      d3d12_hooks.cpp( 923) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=0000000001C1FBC0 adapter=00000000134095D0 featureLevel=0xb000
+RDOC 093480: [20:06:16]      d3d12_hooks.cpp( 923) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=0000000001C1FBC0 adapter=000000001333DEA0 featureLevel=0xc200
+RDOC 093480: [20:06:16] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1FBC0 queue=0000000001C1A100 real=000000005287C680 type=0
+RDOC 093480: [20:06:16] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1FBC0 queue=0000000001C19870 real=000000005287B1F0 type=3
+RDOC 093480: [20:06:16] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1FBC0 queue=0000000001C18FE0 real=000000005287B4E0 type=2
+RDOC 093480: [20:06:17] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1FBC0 queue=0000000001C18750 real=000000005287C390 type=0
+RDOC 093480: [20:06:17] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1FBC0 queue=0000000051EB4920 real=000000005287C970 type=0
+RDOC 093480: [20:06:19]     dxgi_wrapped.cpp(  81) - Log     - Graphics native factory swapchain: device=0000000001C1A100 window=0000000000041956 result=0x00000000
+RDOC 093480: [20:06:21]     dxgi_wrapped.cpp( 734) - Log     - Graphics first present: swapchain=00000000523D75A0 device=0000000001C1A120 window=0000000000041956 flags=0x200
+RDOC 093480: [20:06:23] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1FBC0 queue=0000000051EB4090 real=000000005287BDB0 type=0
+RDOC 093480: [20:08:35]      d3d12_hooks.cpp( 923) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=0000000001C1FBC0 adapter=00000002BF001E10 featureLevel=0xb000
+RDOC 093480: [20:08:35] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1FBC0 queue=0000000051EB3800 real=00000099473A21D0 type=0
+RDOC 093480: [20:08:36]      d3d12_hooks.cpp( 923) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=0000000001C1EB90 adapter=00000098D3A83DE0 featureLevel=0xb000
+RDOC 093480: [20:08:36] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1EB90 queue=0000000051EB3800 real=00000099474F6C40 type=0
+RDOC 093480: [20:08:37]      d3d12_hooks.cpp( 923) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=0000000001C1DB60 adapter=00000099470A0760 featureLevel=0xb000
+RDOC 093480: [20:08:37] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1DB60 queue=0000000051EB2F70 real=00000099473A1320 type=0
+RDOC 093480: [20:08:38]      d3d12_hooks.cpp( 923) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=0000000001C1CB30 adapter=00000099470A0760 featureLevel=0xb000
+RDOC 093480: [20:08:38] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1CB30 queue=0000000051EB26E0 real=00000099473A1900 type=0
+RDOC 093480: [20:09:26]      d3d12_hooks.cpp( 923) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=0000000001C1FBC0 adapter=00000002BF0027C0 featureLevel=0xb000
+RDOC 093480: [20:09:26] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1FBC0 queue=0000000051EB1E50 real=00000099473A2D90 type=0
+RDOC 093480: [20:10:41]      d3d12_hooks.cpp( 923) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=0000000001C1FBC0 adapter=0000000000000000 featureLevel=0xb000
+RDOC 093480: [20:10:42] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=0000000001C1FBC0 queue=0000000051EB1E50 real=00000099473A2D90 type=0
+RDOC 093480: [20:24:30]     d3d12_device.cpp(3277) - Log     - Captured D3D12 frame with 2478.706055 MB capture section in 2.352683 seconds
+RDOC 093480: [20:24:30]             core.cpp(2218) - Log     - Written to disk: C:/Users/joyworkshop/AppData/Local/Temp/RenderDoc/wegame_2026.10.15_12.05.29_frame67589.rdc

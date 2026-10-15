@@ -1,0 +1,49 @@
+{
+  "verifiedAt": "2026-10-15",
+  "timezone": "Asia/Shanghai",
+  "status": "verified",
+  "capture": {
+    "file": "E:/GraphicsDebugger/zhou1.rdc",
+    "frame": 67589,
+    "totalActionsReturned": 494,
+    "draws": 320,
+    "dispatches": 42,
+    "present": [
+      {
+        "eventId": 3311,
+        "name": "Present(ResourceId::476)",
+        "flags": 256,
+        "numIndices": 0,
+        "numInstances": 0,
+        "depth": 0,
+        "outputs": []
+      }
+    ],
+    "sourceGamePid": 93480,
+    "bytes": 846740778,
+    "sha256": "0417edfa5cc8a8ca59696086e980afa73509363913a5cb1cea867adb98dac194"
+  },
+  "mainOutput": {
+    "resourceId": 476,
+    "width": 3840,
+    "height": 2160,
+    "visuallyInspected": true,
+    "content": "DF weapon presentation screen with game UI",
+    "localPreview": "E:/GraphicsDebugger/artifacts/iat-diagnostics-test/df-frame67589-main.png"
+  },
+  "evidence": {
+    "toolLog": "RenderDoc_2026.10.15_20.05.09.log",
+    "gamePid": 93480,
+    "swapchainSuccessTime": "20:06:19",
+    "firstPresentTime": "20:06:21",
+    "captureWriteTime": "20:24:30",
+    "reopenedWith": "RenderDoc MCP open_capture",
+    "drawCountMethod": "ActionFlags.Drawcall bit 0x0002; dispatch bit 0x0004",
+    "reportedActionListEntries": 494
+  },
+  "limits": [
+    "Validated on the current local DF client and machine only.",
+    "Controlled smoke captures are regression evidence and do not contain actual DrawCalls.",
+    "The large capture and the game screenshot are intentionally not included in this source commit."
+  ]
+}

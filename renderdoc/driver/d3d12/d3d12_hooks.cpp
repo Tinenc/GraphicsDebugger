@@ -25,6 +25,7 @@
 #include "d3d12_hooks.h"
 #include "driver/dxgi/dxgi_wrapped.h"
 #include "hooks/hooks.h"
+#include "os/win32/graphics_diagnostics.h"
 #include "serialise/serialiser.h"
 #include "d3d12_command_queue.h"
 #include "d3d12_device.h"
@@ -442,6 +443,7 @@ public:
                                                  D3D_FEATURE_LEVEL FeatureLevel, REFIID riid,
                                                  _COM_Outptr_opt_ void **ppvDevice)
   {
+    LogGraphicsCreationCaller("ID3D12DeviceFactory::CreateDevice", GRAPHICS_DIAGNOSTICS_CALLER());
     if(RenderDoc::Inst().GetCaptureOptions().apiValidation)
     {
       D3D12DevConfiguration tmpConfig = {};
@@ -465,6 +467,10 @@ public:
         },
         &devConfig, adapter, FeatureLevel, riid, ppvDevice);
 
+    RDCLOG(
+        "Graphics device returned: api=ID3D12DeviceFactory::CreateDevice result=0x%08x "
+        "device=%p featureLevel=0x%x",
+        (uint32_t)ret, SUCCEEDED(ret) && ppvDevice ? *ppvDevice : NULL, (uint32_t)FeatureLevel);
     return ret;
   }
 };
@@ -889,6 +895,7 @@ private:
                                                D3D_FEATURE_LEVEL MinimumFeatureLevel, REFIID riid,
                                                void **ppDevice)
   {
+    LogGraphicsCreationCaller("D3D12CreateDevice", GRAPHICS_DIAGNOSTICS_CALLER());
     PFN_D3D12_CREATE_DEVICE createFunc = d3d12hooks.CreateDevice();
 
     if(!createFunc)
@@ -905,8 +912,16 @@ private:
       }
     }
 
-    return d3d12hooks.Create_Internal(createFunc, NULL, pAdapter, MinimumFeatureLevel, riid,
-                                      ppDevice);
+    HRESULT ret =
+        d3d12hooks.Create_Internal(createFunc, NULL, pAdapter, MinimumFeatureLevel, riid, ppDevice);
+    if(SUCCEEDED(ret) && ppDevice && *ppDevice && pAdapter)
+      HookNativeDXGIFactoriesForAdapter(pAdapter);
+    RDCLOG(
+        "Graphics device returned: api=D3D12CreateDevice result=0x%08x device=%p "
+        "adapter=%p featureLevel=0x%x",
+        (uint32_t)ret, SUCCEEDED(ret) && ppDevice ? *ppDevice : NULL, pAdapter,
+        (uint32_t)MinimumFeatureLevel);
+    return ret;
   }
 
   static HRESULT WINAPI D3D12EnableExperimentalFeatures_hook(UINT NumFeatures, const IID *pIIDs,

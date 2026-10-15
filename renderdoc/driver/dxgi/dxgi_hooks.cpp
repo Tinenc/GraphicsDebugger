@@ -25,6 +25,7 @@
 
 #include "core/core.h"
 #include "hooks/hooks.h"
+#include "os/win32/graphics_diagnostics.h"
 #include "dxgi_wrapped.h"
 
 typedef HRESULT(WINAPI *PFN_CREATE_DXGI_FACTORY)(REFIID, void **);
@@ -258,6 +259,8 @@ public:
     GetDebugInterface1.Register("dxgi.dll", "DXGIGetDebugInterface1", DXGIGetDebugInterface1_hook);
   }
 
+  void RemoveHooks() override { RestoreNativeDXGIFactoryHooks(); }
+
 private:
   static DXGIHook dxgihooks;
 
@@ -272,6 +275,7 @@ private:
 
   static HRESULT WINAPI CreateDXGIFactory_hook(__in REFIID riid, __out void **ppFactory)
   {
+    LogGraphicsCreationCaller("CreateDXGIFactory", GRAPHICS_DIAGNOSTICS_CALLER());
     if(ppFactory)
       *ppFactory = NULL;
     HRESULT ret = dxgihooks.CreateDXGIFactory()(riid, ppFactory);
@@ -284,6 +288,7 @@ private:
 
   static HRESULT WINAPI CreateDXGIFactory1_hook(__in REFIID riid, __out void **ppFactory)
   {
+    LogGraphicsCreationCaller("CreateDXGIFactory1", GRAPHICS_DIAGNOSTICS_CALLER());
     if(ppFactory)
       *ppFactory = NULL;
     HRESULT ret = dxgihooks.CreateDXGIFactory1()(riid, ppFactory);
@@ -296,6 +301,7 @@ private:
 
   static HRESULT WINAPI CreateDXGIFactory2_hook(UINT Flags, REFIID riid, void **ppFactory)
   {
+    LogGraphicsCreationCaller("CreateDXGIFactory2", GRAPHICS_DIAGNOSTICS_CALLER());
     if(ppFactory)
       *ppFactory = NULL;
     HRESULT ret = dxgihooks.CreateDXGIFactory2()(Flags, riid, ppFactory);

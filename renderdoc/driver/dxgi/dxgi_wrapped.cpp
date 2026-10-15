@@ -24,7 +24,9 @@
  ******************************************************************************/
 
 #include "dxgi_wrapped.h"
+#include <map>
 #include "core/core.h"
+#include "os/win32/graphics_diagnostics.h"
 #include "serialise/serialiser.h"
 #include "dxgi_common.h"
 
@@ -46,6 +48,172 @@ ID3DDevice *GetD3DDevice(IUnknown *pDevice)
     wrapDevice = WrappedIDXGISwapChain4::GetD3DDevice(pDevice);
 
   return wrapDevice;
+}
+
+namespace
+{
+// Native factory interfaces share DXGI-owned tables. Intercept only swapchain creation;
+// forwarding the original method directly avoids recursion through the patched table.
+struct NativeFactoryMethods
+{
+  void *original[4] = {};
+};
+Threading::CriticalSection nativeFactoryLock;
+std::map<void **, NativeFactoryMethods> nativeFactoryMethods;
+const size_t nativeFactorySlots[] = {10, 15, 16, 24};
+
+void *NativeFactoryOriginal(void *factory, size_t method)
+{
+  SCOPED_LOCK(nativeFactoryLock);
+  auto found = nativeFactoryMethods.find(*(void ***)factory);
+  return found == nativeFactoryMethods.end() ? NULL : found->second.original[method];
+}
+
+template <typename Swapchain, typename Create>
+HRESULT CreateNativeFactorySwapchain(IUnknown *device, HWND window, Swapchain **swapchain,
+                                    Create create)
+{
+  ID3DDevice *wrapped = GetD3DDevice(device);
+  HRESULT result = create(wrapped ? wrapped->GetRealIUnknown() : device);
+  if(wrapped)
+  {
+    RDCLOG("Graphics native factory swapchain: device=%p window=%p result=0x%08x",
+           device, window, (uint32_t)result);
+    if(SUCCEEDED(result) && swapchain && *swapchain)
+      *swapchain = (Swapchain *)(new WrappedIDXGISwapChain4(*swapchain, window, wrapped));
+  }
+  return result;
+}
+
+HRESULT STDMETHODCALLTYPE NativeCreateSwapChain(IDXGIFactory *factory, IUnknown *device,
+                                                DXGI_SWAP_CHAIN_DESC *desc, IDXGISwapChain **swapchain)
+{
+  using Function = HRESULT(STDMETHODCALLTYPE *)(IDXGIFactory *, IUnknown *, DXGI_SWAP_CHAIN_DESC *,
+                                               IDXGISwapChain **);
+  Function original = (Function)NativeFactoryOriginal(factory, 0);
+  if(!original)
+    return E_UNEXPECTED;
+  return CreateNativeFactorySwapchain(device, desc ? desc->OutputWindow : NULL, swapchain,
+      [&](IUnknown *real) { return original(factory, real, desc, swapchain); });
+}
+
+HRESULT STDMETHODCALLTYPE NativeCreateForHwnd(IDXGIFactory2 *factory, IUnknown *device, HWND window,
+    const DXGI_SWAP_CHAIN_DESC1 *desc, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *fullscreen,
+    IDXGIOutput *output, IDXGISwapChain1 **swapchain)
+{
+  using Function = HRESULT(STDMETHODCALLTYPE *)(IDXGIFactory2 *, IUnknown *, HWND,
+      const DXGI_SWAP_CHAIN_DESC1 *, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *, IDXGIOutput *,
+      IDXGISwapChain1 **);
+  Function original = (Function)NativeFactoryOriginal(factory, 1);
+  if(!original)
+    return E_UNEXPECTED;
+  return CreateNativeFactorySwapchain(device, window, swapchain,
+      [&](IUnknown *real) { return original(factory, real, window, desc, fullscreen, output, swapchain); });
+}
+
+HRESULT STDMETHODCALLTYPE NativeCreateForCoreWindow(IDXGIFactory2 *factory, IUnknown *device,
+    IUnknown *window, const DXGI_SWAP_CHAIN_DESC1 *desc, IDXGIOutput *output,
+    IDXGISwapChain1 **swapchain)
+{
+  using Function = HRESULT(STDMETHODCALLTYPE *)(IDXGIFactory2 *, IUnknown *, IUnknown *,
+      const DXGI_SWAP_CHAIN_DESC1 *, IDXGIOutput *, IDXGISwapChain1 **);
+  Function original = (Function)NativeFactoryOriginal(factory, 2);
+  if(!original)
+    return E_UNEXPECTED;
+  return CreateNativeFactorySwapchain(device, NULL, swapchain,
+      [&](IUnknown *real) { return original(factory, real, window, desc, output, swapchain); });
+}
+
+HRESULT STDMETHODCALLTYPE NativeCreateForComposition(IDXGIFactory2 *factory, IUnknown *device,
+    const DXGI_SWAP_CHAIN_DESC1 *desc, IDXGIOutput *output, IDXGISwapChain1 **swapchain)
+{
+  using Function = HRESULT(STDMETHODCALLTYPE *)(IDXGIFactory2 *, IUnknown *,
+      const DXGI_SWAP_CHAIN_DESC1 *, IDXGIOutput *, IDXGISwapChain1 **);
+  Function original = (Function)NativeFactoryOriginal(factory, 3);
+  if(!original)
+    return E_UNEXPECTED;
+  return CreateNativeFactorySwapchain(device, NULL, swapchain,
+      [&](IUnknown *real) { return original(factory, real, desc, output, swapchain); });
+}
+
+void *const nativeFactoryHooks[] = {(void *)&NativeCreateSwapChain, (void *)&NativeCreateForHwnd,
+    (void *)&NativeCreateForCoreWindow, (void *)&NativeCreateForComposition};
+
+void HookNativeFactoryTable(IUnknown *factory, bool supportsFactory2)
+{
+  void **table = *(void ***)factory;
+  MEMORY_BASIC_INFORMATION page = {};
+  HMODULE dxgi = GetModuleHandleA("dxgi.dll");
+  // Leave tool wrappers and third-party tables untouched.
+  if(!dxgi || !VirtualQuery(table, &page, sizeof(page)) || page.AllocationBase != dxgi)
+    return;
+  SCOPED_LOCK(nativeFactoryLock);
+  size_t count = supportsFactory2 ? 4 : 1;
+  auto found = nativeFactoryMethods.find(table);
+  if(found != nativeFactoryMethods.end() && found->second.original[count - 1] &&
+     table[nativeFactorySlots[count - 1]] == nativeFactoryHooks[count - 1])
+    return;
+  DWORD oldProtection = 0;
+  SIZE_T bytes = (nativeFactorySlots[count - 1] + 1) * sizeof(void *);
+  if(!VirtualProtect(table, bytes, PAGE_READWRITE, &oldProtection))
+  {
+    RDCWARN("Graphics native factory hook unavailable: factory=%p table=%p error=%lu",
+            factory, table, GetLastError());
+    return;
+  }
+  NativeFactoryMethods &methods = nativeFactoryMethods[table];
+  for(size_t i = 0; i < count; i++)
+  {
+    if(!methods.original[i])
+      methods.original[i] = table[nativeFactorySlots[i]];
+    if(table[nativeFactorySlots[i]] == methods.original[i])
+      InterlockedExchangePointer((PVOID volatile *)&table[nativeFactorySlots[i]], nativeFactoryHooks[i]);
+  }
+  DWORD ignored = 0;
+  if(!VirtualProtect(table, bytes, oldProtection, &ignored))
+    RDCWARN("Graphics native factory protection restore failed: table=%p error=%lu", table,
+            GetLastError());
+  RDCLOG("Graphics native factory bridge installed: factory=%p table=%p methods=%u",
+         factory, table, (uint32_t)count);
+}
+};
+
+void HookNativeDXGIFactoriesForAdapter(IUnknown *unknown)
+{
+  IDXGIAdapter *adapter = NULL;
+  if(FAILED(unknown->QueryInterface(__uuidof(IDXGIAdapter), (void **)&adapter)))
+    return;
+  const IID interfaces[] = {__uuidof(IDXGIFactory), __uuidof(IDXGIFactory1),
+    __uuidof(IDXGIFactory2), __uuidof(IDXGIFactory3), __uuidof(IDXGIFactory4),
+    __uuidof(IDXGIFactory5), __uuidof(IDXGIFactory6), __uuidof(IDXGIFactory7)};
+  for(size_t i = 0; i < ARRAY_COUNT(interfaces); i++)
+  {
+    IUnknown *factory = NULL;
+    if(SUCCEEDED(adapter->GetParent(interfaces[i], (void **)&factory)) && factory)
+    {
+      HookNativeFactoryTable(factory, i >= 2);
+      factory->Release();
+    }
+  }
+  adapter->Release();
+}
+
+void RestoreNativeDXGIFactoryHooks()
+{
+  SCOPED_LOCK(nativeFactoryLock);
+  for(auto &item : nativeFactoryMethods)
+  {
+    void **table = item.first;
+    DWORD oldProtection = 0;
+    if(!VirtualProtect(table, 25 * sizeof(void *), PAGE_READWRITE, &oldProtection))
+      continue;
+    for(size_t i = 0; i < ARRAY_COUNT(nativeFactorySlots); i++)
+      if(item.second.original[i] && table[nativeFactorySlots[i]] == nativeFactoryHooks[i])
+        InterlockedExchangePointer((PVOID volatile *)&table[nativeFactorySlots[i]], item.second.original[i]);
+    DWORD ignored = 0;
+    VirtualProtect(table, 25 * sizeof(void *), oldProtection, &ignored);
+  }
+  // Retain originals for callbacks that were already in flight during hook removal.
 }
 
 bool RefCountDXGIObject::HandleWrap(const char *ifaceName, REFIID riid, void **ppvObject)
@@ -215,6 +383,8 @@ HRESULT RefCountDXGIObject::WrapQueryInterface(IUnknown *real, const char *iface
 WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain *real, HWND w, ID3DDevice *device)
     : RefCountDXGIObject(real), m_pReal(real), m_pDevice(device), m_Wnd(w)
 {
+  RDCLOG("Graphics swapchain wrapped: swapchain=%p real=%p device=%p window=%p", this, real, device,
+         w);
   DXGI_SWAP_CHAIN_DESC desc;
   real->GetDesc(&desc);
 
@@ -557,6 +727,12 @@ HRESULT WrappedIDXGISwapChain4::Present(
 
   if((Flags & DXGI_PRESENT_TEST) == 0)
   {
+    if(Atomic::CmpExch32(&m_LoggedFirstPresent, 0, 1) == 0)
+    {
+      LogGraphicsCreationCaller("IDXGISwapChain::Present", GRAPHICS_DIAGNOSTICS_CALLER());
+      RDCLOG("Graphics first present: swapchain=%p device=%p window=%p flags=0x%x", this, m_pDevice,
+             m_Wnd, Flags);
+    }
     TickLastPresentedBuffer();
     m_pDevice->Present(this, SyncInterval, Flags);
   }
@@ -574,6 +750,12 @@ HRESULT WrappedIDXGISwapChain4::Present1(UINT SyncInterval, UINT Flags,
 
   if((Flags & DXGI_PRESENT_TEST) == 0)
   {
+    if(Atomic::CmpExch32(&m_LoggedFirstPresent, 0, 1) == 0)
+    {
+      LogGraphicsCreationCaller("IDXGISwapChain::Present1", GRAPHICS_DIAGNOSTICS_CALLER());
+      RDCLOG("Graphics first present: swapchain=%p device=%p window=%p flags=0x%x", this, m_pDevice,
+             m_Wnd, Flags);
+    }
     TickLastPresentedBuffer();
     m_pDevice->Present(this, SyncInterval, Flags);
   }
@@ -1231,7 +1413,12 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGIFactory::QueryInterface(REFIID riid, void 
 HRESULT WrappedIDXGIFactory::CreateSwapChain(IUnknown *pDevice, DXGI_SWAP_CHAIN_DESC *pDesc,
                                              IDXGISwapChain **ppSwapChain)
 {
+  LogGraphicsCreationCaller("IDXGIFactory::CreateSwapChain", GRAPHICS_DIAGNOSTICS_CALLER());
   ID3DDevice *wrapDevice = GetD3DDevice(pDevice);
+  RDCLOG(
+      "Graphics swapchain requested: api=CreateSwapChain factory=%p device=%p wrappedDevice=%p "
+      "window=%p",
+      this, pDevice, wrapDevice, pDesc ? pDesc->OutputWindow : NULL);
 
   if(wrapDevice)
   {
@@ -1270,7 +1457,12 @@ HRESULT WrappedIDXGIFactory::CreateSwapChainForHwnd(
     const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *pFullscreenDesc, IDXGIOutput *pRestrictToOutput,
     IDXGISwapChain1 **ppSwapChain)
 {
+  LogGraphicsCreationCaller("IDXGIFactory::CreateSwapChainForHwnd", GRAPHICS_DIAGNOSTICS_CALLER());
   ID3DDevice *wrapDevice = GetD3DDevice(pDevice);
+  RDCLOG(
+      "Graphics swapchain requested: api=CreateSwapChainForHwnd factory=%p device=%p "
+      "wrappedDevice=%p window=%p",
+      this, pDevice, wrapDevice, hWnd);
 
   WrappedIDXGIOutput6 *wrappedOutput = (WrappedIDXGIOutput6 *)pRestrictToOutput;
   IDXGIOutput *unwrappedOutput = wrappedOutput ? wrappedOutput->GetReal() : NULL;
@@ -1317,7 +1509,13 @@ HRESULT WrappedIDXGIFactory::CreateSwapChainForCoreWindow(IUnknown *pDevice, IUn
                                                           IDXGIOutput *pRestrictToOutput,
                                                           IDXGISwapChain1 **ppSwapChain)
 {
+  LogGraphicsCreationCaller("IDXGIFactory::CreateSwapChainForCoreWindow",
+                            GRAPHICS_DIAGNOSTICS_CALLER());
   ID3DDevice *wrapDevice = GetD3DDevice(pDevice);
+  RDCLOG(
+      "Graphics swapchain requested: api=CreateSwapChainForCoreWindow factory=%p device=%p "
+      "wrappedDevice=%p coreWindow=%p",
+      this, pDevice, wrapDevice, pWindow);
 
   WrappedIDXGIOutput6 *wrappedOutput = (WrappedIDXGIOutput6 *)pRestrictToOutput;
   IDXGIOutput *unwrappedOutput = wrappedOutput ? wrappedOutput->GetReal() : NULL;
@@ -1368,7 +1566,13 @@ HRESULT WrappedIDXGIFactory::CreateSwapChainForComposition(IUnknown *pDevice,
                                                            IDXGIOutput *pRestrictToOutput,
                                                            IDXGISwapChain1 **ppSwapChain)
 {
+  LogGraphicsCreationCaller("IDXGIFactory::CreateSwapChainForComposition",
+                            GRAPHICS_DIAGNOSTICS_CALLER());
   ID3DDevice *wrapDevice = GetD3DDevice(pDevice);
+  RDCLOG(
+      "Graphics swapchain requested: api=CreateSwapChainForComposition factory=%p device=%p "
+      "wrappedDevice=%p",
+      this, pDevice, wrapDevice);
 
   WrappedIDXGIOutput6 *wrappedOutput = (WrappedIDXGIOutput6 *)pRestrictToOutput;
   IDXGIOutput *unwrappedOutput = wrappedOutput ? wrappedOutput->GetReal() : NULL;

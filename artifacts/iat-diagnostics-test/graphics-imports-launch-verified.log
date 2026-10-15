@@ -1,0 +1,31 @@
+RDOC 074788: [16:47:20]             core.cpp( 719) - Log     - RenderDoc v1.44 Windows 64-bit Development (0f40732a70ce6d559e6da607d8a7668e624dbd44) loaded in replay application
+RDOC 074788: [16:47:20]         settings.cpp( 471) - Log     - Loading config from C:\Users\joyworkshop\AppData\Roaming\renderdoc\renderdoc.conf
+RDOC 074788: [16:47:20]             core.cpp( 843) - Log     - Replay application 'E:\GraphicsDebugger\artifacts\graphics-imports-diagnostics\x64\TinecmaToolcmd.exe' launched
+RDOC 074788: [16:47:20]    win32_process.cpp( 526) - Log     - Running process E:\GraphicsDebugger\artifacts\iat-diagnostics-test\d3d12_trace_hold.exe
+RDOC 074788: [16:47:20]    win32_process.cpp( 610) - Log     - Injecting renderdoc into process 73972
+RDOC 074788: [16:47:20]    win32_process.cpp( 410) - Debug   - Injecting call to INTERNAL_SetCaptureFile
+RDOC 074788: [16:47:20]    win32_process.cpp( 410) - Debug   - Injecting call to INTERNAL_SetDebugLogFile
+RDOC 073972: [16:47:20]             core.cpp( 719) - Log     - RenderDoc v1.44 Windows 64-bit Development (0f40732a70ce6d559e6da607d8a7668e624dbd44) capturing application
+RDOC 073972: [16:47:20]             core.cpp( 734) - Debug   - Listening for target control on 38939
+RDOC 073972: [16:47:20]         settings.cpp( 471) - Log     - Loading config from C:\Users\joyworkshop\AppData\Roaming\renderdoc\renderdoc.conf
+RDOC 073972: [16:47:20]   win32_libentry.cpp(  68) - Log     - Loading into E:\GraphicsDebugger\artifacts\iat-diagnostics-test\d3d12_trace_hold.exe
+RDOC 073972: [16:47:20]  sys_win32_hooks.cpp(  84) - Log     - Registering Win32 system hooks
+RDOC 073972: [16:47:20]      d3d11_hooks.cpp(  44) - Log     - Registering D3D11 hooks
+RDOC 073972: [16:47:20]       d3d9_hooks.cpp(  40) - Log     - Registering D3D9 hooks
+RDOC 073972: [16:47:20]        amd_hooks.cpp( 154) - Log     - Registering AMD hooks
+RDOC 073972: [16:47:20]      nvapi_hooks.cpp( 145) - Log     - Registering nvidia hooks
+RDOC 073972: [16:47:20]      d3d12_hooks.cpp( 561) - Log     - Registering D3D12 hooks
+RDOC 073972: [16:47:20]       dxgi_hooks.cpp( 251) - Log     - Registering DXGI hooks
+RDOC 073972: [16:47:20]        egl_hooks.cpp(1088) - Log     - Registering EGL hooks
+RDOC 073972: [16:47:20]         gl_hooks.cpp( 285) - Log     - Registering OpenGL hooks
+RDOC 073972: [16:47:20]        wgl_hooks.cpp( 658) - Log     - Registering WGL hooks
+RDOC 073972: [16:47:20]         vk_layer.cpp( 110) - Log     - Registering Vulkan hooks
+RDOC 073972: [16:47:20]       win32_hook.cpp( 399) - Log     - Graphics main image imports: module=d3d12_trace_hold.exe moduleBase=00007FF700040000 importRVA=0x24944 importSize=0x50 delayImportRVA=0x247dc delayImportSize=0x40
+RDOC 073972: [16:47:20]       win32_hook.cpp( 124) - Log     - Graphics IAT hook installed: module=d3d12_trace_hold.exe moduleBase=00007FF700040000 import=dxgi.dll!CreateDXGIFactory1 entry=00007FF70005A2C8 hook=00007FF85170BB72
+RDOC 073972: [16:47:20]       win32_hook.cpp( 124) - Log     - Graphics IAT hook installed: module=d3d12_trace_hold.exe moduleBase=00007FF700040000 import=KERNEL32.dll!GetProcAddress entry=00007FF70005A060 hook=00007FF8517516BD
+RDOC 073972: [16:47:20]       win32_hook.cpp( 124) - Log     - Graphics IAT hook installed: module=d3d12_trace_hold.exe moduleBase=00007FF700040000 import=KERNEL32.dll!LoadLibraryExA entry=00007FF70005A098 hook=00007FF85173F1C5
+RDOC 073972: [16:47:20]       win32_hook.cpp( 124) - Log     - Graphics IAT hook installed: module=d3d12_trace_hold.exe moduleBase=00007FF700040000 import=KERNEL32.dll!LoadLibraryExW entry=00007FF70005A170 hook=00007FF851734F5E
+RDOC 073972: [16:47:20]        wgl_hooks.cpp( 639) - Debug   - WGL library hooked
+RDOC 074788: [16:47:20]    win32_process.cpp( 410) - Debug   - Injecting call to INTERNAL_SetCaptureOptions
+RDOC 074788: [16:47:20]    win32_process.cpp( 410) - Debug   - Injecting call to INTERNAL_GetTargetControlIdent
+RDOC 073972: [16:47:20]          app_api.cpp( 448) - Log     - Initialising RenderDoc API version 1.7.0 for requested version 10600

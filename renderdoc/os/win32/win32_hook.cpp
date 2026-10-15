@@ -32,10 +32,12 @@
 #include <map>
 #include <set>
 #include "common/common.h"
+#include "common/formatting.h"
 #include "common/threading.h"
 #include "hooks/hooks.h"
 #include "os/os_specific.h"
 #include "strings/string_utils.h"
+#include "graphics_diagnostics.h"
 
 #define VERBOSE_DEBUG_HOOK OPTION_OFF
 
@@ -43,7 +45,39 @@
 std::map<void **, void *> s_InstalledHooks;
 Threading::CriticalSection installedLock;
 
-bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already)
+static bool IsGraphicsCreationFunction(const char *function)
+{
+  return !strcmp(function, "D3D12CreateDevice") || !strcmp(function, "D3D12GetInterface") ||
+         !strcmp(function, "D3D11CreateDevice") ||
+         !strcmp(function, "D3D11CreateDeviceAndSwapChain") ||
+         !strcmp(function, "CreateDXGIFactory") || !strcmp(function, "CreateDXGIFactory1") ||
+         !strcmp(function, "CreateDXGIFactory2");
+}
+
+static void LogIATProtectionFailure(const char *operation, void **IATentry, DWORD error,
+                                    const char *moduleName, HMODULE module, const char *dllName,
+                                    const char *function)
+{
+  // Preserve the VirtualProtect error before querying the page or writing the log. Do not
+  // dereference the entry here: a module may have been unloaded when removing hooks.
+  MEMORY_BASIC_INFORMATION page = {};
+  SIZE_T queried = VirtualQuery(IATentry, &page, sizeof(page));
+  DWORD queryError = queried ? ERROR_SUCCESS : GetLastError();
+
+  RDCERR(
+      "IAT protection failure: operation=%s error=%lu module=%s moduleBase=%p "
+      "import=%s!%s entry=%p VirtualQueryBytes=%llu VirtualQueryError=%lu "
+      "allocationBase=%p regionBase=%p regionSize=%llu state=0x%lx "
+      "protect=0x%lx allocationProtect=0x%lx type=0x%lx",
+      operation, error, moduleName, module, dllName, function, IATentry, (unsigned long long)queried,
+      queryError, page.AllocationBase, page.BaseAddress, (unsigned long long)page.RegionSize,
+      page.State, page.Protect, page.AllocationProtect, page.Type);
+
+  SetLastError(error);
+}
+
+bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already, const char *moduleName,
+               HMODULE module, const char *dllName)
 {
   DWORD oldProtection = PAGE_EXECUTE;
 
@@ -66,7 +100,9 @@ bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already)
   BOOL success = VirtualProtect(IATentry, sizeof(void *), PAGE_READWRITE, &oldProtection);
   if(!success)
   {
-    RDCERR("Failed to make IAT entry writeable 0x%p", IATentry);
+    const DWORD error = GetLastError();
+    LogIATProtectionFailure("install/make-writable", IATentry, error, moduleName, module, dllName,
+                            hook.function.c_str());
     return false;
   }
 
@@ -75,9 +111,19 @@ bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already)
   success = VirtualProtect(IATentry, sizeof(void *), oldProtection, &oldProtection);
   if(!success)
   {
-    RDCERR("Failed to restore IAT entry protection 0x%p", IATentry);
+    const DWORD error = GetLastError();
+    LogIATProtectionFailure("install/restore-protection", IATentry, error, moduleName, module,
+                            dllName, hook.function.c_str());
     return false;
   }
+
+  if(IsGraphicsCreationFunction(hook.function.c_str()) ||
+     (module == GetModuleHandleW(NULL) &&
+      (hook.function == "GetProcAddress" || hook.function == "LoadLibraryA" ||
+       hook.function == "LoadLibraryW" || hook.function == "LoadLibraryExA" ||
+       hook.function == "LoadLibraryExW")))
+    RDCLOG("Graphics IAT hook installed: module=%s moduleBase=%p import=%s!%s entry=%p hook=%p",
+           moduleName, module, dllName, hook.function.c_str(), IATentry, hook.hook);
 
   return true;
 }
@@ -158,9 +204,122 @@ struct CachedHookData
   std::set<rdcstr> ignores;
 
   bool missedOrdinals = false;
+  bool mainImportsLogged = false;
+  DWORD mainImportRVA = 0;
+  DWORD mainImportSize = 0;
+  DWORD mainDelayImportRVA = 0;
+  DWORD mainDelayImportSize = 0;
+  Threading::CriticalSection mainDelayLock;
+  std::map<void *, void *> mainDelayTargets;
+  bool mainDelayReadFailureLogged = false;
   std::function<HMODULE(const rdcstr &, HANDLE, DWORD)> libraryIntercept;
 
   int32_t posthooking = 0;
+
+  void ProcessMainDelayImports(HMODULE module, const IMAGE_DATA_DIRECTORY &directory, DWORD imageSize)
+  {
+    if(!directory.VirtualAddress || directory.Size < 32)
+      return;
+
+    SCOPED_LOCK(mainDelayLock);
+    const DWORD savedError = GetLastError();
+    auto read = [&](DWORD rva, void *output, SIZE_T size) {
+      if(rva >= imageSize || size > imageSize - rva)
+        return false;
+      SIZE_T copied = 0;
+      BOOL success = ReadProcessMemory(GetCurrentProcess(), (byte *)module + rva, output, size, &copied);
+      if(!success && !mainDelayReadFailureLogged)
+      {
+        DWORD error = GetLastError();
+        RDCLOG("Graphics main delay read unavailable: moduleBase=%p rva=0x%lx error=%lu",
+               module, rva, error);
+        mainDelayReadFailureLogged = true;
+      }
+      return success && copied == size;
+    };
+
+    // Never resolve a delay import here. Once the application's own resolver has finished,
+    // registered exports can be hooked like ordinary imports. Keep unresolved trampolines
+    // and any third-party replacements intact.
+    for(DWORD index = 0; index < directory.Size / 32 && index < 64; index++)
+    {
+      struct DelayDescriptor
+      {
+        DWORD attributes, name, module, iat, names, bound, unload, timestamp;
+      } descriptor = {};
+      uint64_t descriptorRVA = uint64_t(directory.VirtualAddress) + uint64_t(index) * 32ULL;
+      if(descriptorRVA > 0xffffffffULL || !read(DWORD(descriptorRVA), &descriptor, sizeof(descriptor)) ||
+         !descriptor.name)
+        break;
+      if(!(descriptor.attributes & 1))
+        continue;
+
+      char library[64] = {};
+      if(!read(descriptor.name, library, sizeof(library) - 1) ||
+         (_stricmp(library, "d3d12.dll") && _stricmp(library, "dxgi.dll")))
+        continue;
+
+      for(DWORD slot = 0; slot < 256; slot++)
+      {
+        IMAGE_THUNK_DATA name = {}, target = {};
+        uint64_t nameRVA = uint64_t(descriptor.names) + slot * sizeof(name);
+        uint64_t slotRVA = uint64_t(descriptor.iat) + slot * sizeof(target);
+        if(nameRVA > 0xffffffffULL || slotRVA > 0xffffffffULL ||
+           !read(DWORD(nameRVA), &name, sizeof(name)) || !name.u1.AddressOfData ||
+           !read(DWORD(slotRVA), &target, sizeof(target)))
+          break;
+
+        void *entry = (byte *)module + DWORD(slotRVA);
+        void *address = (void *)(uintptr_t)target.u1.Function;
+        auto previous = mainDelayTargets.find(entry);
+        if(previous != mainDelayTargets.end() && previous->second == address)
+          continue;
+
+        rdcstr function;
+        if(IMAGE_SNAP_BY_ORDINAL(name.u1.Ordinal))
+          function = StringFormat::Fmt("ordinal:%u", (uint32_t)IMAGE_ORDINAL(name.u1.Ordinal));
+        else
+        {
+          char importedName[128] = {};
+          uint64_t stringRVA = uint64_t(name.u1.AddressOfData) + sizeof(WORD);
+          if(stringRVA > 0xffffffffULL ||
+             !read(DWORD(stringRVA), importedName, sizeof(importedName) - 1))
+            continue;
+          function = importedName;
+        }
+
+        RDCLOG("Graphics main delay target: moduleBase=%p import=%s!%s entry=%p target=%p previous=%p",
+               module, library, function.c_str(), entry, address,
+               previous == mainDelayTargets.end() ? NULL : previous->second);
+        mainDelayTargets[entry] = address;
+        LogGraphicsCreationCaller("main-delay-import-target", address);
+
+        HMODULE loadedLibrary = GetModuleHandleA(library);
+        auto registered = DllHooks.find(strlower(rdcstr(library)));
+        if(!loadedLibrary || registered == DllHooks.end())
+          continue;
+        for(FunctionHook &hook : registered->second.FunctionHooks)
+        {
+          FARPROC real = GetProcAddress(loadedLibrary, hook.function.c_str());
+          if(!real || (void *)real != address)
+            continue;
+          SCOPED_LOCK(lock);
+          void **slotEntry = (void **)entry;
+          // The resolver may have changed the entry since the read-only snapshot.
+          if(*slotEntry != address)
+            break;
+          if(hook.orig && !*hook.orig)
+            *hook.orig = (void *)real;
+          bool already = false;
+          if(ApplyHook(hook, slotEntry, already, "main-image-delay-import", module, library))
+            RDCLOG("Graphics resolved delay hook installed: moduleBase=%p import=%s!%s entry=%p "
+                   "real=%p hook=%p", module, library, hook.function.c_str(), entry, real, hook.hook);
+          break;
+        }
+      }
+    }
+    SetLastError(savedError);
+  }
 
   void ApplyHooks(const char *modName, HMODULE module)
   {
@@ -335,6 +494,28 @@ struct CachedHookData
 
     DWORD iatOffset = optHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
 
+    // Observe changes to the main image's import directories without resolving delay imports
+    // or changing their entries. A missing ordinary import table is different from a failed patch.
+    if(module == GetModuleHandleW(NULL))
+    {
+      const IMAGE_DATA_DIRECTORY &imports = optHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+      const IMAGE_DATA_DIRECTORY &delay = optHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT];
+      if(!mainImportsLogged || mainImportRVA != imports.VirtualAddress ||
+         mainImportSize != imports.Size || mainDelayImportRVA != delay.VirtualAddress ||
+         mainDelayImportSize != delay.Size)
+      {
+        RDCLOG("Graphics main image imports: module=%s moduleBase=%p importRVA=0x%lx "
+               "importSize=0x%lx delayImportRVA=0x%lx delayImportSize=0x%lx",
+               modName, module, imports.VirtualAddress, imports.Size, delay.VirtualAddress, delay.Size);
+        mainImportsLogged = true;
+        mainImportRVA = imports.VirtualAddress;
+        mainImportSize = imports.Size;
+        mainDelayImportRVA = delay.VirtualAddress;
+        mainDelayImportSize = delay.Size;
+      }
+      ProcessMainDelayImports(module, delay, optHeader->SizeOfImage);
+    }
+
     IMAGE_IMPORT_DESCRIPTOR *importDesc = (IMAGE_IMPORT_DESCRIPTOR *)(baseAddress + iatOffset);
 
 #if ENABLED(VERBOSE_DEBUG_HOOK)
@@ -418,7 +599,7 @@ struct CachedHookData
                     bool applied;
                     {
                       SCOPED_LOCK(lock);
-                      applied = ApplyHook(*found, IATentry, already);
+                      applied = ApplyHook(*found, IATentry, already, modName, module, dllName);
                     }
 
                     // if we failed, or if it's already set and we're not doing a missedOrdinals
@@ -481,7 +662,7 @@ struct CachedHookData
             bool applied;
             {
               SCOPED_LOCK(lock);
-              applied = ApplyHook(*found, IATentry, already);
+              applied = ApplyHook(*found, IATentry, already, modName, module, dllName);
             }
 
             // if we failed, or if it's already set and we're not doing a missedOrdinals
@@ -850,6 +1031,10 @@ FARPROC WINAPI Hooked_GetProcAddress(HMODULE mod, LPCSTR func)
       {
         FARPROC realfunc = GetProcAddress(mod, func);
 
+        if(IsGraphicsCreationFunction(func))
+          RDCLOG("Graphics function resolved: library=%s module=%p function=%s real=%p hook=%p",
+                 it->first.c_str(), mod, func, realfunc, found->hook);
+
 #if ENABLED(VERBOSE_DEBUG_HOOK)
         RDCDEBUG("Found hooked function, returning hook pointer %p", found->hook);
 #endif
@@ -870,7 +1055,13 @@ FARPROC WINAPI Hooked_GetProcAddress(HMODULE mod, LPCSTR func)
 
   SetLastError(S_OK);
 
-  return GetProcAddress(mod, func);
+  FARPROC realfunc = GetProcAddress(mod, func);
+  DWORD err = GetLastError();
+  if(!OrdinalAsString((void *)func) && IsGraphicsCreationFunction(func))
+    RDCLOG("Graphics function resolved without hook: module=%p function=%s real=%p", mod, func,
+           realfunc);
+  SetLastError(err);
+  return realfunc;
 }
 static void InitHookData()
 {
@@ -997,7 +1188,9 @@ void LibraryHooks::RemoveHooks()
     BOOL success = VirtualProtect(IATentry, sizeof(void *), PAGE_READWRITE, &oldProtection);
     if(!success)
     {
-      RDCERR("Failed to make IAT entry writeable 0x%p", IATentry);
+      const DWORD error = GetLastError();
+      LogIATProtectionFailure("remove/make-writable", IATentry, error, "unknown", NULL, "unknown",
+                              "unknown");
       continue;
     }
 
@@ -1006,7 +1199,9 @@ void LibraryHooks::RemoveHooks()
     success = VirtualProtect(IATentry, sizeof(void *), oldProtection, &oldProtection);
     if(!success)
     {
-      RDCERR("Failed to restore IAT entry protection 0x%p", IATentry);
+      const DWORD error = GetLastError();
+      LogIATProtectionFailure("remove/restore-protection", IATentry, error, "unknown", NULL,
+                              "unknown", "unknown");
       continue;
     }
   }
