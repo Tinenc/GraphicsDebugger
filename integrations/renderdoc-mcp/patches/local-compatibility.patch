@@ -1,0 +1,125 @@
+diff --git a/renderdoc-mcp/pyproject.toml b/renderdoc-mcp/pyproject.toml
+index 17509a2..da1fd85 100644
+--- a/renderdoc-mcp/pyproject.toml
++++ b/renderdoc-mcp/pyproject.toml
+@@ -4,7 +4,7 @@ version = "1.5.0"
+ description = "A full-featured MCP server for RenderDoc GPU capture analysis"
+ requires-python = ">=3.10"
+ dependencies = [
+-    "mcp[cli]>=1.0.0",
++    "mcp[cli]>=1.0.0,<2",
+ ]
+ 
+ [project.scripts]
+diff --git a/renderdoc-mcp/src/server.py b/renderdoc-mcp/src/server.py
+index df7c779..b13398e 100644
+--- a/renderdoc-mcp/src/server.py
++++ b/renderdoc-mcp/src/server.py
+@@ -190,13 +190,21 @@ def launch_renderdoc(capture_path: str, renderdoc_path: str = "") -> str:
+         except Exception:
+             return result
+ 
+-    # Launch RenderDoc with the capture file
+-    logger.info("Launching RenderDoc: %s %s", exe, capture_path)
++    # Start the UI first, wait for the extension bridge, then ask the bridge to
++    # open the capture. Passing the capture on the command line can block v1.44
++    # before extensions begin polling.
++    logger.info("Launching RenderDoc: %s", exe)
+     try:
++        child_env = dict(os.environ)
++        # Do not let a globally enabled capture layer inject the Development
++        # runtime back into the Release UI process.
++        child_env.pop("ENABLE_VULKAN_TINECMATOOL_CAPTURE", None)
++        child_env["DISABLE_VULKAN_TINECMATOOL_CAPTURE_1_44"] = "1"
+         proc = subprocess.Popen(
+-            [exe, capture_path],
++            [exe],
+             stdout=subprocess.DEVNULL,
+             stderr=subprocess.DEVNULL,
++            env=child_env,
+             creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+         )
+     except Exception as e:
+@@ -224,14 +232,14 @@ def launch_renderdoc(capture_path: str, renderdoc_path: str = "") -> str:
+             break
+ 
+     if bridge_ready:
+-        # Give it a moment for capture to fully load
+-        time.sleep(1.0)
++        open_result = ipc.call("open_capture", {"capture_path": capture_path}, timeout=30.0)
+         return _ok({
+             "launched": True,
+             "exe": exe,
+             "capture": capture_path,
+             "pid": proc.pid,
+             "bridgeReady": True,
++            "openResult": open_result,
+             "waitTime": "%.1fs" % elapsed,
+             "fileSizeMB": round(file_size_mb, 1),
+         })
+@@ -253,12 +261,14 @@ def launch_renderdoc(capture_path: str, renderdoc_path: str = "") -> str:
+ 
+ def _find_renderdoc_exe(user_path: str = "") -> str:
+     """Find the qrenderdoc executable."""
++    executable_names = ["qTinecmaTool.exe", "qrenderdoc.exe", "qrenderdoc"]
++
+     # 1. User-provided path
+     if user_path:
+         if os.path.isfile(user_path):
+             return user_path
+         # Maybe it's a directory
+-        for name in ["qrenderdoc.exe", "qrenderdoc"]:
++        for name in executable_names:
+             candidate = os.path.join(user_path, name)
+             if os.path.isfile(candidate):
+                 return candidate
+@@ -266,15 +276,18 @@ def _find_renderdoc_exe(user_path: str = "") -> str:
+     # 2. Environment variable
+     env_path = os.environ.get("RENDERDOC_PATH", "") or os.environ.get("RENDERDOC_MODULE_PATH", "")
+     if env_path:
+-        for name in ["qrenderdoc.exe", "qrenderdoc"]:
++        if os.path.isfile(env_path):
++            return env_path
++        for name in executable_names:
+             candidate = os.path.join(env_path, name)
+             if os.path.isfile(candidate):
+                 return candidate
+ 
+     # 3. PATH
+-    which = shutil.which("qrenderdoc")
+-    if which:
+-        return which
++    for name in ["qTinecmaTool", "qrenderdoc"]:
++        which = shutil.which(name)
++        if which:
++            return which
+ 
+     # 4. Common install locations
+     for path in _get_renderdoc_search_paths():
+diff --git a/renderdoc_mcp_bridge/__init__.py b/renderdoc_mcp_bridge/__init__.py
+index 708a292..a2f5371 100644
+--- a/renderdoc_mcp_bridge/__init__.py
++++ b/renderdoc_mcp_bridge/__init__.py
+@@ -1264,17 +1264,15 @@ def _open_capture(params):
+         raise ValueError("capture_path required")
+     if not _ctx:
+         return {"error": "No context"}
+-    # LoadCapture signature varies by RenderDoc version:
+-    # Older: LoadCapture(filename, origFilename, temporary, local)
+-    # Newer: LoadCapture(filename, origFilename, temporary, local, rdc)  (5 args)
++    # LoadCapture signature varies by RenderDoc version. RenderDoc 1.44 uses:
++    # LoadCapture(filename, ReplayOptions, origFilename, temporary, local)
+     try:
+-        _ctx.LoadCapture(path, "", False, True)
++        _ctx.LoadCapture(path, rd.ReplayOptions(), path, False, True)
+     except TypeError:
+         try:
+-            _ctx.LoadCapture(path, "", False, True, True)
++            _ctx.LoadCapture(path, "", False, True)
+         except TypeError:
+-            # Try with just the path as positional
+-            _ctx.LoadCapture(path, path, False, True, True)
++            _ctx.LoadCapture(path, "", False, True, True)
+     return {"opened": path}
+ 
+ 
