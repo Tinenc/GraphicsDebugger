@@ -262,8 +262,8 @@ struct CachedHookData
       for(DWORD slot = 0; slot < 256; slot++)
       {
         IMAGE_THUNK_DATA name = {}, target = {};
-        uint64_t nameRVA = uint64_t(descriptor.names) + slot * sizeof(name);
-        uint64_t slotRVA = uint64_t(descriptor.iat) + slot * sizeof(target);
+        uint64_t nameRVA = uint64_t(descriptor.names) + uint64_t(slot) * sizeof(name);
+        uint64_t slotRVA = uint64_t(descriptor.iat) + uint64_t(slot) * sizeof(target);
         if(nameRVA > 0xffffffffULL || slotRVA > 0xffffffffULL ||
            !read(DWORD(nameRVA), &name, sizeof(name)) || !name.u1.AddressOfData ||
            !read(DWORD(slotRVA), &target, sizeof(target)))
