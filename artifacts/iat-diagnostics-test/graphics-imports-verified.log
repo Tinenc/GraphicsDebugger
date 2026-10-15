@@ -1,0 +1,45 @@
+RDOC 073972: [16:47:20]       win32_hook.cpp( 925) - Log     - Graphics function resolved: library=d3d12.dll module=00007FF9D7990000 function=D3D12CreateDevice real=00007FF9D79965E0 hook=00007FF8516EE16C
+RDOC 073972: [16:47:20] graphics_diagnostics.h(  31) - Log     - Graphics call entered: api=D3D12CreateDevice caller=00007FF700041279 callerModule=E:\GraphicsDebugger\artifacts\iat-diagnostics-test\d3d12_trace_hold.exe allocationBase=00007FF700040000 offset=0x1279 memoryType=0x1000000 queryError=0
+RDOC 073972: [16:47:20]      d3d12_hooks.cpp( 740) - Debug   - Call to Create_Internal Feature Level b000
+RDOC 073972: [16:47:20]      d3d12_hooks.cpp( 750) - Debug   - Calling real createdevice...
+RDOC 073972: [16:47:20]       win32_hook.cpp( 951) - Log     - Graphics function resolved without hook: module=00007FF9430C0000 function=D3D12GetInterface real=00007FF9430E1D10
+RDOC 073972: [16:47:21]       win32_hook.cpp( 124) - Log     - Graphics IAT hook installed: module=nvwgf2umx.dll moduleBase=00007FF9D02C0000 import=dxgi.dll!CreateDXGIFactory2 entry=00007FF9D184CAE0 hook=00007FF8516FCFD7
+RDOC 073972: [16:47:21]      d3d12_hooks.cpp( 754) - Debug   - Called real createdevice... HRESULT: S_OK
+RDOC 073972: [16:47:21]      d3d12_hooks.cpp( 758) - Debug   - succeeded and hooking.
+RDOC 073972: [16:47:21]     d3d12_device.cpp( 800) - Log     - New D3D12 device created: nVidia / NVIDIA GeForce RTX 3060 32.0.16.1692
+RDOC 073972: [16:47:21]             core.cpp(2310) - Log     - Adding D3D12 device frame capturer for 0x00000232595C4270
+RDOC 073972: [16:47:21]     d3d12_device.cpp( 910) - Debug   - Couldn't get ID3D12InfoQueue.
+RDOC 073972: [16:47:21]      d3d12_hooks.cpp( 846) - Debug   - created wrapped device.
+RDOC 073972: [16:47:21]      d3d12_hooks.cpp( 921) - Log     - Graphics device returned: api=D3D12CreateDevice result=0x00000000 device=00000232595C4270 adapter=0000000000000000 featureLevel=0xb000
+RDOC 073972: [16:47:21] d3d12_device_wrap.cpp( 180) - Log     - Graphics queue wrapped: device=00000232595C4270 queue=00000232595BF6E0 real=00000232625F20B0 type=0
+RDOC 073972: [16:47:21]     d3d12_device.cpp(4664) - Log     - Resizing GPU readback window to 4194304
+RDOC 073972: [16:47:21] graphics_diagnostics.h(  31) - Log     - Graphics call entered: api=CreateDXGIFactory1 caller=00007FF70004143E callerModule=E:\GraphicsDebugger\artifacts\iat-diagnostics-test\d3d12_trace_hold.exe allocationBase=00007FF700040000 offset=0x143e memoryType=0x1000000 queryError=0
+RDOC 073972: [16:47:21] graphics_diagnostics.h(  31) - Log     - Graphics call entered: api=IDXGIFactory::CreateSwapChainForHwnd caller=00007FF70004152B callerModule=E:\GraphicsDebugger\artifacts\iat-diagnostics-test\d3d12_trace_hold.exe allocationBase=00007FF700040000 offset=0x152b memoryType=0x1000000 queryError=0
+RDOC 073972: [16:47:21]     dxgi_wrapped.cpp(1298) - Log     - Graphics swapchain requested: api=CreateSwapChainForHwnd factory=0000023262995BD0 device=00000232595BF6E0 wrappedDevice=00000232595BF700 window=0000000000BC1194
+RDOC 073972: [16:47:21]     dxgi_wrapped.cpp( 220) - Log     - Graphics swapchain wrapped: swapchain=00000232A9A059E0 real=00000232A9A30FB0 device=00000232595BF700 window=0000000000BC1194
+RDOC 073972: [16:47:21]             core.cpp(2346) - Log     - Adding D3D12 frame capturer for 0x00000232595C4270 / 0x0000000000BC1194
+RDOC 073972: [16:47:21]     d3d12_device.cpp(2829) - Log     - Starting capture
+RDOC 073972: [16:47:21]   resource_manager.h(1451) - Log     - Preparing up to 17 potentially dirty resources
+RDOC 073972: [16:47:21]   resource_manager.h(1508) - Log     - Prepared 4 dirty resources, postponed 0, skipped 0
+RDOC 073972: [16:47:21]     d3d12_device.cpp(2891) - Debug   - Attempting capture
+RDOC 073972: [16:47:21] graphics_diagnostics.h(  31) - Log     - Graphics call entered: api=IDXGISwapChain::Present caller=00007FF700041592 callerModule=E:\GraphicsDebugger\artifacts\iat-diagnostics-test\d3d12_trace_hold.exe allocationBase=00007FF700040000 offset=0x1592 memoryType=0x1000000 queryError=0
+RDOC 073972: [16:47:21]     dxgi_wrapped.cpp( 567) - Log     - Graphics first present: swapchain=00000232A9A059E0 device=00000232595BF700 window=0000000000BC1194 flags=0x0
+RDOC 073972: [16:47:21]     d3d12_device.cpp(2976) - Log     - Finished capture, Frame 4294967295
+RDOC 073972: [16:47:21]          rdcfile.cpp( 728) - Debug   - creating RDC file.
+RDOC 073972: [16:47:21]          rdcfile.cpp( 737) - Debug   - Opened capture file for write
+RDOC 073972: [16:47:21]       serialiser.cpp( 537) - Debug   - Chunk estimated at 336 bytes, actual length 96. Added 240 bytes padding.
+RDOC 073972: [16:47:21]     d3d12_device.cpp(3200) - Debug   - Inserting Resource Serialisers
+RDOC 073972: [16:47:21]   resource_manager.h(1401) - Debug   - 2 frame resource records
+RDOC 073972: [16:47:21]   resource_manager.h(1438) - Debug   - 1 frame resource chunks
+RDOC 073972: [16:47:21]   resource_manager.h(1443) - Debug   - inserted to serialiser
+RDOC 073972: [16:47:21]   resource_manager.h(1520) - Log     - Checking 4 resources with initial contents against 2 referenced resources
+RDOC 073972: [16:47:21]   resource_manager.h(1627) - Log     - Serialised 0 resources, skipped 4 unreferenced
+RDOC 073972: [16:47:21]     d3d12_device.cpp(3206) - Debug   - Creating Capture Scope
+RDOC 073972: [16:47:21]     d3d12_device.cpp(3231) - Debug   - Flushing 0 command list records from queue ResourceId::15
+RDOC 073972: [16:47:21]     d3d12_device.cpp(3252) - Debug   - Flushing 2 chunks to file serialiser from context record
+RDOC 073972: [16:47:21]     d3d12_device.cpp(3264) - Debug   - Done
+RDOC 073972: [16:47:21]          rdcfile.cpp(1247) - Log     - Finishing write to section 1 (renderdoc/internal/framecapture). Compressed from 1088 bytes to 609 (55.97 %)
+RDOC 073972: [16:47:21]     d3d12_device.cpp(3277) - Log     - Captured D3D12 frame with 0.001038 MB capture section in 0.045040 seconds
+RDOC 073972: [16:47:21]          rdcfile.cpp(1247) - Log     - Finishing write to section 10 (renderdoc/internal/d3d12core). Compressed from 2096312 bytes to 750361 (35.79 %)
+RDOC 073972: [16:47:21]          rdcfile.cpp(1247) - Log     - Finishing write to section 11 (renderdoc/internal/d3d12sdklayers). Compressed from 5423104 bytes to 2092986 (38.59 %)
+RDOC 073972: [16:47:22]             core.cpp(2218) - Log     - Written to disk: E:\GraphicsDebugger\artifacts\iat-diagnostics-test\imports-hold-regression_capture.rdc

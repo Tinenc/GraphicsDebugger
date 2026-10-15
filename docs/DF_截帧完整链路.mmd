@@ -1,0 +1,31 @@
+flowchart TB
+  BUILD["M1 构建：统一 MSVC 14.44.35207<br/>兼容宿主旧 MSVCP140 的互斥锁初始化"]
+  GUI["既有：管理员启动 qTinecmaTool<br/>开启子进程捕获"]
+  WG["既有：WeGame 启动链<br/>x64 工具 → x86 启动器 → x64 DF"]
+  DLL["捕获 DLL 加载进 DF<br/>M1 消除旧运行库初始化失败"]
+  SCAN["M2 主模块导入目录与延迟槽快照<br/>调用方模块 / 地址 / 偏移 / 页信息"]
+  SLOT["DF 延迟槽 ordinal 101<br/>解析到系统 D3D12CreateDevice"]
+  FIX["M3 仅匹配已加载库的原导出地址<br/>通过既有 ApplyHook 接管已解析槽"]
+  DEV["D3D12CreateDevice 包装主设备<br/>M2 返回接口 / HRESULT / 调用方"]
+  Q["包装 ID3D12CommandQueue<br/>M2 设备 → 队列接口映射"]
+  PARENT["M4 从创建设备时的适配器<br/>查询所属原生 DXGI factory"]
+  BRIDGE["M4 桥接 DXGI 原生方法表<br/>真实队列传给原创建方法"]
+  SWAP["M4 包装返回的交换链<br/>保留 HWND 与设备关联"]
+  PRESENT["Present / Present1<br/>M2 首次非 TEST 呈现日志"]
+  CAP["既有：执行帧捕获并写入 RDC"]
+  VERIFY["验证：zhou1.rdc / frame 67589<br/>320 DrawCall · 42 Dispatch<br/>Present EID 3311 · 主画面已查看"]
+  OLD1["原故障 A：主设备未包装<br/>Not Presenting"]
+  OLD2["原故障 B：包装队列 + 原生 factory<br/>CreateSwapChain 返回 E_NOINTERFACE"]
+  PORT["既有提交 e11360084<br/>控制端口 8 → 20"]
+  BUILD --> GUI --> WG --> DLL --> SCAN --> SLOT --> FIX --> DEV --> Q
+  DEV --> PARENT --> BRIDGE
+  Q --> BRIDGE --> SWAP --> PRESENT --> CAP --> VERIFY
+  SLOT -. "修复前直接调用系统函数" .-> OLD1
+  Q -. "仅修复设备时" .-> OLD2
+  PORT -. "目标控制连接" .-> DLL
+  classDef changed fill:#e7f0ff,stroke:#315b9a,color:#172c49;
+  classDef failed fill:#fff0e8,stroke:#a45b30,color:#522713;
+  classDef verified fill:#e6f3e8,stroke:#40784d,color:#163e21;
+  class BUILD,SCAN,FIX,DEV,Q,PARENT,BRIDGE,SWAP,PRESENT changed;
+  class OLD1,OLD2 failed;
+  class VERIFY verified;

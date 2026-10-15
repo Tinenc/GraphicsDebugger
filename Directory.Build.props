@@ -1,0 +1,16 @@
+<Project>
+  <!-- Keep IDE and command-line builds on the same MSVC minor toolset. Both
+       builds share intermediate directories, so mixing toolsets can leave
+       objects that require newer STL symbols than the selected linker has. -->
+  <PropertyGroup>
+    <VCToolsVersion Condition="'$(VCToolsVersion)' == ''">14.44.35207</VCToolsVersion>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <!-- Captured applications can already have an older MSVCP140 loaded.
+           Use its runtime mutex initialiser rather than the newer constexpr
+           layout, including for glslang's process-initialisation mutex. -->
+      <PreprocessorDefinitions>_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>

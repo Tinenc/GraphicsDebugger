@@ -578,6 +578,7 @@ class WrappedIDXGISwapChain4 : public IDXGISwapChain4, public RefCountDXGIObject
 
   IUnknown *m_pBackBuffers[MAX_NUM_BACKBUFFERS];
   int32_t m_LastPresentedBuffer = -1;
+  int32_t m_LoggedFirstPresent = 0;
 
   void ReleaseBuffersForResize(UINT QueueCount, IUnknown *const *ppPresentQueue,
                                IUnknown **unwrappedQueues);
@@ -1454,6 +1455,10 @@ public:
       /* [annotation][size_is][out] */
       _Out_writes_all_(NumResources) DXGI_RECLAIM_RESOURCE_RESULTS *pResults);
 };
+
+// Pair a wrapped D3D12 device with factories that were created before export interception.
+void HookNativeDXGIFactoriesForAdapter(IUnknown *adapter);
+void RestoreNativeDXGIFactoryHooks();
 
 class WrappedIDXGIFactory : public IDXGIFactory7, public RefCountDXGIObject
 {
