@@ -1,0 +1,9 @@
+{
+    "extension_api": 1,
+    "name": "RenderDoc MCP",
+    "version": "1.0.0",
+    "minimum_renderdoc": "1.0",
+    "description": "MCP bridge for AI-assisted GPU debugging. Provides file-based IPC for external tools.",
+    "author": "renderdoc-mcp",
+    "url": ""
+}
