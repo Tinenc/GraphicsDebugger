@@ -851,7 +851,8 @@ typedef RENDERDOC_API_1_7_0 RENDERDOC_API_1_6_0;
 //
 // This entry point can be obtained via GetProcAddress/dlsym if RenderDoc is available.
 //
-// The name is the same as the typedef - "TINECMATOOL_GetAPI"
+// The standard entry point is named "RENDERDOC_GetAPI". TINECMATOOL_GetAPI is retained as a
+// compatibility alias for clients built against earlier branded builds.
 //
 // This function is not thread safe, and should not be called on multiple threads at once.
 // Ideally, call this once as early as possible in your application's startup, before doing
@@ -868,7 +869,8 @@ typedef RENDERDOC_API_1_7_0 RENDERDOC_API_1_6_0;
 //   1 - if the outAPIPointers has been filled with a pointer to the API struct requested
 //   0 - if the requested version is not supported or the arguments are invalid.
 //
-typedef int(RENDERDOC_CC *pTINECMATOOL_GetAPI)(RENDERDOC_Version version, void **outAPIPointers);
+typedef int(RENDERDOC_CC *pRENDERDOC_GetAPI)(RENDERDOC_Version version, void **outAPIPointers);
+typedef pRENDERDOC_GetAPI pTINECMATOOL_GetAPI;
 
 #ifdef __cplusplus
 }    // extern "C"

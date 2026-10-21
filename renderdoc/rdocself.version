@@ -18,6 +18,7 @@
                 execvpe;
                 _exit;
                 VK_LAYER_TINECMATOOL_*;
+                RENDERDOC_GetAPI;
                 TINECMATOOL_GetAPI;
                 RDOCSELF_AllocArrayMem;
                 RDOCSELF_FreeArrayMem;

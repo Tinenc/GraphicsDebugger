@@ -17,6 +17,7 @@
                 execve;
                 execvpe;
                 _exit;
+                RENDERDOC_GetAPI;
                 TINECMATOOL_*;
                 VK_LAYER_TINECMATOOL_*;
         local:

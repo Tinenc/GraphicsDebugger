@@ -5,9 +5,13 @@ on:
     branches:
       - v1.x
       - ci-test
+      - main
+      - Wuthering-Waves
   pull_request:
     branches:
       - v1.x
+      - main
+      - Wuthering-Waves
 
 defaults:
   run:
@@ -268,6 +272,9 @@ jobs:
       uses: microsoft/setup-msbuild@v2
     - name: Building solution
       run: msbuild.exe renderdoc.sln "/m" "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ matrix.platform }}" "/p:PlatformToolset=${{ matrix.toolset }}"
+      shell: powershell
+    - name: Verify branded build identity
+      run: .\util\df-research\Test-BuildIdentity.ps1 -Platform "${{ matrix.platform }}" -Configuration "${{ matrix.configuration }}"
       shell: powershell
     - if: matrix.configuration == 'Development'
       name: Running core unit tests

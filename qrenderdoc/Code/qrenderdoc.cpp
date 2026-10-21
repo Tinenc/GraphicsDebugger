@@ -182,6 +182,13 @@ void hideOption(QCommandLineOption &opt)
 
 int main(int argc, char *argv[])
 {
+  // The replay UI must never inherit capture-layer enable flags. In particular, stale manifests
+  // from an older plural-branded build can otherwise load a second core DLL into this process.
+  // Child capture processes receive their required environment from the capture launch path.
+  qunsetenv("ENABLE_VULKAN_TINECMATOOL_CAPTURE");
+  qunsetenv("ENABLE_VULKAN_TINECMATOOLS_CAPTURE");
+  qunsetenv("ENABLE_VULKAN_RENDERDOC_CAPTURE");
+
   // call this as the very first thing - no-op on other platforms, but on linux it means
   // XInitThreads will be called allowing driver access to xlib on multiple threads.
   QCoreApplication::setAttribute(Qt::AA_X11InitThreads);

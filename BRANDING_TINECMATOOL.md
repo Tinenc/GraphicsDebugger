@@ -133,6 +133,10 @@ Internal error: Can't launch renderdoccmd from
 
 ## 5. 编译后期望
 
+Windows 使用 `renderdoc.sln` 生成下列品牌化产物。CMake 平台有意保留上游
+`renderdoc` 文件/模块基名，以维持 Linux、macOS、插件和 Python 包兼容；这不是 Windows
+产物命名的来源。
+
 直接 build `renderdoc.sln`（VS 2019/2022，Debug/Release × x64/Win32），输出位于：
 
 ```
@@ -150,6 +154,9 @@ UI 启动 `qTinecmaTool.exe`，注入器查找的就是同目录的 `TinecmaTool
 ---
 
 ## 6. 向后兼容性破坏
+
+当前版本重新导出标准 `RENDERDOC_GetAPI`，并继续保留 `TINECMATOOL_GetAPI` 作为旧品牌
+客户端的兼容别名。其他表中列出的旧实验性 API 改名只用于解释历史版本，不应继续扩大。
 
 外部调用方必须同步更新：
 

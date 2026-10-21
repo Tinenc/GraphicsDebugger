@@ -29,6 +29,15 @@ foreach ($name in $required) {
     }
 }
 
+$forbiddenOutputPattern = '^(?:q?TinecmaTools(?:cmd|shim(?:32|64)?|ui)?|renderdoc(?:cmd|shim(?:32|64)?|ui)?)\.(?:dll|exe|json|lib|exp|ilk|pdb)$'
+$forbiddenOutputs = @(Get-ChildItem -LiteralPath $buildDir -File | Where-Object {
+    $_.Name -match $forbiddenOutputPattern
+})
+if ($forbiddenOutputs.Count -gt 0) {
+    $paths = ($forbiddenOutputs | ForEach-Object FullName) -join [Environment]::NewLine
+    throw "Legacy or mixed-brand build outputs were found. Run clean_and_rebuild.bat and rebuild before packaging:`n$paths"
+}
+
 $versionText = (& (Join-Path $buildDir "TinecmaToolcmd.exe") version 2>&1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) {
     throw "Unable to read the TinecmaTool version from $buildDir"

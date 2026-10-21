@@ -401,12 +401,11 @@ void Init_1_7_0()
   api.SetCommandAnnotation = &SetCommandAnnotation;
 }
 
-extern "C" RENDERDOC_API int RENDERDOC_CC TINECMATOOL_GetAPI(RENDERDOC_Version version,
-                                                       void **outAPIPointers)
+static int GetAPI(RENDERDOC_Version version, void **outAPIPointers, const char *entryPoint)
 {
   if(outAPIPointers == NULL)
   {
-    RDCERR("Invalid call to TINECMATOOL_GetAPI with NULL outAPIPointers");
+    RDCERR("Invalid call to %s with NULL outAPIPointers", entryPoint);
     return 0;
   }
 
@@ -452,4 +451,16 @@ extern "C" RENDERDOC_API int RENDERDOC_CC TINECMATOOL_GetAPI(RENDERDOC_Version v
   RDCERR("Unrecognised API version '%d'. Supported versions:%s", version, supportedVersions.c_str());
 
   return 0;
+}
+
+extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_GetAPI(RENDERDOC_Version version,
+                                                           void **outAPIPointers)
+{
+  return GetAPI(version, outAPIPointers, "RENDERDOC_GetAPI");
+}
+
+extern "C" RENDERDOC_API int RENDERDOC_CC TINECMATOOL_GetAPI(RENDERDOC_Version version,
+                                                             void **outAPIPointers)
+{
+  return GetAPI(version, outAPIPointers, "TINECMATOOL_GetAPI");
 }

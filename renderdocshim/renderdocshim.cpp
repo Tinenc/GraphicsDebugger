@@ -36,7 +36,7 @@
 
 struct CaptureOptions;
 typedef void(__cdecl *pINTERNAL_SetCaptureOptions)(const CaptureOptions *opts);
-typedef void(__cdecl *pINTERNAL_SetLogFile)(const char *logfile);
+typedef void(__cdecl *pINTERNAL_SetCaptureFile)(const char *capturefile);
 typedef void(__cdecl *pINTERNAL_SetDebugLogFile)(const char *logfile);
 
 #if defined(RELEASE)
@@ -116,16 +116,16 @@ void CheckHook()
       {
         pINTERNAL_SetCaptureOptions setopts =
             (pINTERNAL_SetCaptureOptions)GetProcAddress(mod, "INTERNAL_SetCaptureOptions");
-        pINTERNAL_SetLogFile setlogfile =
-            (pINTERNAL_SetLogFile)GetProcAddress(mod, "INTERNAL_SetLogFile");
+        pINTERNAL_SetCaptureFile setcapturefile =
+            (pINTERNAL_SetCaptureFile)GetProcAddress(mod, "INTERNAL_SetCaptureFile");
         pINTERNAL_SetDebugLogFile setdebuglog =
             (pINTERNAL_SetDebugLogFile)GetProcAddress(mod, "INTERNAL_SetDebugLogFile");
 
         if(setopts)
           setopts((const CaptureOptions *)data->opts);
 
-        if(setlogfile && data->capfile[0])
-          setlogfile(data->capfile);
+        if(setcapturefile && data->capfile[0])
+          setcapturefile(data->capfile);
 
         if(setdebuglog && data->debuglog[0])
           setdebuglog(data->debuglog);

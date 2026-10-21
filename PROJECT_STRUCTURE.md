@@ -1,4 +1,6 @@
-# TinecmaTools 项目结构
+# TinecmaTools 项目结构（历史资料）
+
+> **已弃用：** 本文保留早期目录和复数命名记录。当前构建、测试与打包入口见 [README.md](README.md)。
 
 ## 📁 目录结构
 
