@@ -671,8 +671,10 @@ static pid_t RunProcess(rdcstr appName, rdcstr workDir, const rdcstr &cmdLine, c
 rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
                                                        const rdcarray<EnvironmentModification> &env,
                                                        const rdcstr &logfile,
-                                                       const CaptureOptions &opts, bool waitForExit)
+                                                       const CaptureOptions &opts, bool waitForExit,
+                                                       void *hSuspendedThread)
 {
+  (void)hSuspendedThread;
   RDCUNIMPLEMENTED("Injecting into already running processes on linux");
   return {
       RDResult(ResultCode::InjectionFailed,

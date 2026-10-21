@@ -298,10 +298,11 @@ private:
     {
       RDCDEBUG("Intercepting %s", entryPoint);
 
-      // inherit logfile and capture options
+      // inherit logfile and capture options. The child is still CREATE_SUSPENDED here, so hand
+      // the thread over and let the injector repoint it instead of creating a remote thread.
       rdcpair<RDResult, uint32_t> res = Process::InjectIntoProcess(
           lpProcessInformation->dwProcessId, {}, RenderDoc::Inst().GetCaptureFileTemplate(),
-          RenderDoc::Inst().GetCaptureOptions(), false);
+          RenderDoc::Inst().GetCaptureOptions(), false, (void *)lpProcessInformation->hThread);
 
       if(res.first == ResultCode::Succeeded)
         RenderDoc::Inst().AddChildProcess((uint32_t)lpProcessInformation->dwProcessId, res.second);
@@ -324,42 +325,123 @@ private:
     return ret;
   }
 
+  // Returns true if this child process must NEVER receive our DLL. Cheap lower-case substring
+  // match on the full path/commandline.
+  static bool IsSkipInjectTarget(const rdcstr &lowerpath)
+  {
+    static const char *skip[] = {
+        // our own tooling - injecting into ourselves recurses forever
+        "tinecmatoolcmd.exe",
+        "qtinecmatool.exe",
+        // known-incompatible helper processes (Qt WebEngine)
+        "platformprocess.exe",
+        // Anti-Cheat Expert (ACE) family - used by Wuthering Waves / Delta Force.
+        // Injecting into the ACE setup/installer makes ACE (re)install its kernel driver and
+        // then kill the protected game process, so these must be filtered out explicitly.
+        "ace-setup",
+        "ace-tray",
+        "ace-game",
+        "ace-service",
+        "aceservice",
+        "ace-base",
+        "anticheatexpert",
+        "sguard",
+        "sgutray",
+        // kuro / CrashSight crash reporting helpers
+        "crashsight",
+        "crashreport",
+        "kurosdk",
+    };
+
+    for(const char *s : skip)
+    {
+      if(lowerpath.contains(s))
+        return true;
+    }
+
+    return false;
+  }
+
+  // With APC injection the target starts running as soon as the DLL is in, so the capture
+  // options pushed in afterwards can arrive after the process has already spawned children.
+  // This override makes the child-injection decision independent of that timing.
+  static bool ForceChildInject()
+  {
+    static const bool force = []() -> bool {
+      char buf[8] = {0};
+      const DWORD len = GetEnvironmentVariableA("TCM_FORCE_CHILD_INJECT", buf, (DWORD)sizeof(buf));
+      return len > 0 && buf[0] == '1';
+    }();
+
+    return force;
+  }
+
   static bool ShouldInject(LPCWSTR lpApplicationName, LPCWSTR lpCommandLine)
   {
-    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren)
+    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren && !ForceChildInject())
       return false;
 
-    bool inject = true;
-
     // sanity check to make sure we're not going to go into an infinity loop injecting into
-    // ourselves, and skip known-incompatible child processes (e.g. Qt WebEngine).
+    // ourselves, and skip known-incompatible / protected child processes.
     if(lpApplicationName)
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("tinecmatoolcmd.exe") || app.contains("qtinecmatool.exe") ||
-         app.contains("platformprocess.exe"))
-      {
-        inject = false;
-      }
+      if(IsSkipInjectTarget(app))
+        return false;
     }
     if(lpCommandLine)
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("tinecmatoolcmd.exe") || cmd.contains("qtinecmatool.exe") ||
-         cmd.contains("platformprocess.exe"))
-      {
-        inject = false;
-      }
+      if(IsSkipInjectTarget(cmd))
+        return false;
     }
 
-    return inject;
+    return true;
+  }
+
+  // Extra arguments appended to the command line of every injected child process.
+  //
+  // Some game clients refuse to start unless the launcher hands them launch arguments that the
+  // launcher would normally supply (Wuthering Waves >= 3.7 needs "-krqlv=hd|sd|uhd" or it aborts
+  // with "kuro: Use launcher to start game!"). When the process tree is started by this tool
+  // instead of by the real launcher, nothing forwards those arguments, so allow them to be
+  // supplied out of band via the TCM_CHILD_ARGS environment variable.
+  static LPCWSTR PatchChildCommandLine(LPCWSTR lpCommandLine, std::wstring &storage)
+  {
+    static const std::wstring extra = []() -> std::wstring {
+      char buf[1024] = {0};
+      const DWORD len = GetEnvironmentVariableA("TCM_CHILD_ARGS", buf, (DWORD)sizeof(buf));
+
+      if(len > 0 && len < (DWORD)sizeof(buf))
+        return std::wstring(StringFormat::UTF82Wide(rdcstr(buf, len)).c_str());
+
+      return std::wstring();
+    }();
+
+    if(extra.empty())
+      return lpCommandLine;
+
+    // don't append twice if the child's command line already carries the same argument (some
+    // shells forward their own argv, in which case nothing needs patching)
+    if(lpCommandLine != NULL && wcsstr(lpCommandLine, extra.c_str()) != NULL)
+      return lpCommandLine;
+
+    if(lpCommandLine != NULL)
+    {
+      storage = lpCommandLine;
+      storage.push_back(L' ');
+    }
+
+    storage += extra;
+
+    return storage.c_str();
   }
 
   static bool ShouldInject(LPCSTR lpApplicationName, LPCSTR lpCommandLine)
   {
-    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren)
+    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren && !ForceChildInject())
       return false;
 
     return ShouldInject(lpApplicationName ? StringFormat::UTF82Wide(lpApplicationName).c_str() : NULL,
@@ -394,15 +476,18 @@ private:
                                          __in LPSTARTUPINFOW lpStartupInfo,
                                          __out LPPROCESS_INFORMATION lpProcessInformation)
   {
+    const bool inject = ShouldInject(lpApplicationName, lpCommandLine);
+    std::wstring patchedCmd;
+    LPCWSTR cmd = inject ? PatchChildCommandLine(lpCommandLine, patchedCmd) : lpCommandLine;
+
     return Hooked_CreateProcess(
         "CreateProcessW",
         [=](DWORD flags, LPVOID env, LPPROCESS_INFORMATION pi) {
-          return syshooks.CreateProcessW()(lpApplicationName, lpCommandLine, lpProcessAttributes,
+          return syshooks.CreateProcessW()(lpApplicationName, (LPWSTR)cmd, lpProcessAttributes,
                                            lpThreadAttributes, bInheritHandles, flags, env,
                                            lpCurrentDirectory, lpStartupInfo, pi);
         },
-        dwCreationFlags, ShouldInject(lpApplicationName, lpCommandLine), lpEnvironment,
-        lpProcessInformation);
+        dwCreationFlags, inject, lpEnvironment, lpProcessInformation);
   }
 
   static BOOL WINAPI API110CreateProcessA_hook(
@@ -430,15 +515,18 @@ private:
       __in DWORD dwCreationFlags, __in_opt LPVOID lpEnvironment, __in_opt LPCWSTR lpCurrentDirectory,
       __in LPSTARTUPINFOW lpStartupInfo, __out LPPROCESS_INFORMATION lpProcessInformation)
   {
+    const bool inject = ShouldInject(lpApplicationName, lpCommandLine);
+    std::wstring patchedCmd;
+    LPCWSTR cmd = inject ? PatchChildCommandLine(lpCommandLine, patchedCmd) : lpCommandLine;
+
     return Hooked_CreateProcess(
         "CreateProcessW",
         [=](DWORD flags, LPVOID env, LPPROCESS_INFORMATION pi) {
           return syshooks.API110CreateProcessW()(
-              lpApplicationName, lpCommandLine, lpProcessAttributes, lpThreadAttributes,
+              lpApplicationName, (LPWSTR)cmd, lpProcessAttributes, lpThreadAttributes,
               bInheritHandles, flags, env, lpCurrentDirectory, lpStartupInfo, pi);
         },
-        dwCreationFlags, ShouldInject(lpApplicationName, lpCommandLine), lpEnvironment,
-        lpProcessInformation);
+        dwCreationFlags, inject, lpEnvironment, lpProcessInformation);
   }
 
   static BOOL WINAPI API111CreateProcessA_hook(
@@ -466,15 +554,18 @@ private:
       __in DWORD dwCreationFlags, __in_opt LPVOID lpEnvironment, __in_opt LPCWSTR lpCurrentDirectory,
       __in LPSTARTUPINFOW lpStartupInfo, __out LPPROCESS_INFORMATION lpProcessInformation)
   {
+    const bool inject = ShouldInject(lpApplicationName, lpCommandLine);
+    std::wstring patchedCmd;
+    LPCWSTR cmd = inject ? PatchChildCommandLine(lpCommandLine, patchedCmd) : lpCommandLine;
+
     return Hooked_CreateProcess(
         "CreateProcessW",
         [=](DWORD flags, LPVOID env, LPPROCESS_INFORMATION pi) {
           return syshooks.API111CreateProcessW()(
-              lpApplicationName, lpCommandLine, lpProcessAttributes, lpThreadAttributes,
+              lpApplicationName, (LPWSTR)cmd, lpProcessAttributes, lpThreadAttributes,
               bInheritHandles, flags, env, lpCurrentDirectory, lpStartupInfo, pi);
         },
-        dwCreationFlags, ShouldInject(lpApplicationName, lpCommandLine), lpEnvironment,
-        lpProcessInformation);
+        dwCreationFlags, inject, lpEnvironment, lpProcessInformation);
   }
 
   static BOOL WINAPI API112CreateProcessA_hook(
@@ -502,15 +593,18 @@ private:
       __in DWORD dwCreationFlags, __in_opt LPVOID lpEnvironment, __in_opt LPCWSTR lpCurrentDirectory,
       __in LPSTARTUPINFOW lpStartupInfo, __out LPPROCESS_INFORMATION lpProcessInformation)
   {
+    const bool inject = ShouldInject(lpApplicationName, lpCommandLine);
+    std::wstring patchedCmd;
+    LPCWSTR cmd = inject ? PatchChildCommandLine(lpCommandLine, patchedCmd) : lpCommandLine;
+
     return Hooked_CreateProcess(
         "CreateProcessW",
         [=](DWORD flags, LPVOID env, LPPROCESS_INFORMATION pi) {
           return syshooks.API112CreateProcessW()(
-              lpApplicationName, lpCommandLine, lpProcessAttributes, lpThreadAttributes,
+              lpApplicationName, (LPWSTR)cmd, lpProcessAttributes, lpThreadAttributes,
               bInheritHandles, flags, env, lpCurrentDirectory, lpStartupInfo, pi);
         },
-        dwCreationFlags, ShouldInject(lpApplicationName, lpCommandLine), lpEnvironment,
-        lpProcessInformation);
+        dwCreationFlags, inject, lpEnvironment, lpProcessInformation);
   }
 
   static BOOL WINAPI CreateProcessAsUserA_hook(

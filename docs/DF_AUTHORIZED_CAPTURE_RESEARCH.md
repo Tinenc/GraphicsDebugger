@@ -29,12 +29,14 @@
 在 Visual Studio 2022 Developer PowerShell 中执行：
 
 ```powershell
+.\clean_and_rebuild.bat
 msbuild.exe .\renderdoc.sln /m /p:Configuration=Release /p:Platform=x64
+.\util\df-research\Test-BuildIdentity.ps1 -Platform x64 -Configuration Release
 .\x64\Release\TinecmaToolcmd.exe test unit -o .\artifacts\core-tests.log
 .\x64\Release\qTinecmaTool.exe --unittest log=.\artifacts\ui-tests.log
 ```
 
-开发期可把 `Release` 改为 `Development`。CI 的 Windows 测试入口已经使用品牌化后的 `TinecmaToolcmd.exe` 和 `qTinecmaTool.exe`。
+开发期可把 `Release` 改为 `Development`。清理脚本会移除历史复数品牌和上游默认名残留；身份检查会拒绝混合产物，并核对 Replay Marker、Shim 接口、公共 API 和 Vulkan manifest。CI 的 Windows 测试入口已经使用品牌化后的 `TinecmaToolcmd.exe` 和 `qTinecmaTool.exe`。
 
 ## 打包
 
@@ -64,7 +66,7 @@ msbuild.exe .\renderdoc.sln /m /p:Configuration=Release /p:Platform=x64
 - 在独立 Python 3.12 虚拟环境安装，依赖固定为 `mcp[cli]>=1.0.0,<2`；上游代码使用 MCP SDK 1.x 的 `FastMCP` API，直接安装当前 2.x 会导入失败。
 - 扩展安装到 `%APPDATA%\qTinecmaTool\extensions\renderdoc_mcp`，并在 UI 配置的 `AlwaysLoad_Extensions` 中加入 `renderdoc_mcp`。
 - v1.44 的加载调用为 `LoadCapture(path, rd.ReplayOptions(), path, False, True)`；旧版字符串参数顺序不兼容。
-- 启动分析 UI 时必须移除 `ENABLE_VULKAN_TINECMATOOL_CAPTURE`，或设置 `DISABLE_VULKAN_TINECMATOOL_CAPTURE_1_44=1`。否则全局 Vulkan 捕获层可能把 Development 核心加载进 Release UI，造成运行时混载和崩溃。
+- `qTinecmaTool` 启动时会移除继承到 UI 自身的 `ENABLE_VULKAN_TINECMATOOL_CAPTURE`、历史复数品牌变量和上游变量；捕获子进程所需环境仍由正式启动路径单独设置。外部脚本也应避免给分析 UI 注入这些变量，以免旧版 UI 发生运行时混载。
 - MCP 的文件 IPC 目录是 `%TEMP%\renderdoc_mcp_ipc`，同一用户会话只运行一个 MCP Server 实例。配置变更后重启 Codex，避免热重载期间多个服务竞争同一组文件。
 
 验证顺序：`ping` → `open_capture` → `get_capture_status` → `get_draw_calls`。当前验证样例为 Vulkan 帧，已成功加载并返回 17 个 action。

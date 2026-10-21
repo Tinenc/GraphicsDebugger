@@ -333,7 +333,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_CreateBugReport(const rdcst
   if(report.empty())
   {
     report = FileIO::GetTempFolderFilename() +
-StringFormat::sntimef(Timing::GetUTCTime(), "/TinecmaTool_report_%H%M%S.zip");
+             StringFormat::sntimef(Timing::GetUTCTime(), "/TinecmaTool_report_%H%M%S.zip");
   }
 
   FileIO::Delete(report);
@@ -551,8 +551,11 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_StartSelfHostCapture(const 
   if(module == NULL)
     return;
 
-  pTINECMATOOL_GetAPI get =
-      (pTINECMATOOL_GetAPI)Process::GetFunctionAddress(module, "TINECMATOOL_GetAPI");
+  pRENDERDOC_GetAPI get =
+      (pRENDERDOC_GetAPI)Process::GetFunctionAddress(module, "RENDERDOC_GetAPI");
+
+  if(get == NULL)
+    get = (pRENDERDOC_GetAPI)Process::GetFunctionAddress(module, "TINECMATOOL_GetAPI");
 
   if(get == NULL)
     return;
@@ -577,8 +580,11 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_EndSelfHostCapture(const rd
   if(module == NULL)
     return;
 
-  pTINECMATOOL_GetAPI get =
-      (pTINECMATOOL_GetAPI)Process::GetFunctionAddress(module, "TINECMATOOL_GetAPI");
+  pRENDERDOC_GetAPI get =
+      (pRENDERDOC_GetAPI)Process::GetFunctionAddress(module, "RENDERDOC_GetAPI");
+
+  if(get == NULL)
+    get = (pRENDERDOC_GetAPI)Process::GetFunctionAddress(module, "TINECMATOOL_GetAPI");
 
   if(get == NULL)
     return;

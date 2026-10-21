@@ -1,4 +1,6 @@
-# TinecmaTools 快速开始指南
+# TinecmaTools 快速开始指南（历史资料）
+
+> **已弃用：** 本文包含旧的复数名产物和早期实验流程，不能用于当前构建或部署。请改用 [README.md](README.md) 与 [授权捕获研究线](docs/DF_AUTHORIZED_CAPTURE_RESEARCH.md)。不要把本文中的二进制改名、隐藏或第三方进程注入步骤用于实际环境。
 
 ## 🚀 5分钟快速上手
 

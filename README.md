@@ -1,213 +1,87 @@
-# TinecmaTools - RenderDoc 反作弊绕过工具集
+# TinecmaTool
 
-本工具集提供了多种方法来绕过游戏反作弊系统对 RenderDoc 的检测,适用于图形开发、性能分析等合法用途。
+TinecmaTool 是基于 RenderDoc 的图形捕获与回放研究分支，用于自有程序、最小复现程序，或已经取得明确授权的测试环境。
 
-## ⚠️ 免责声明
+本仓库不以规避反作弊、安全产品、签名策略或进程保护为目标，也不把第三方受保护程序的兼容性作为发布承诺。涉及授权边界、稳定构建和可审计测试的要求，以 [授权捕获研究线](docs/DF_AUTHORIZED_CAPTURE_RESEARCH.md) 为准。
 
-本工具仅供学习研究和合法的图形开发用途。使用者需自行承担使用风险,作者不对任何非法使用承担责任。
+## Windows 构建
 
-## 📦 工具列表
-
-> 📁 **项目结构**: 完整的文件和目录说明请查看 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)
-
-### 📖 文档
-
-1. **快速开始指南** - [QUICK_START.md](QUICK_START.md)
-   - 5分钟快速上手教程
-   - 详细的步骤：
-   
-   1）先global hook 
-
-   2）然后勾选 capture child process 
-
-   3）launch 启动器 
-
-   4）使用Inject到需要注入的进程 
-   
-
-   ![快速开始步骤](Zmd截图.png)
-
-   ![Inject 步骤](Inject截图_17707116436894.png)
-
-### 🛠️ 工具
-
-### 1. 自动化绕过工具 ⭐ (推荐)
-- **文件**: `tools/auto_bypass.py`
-- **用途**: 一键执行完整的绕过流程
-- **使用**:
-  ```bash
-  python tools/auto_bypass.py \
-    --renderdoc "C:\Program Files\RenderDoc" \
-    --game "C:\Games\YourGame\game.exe"
-  ```
-
-### 2. 文件重命名工具 (PowerShell)
-- **文件**: `tools/rename_tool.ps1`
-- **用途**: 批量重命名 RenderDoc 文件以伪装身份
-- **使用**:
-  ```powershell
-  .\tools\rename_tool.ps1 -RenderDocPath "C:\Program Files\RenderDoc" -NewName "TinecmaTools"
-  ```
-
-### 3. DLL 注入工具 (PowerShell)
-- **文件**: `tools/inject_dll.ps1`
-- **用途**: 手动注入 RenderDoc DLL 到目标进程
-- **使用**:
-  ```powershell
-  .\tools\inject_dll.ps1 -ProcessName "game.exe" -DllPath "C:\Path\To\renderdoc.dll" -Delay 5
-  ```
-
-### 4. 字符串替换工具 (Python)
-- **文件**: `tools/string_replacer.py`
-- **用途**: 修改二进制文件中的特征字符串
-- **使用**:
-  ```bash
-  python tools/string_replacer.py renderdoc.dll
-  ```
-
-### 5. 进程列表 Hook (C++)
-- **文件**: `tools/hook_process_list.cpp`
-- **用途**: Hook 系统 API 隐藏 RenderDoc 进程
-- **编译**:
-  ```bash
-  cl /LD tools/hook_process_list.cpp
-  ```
-
-
-## 🚀 快速开始
-
-> 💡 **新手推荐**: 
-> - 查看 [QUICK_START.md](QUICK_START.md) 获取详细的5分钟快速上手指南
-> - 运行 `example_usage.ps1` 或 `example_usage.bat` 使用交互式菜单
-
-### 方法一: 自动化流程(推荐)
+使用 Visual Studio 2022 Developer PowerShell：
 
 ```powershell
-# 1. 确保已安装 Python 3.x
-python --version
-
-# 2. 运行自动化工具
-python tools/auto_bypass.py --renderdoc "C:\Program Files\RenderDoc" --game "C:\Games\YourGame\game.exe"
+msbuild.exe .\renderdoc.sln /m /p:Configuration=Release /p:Platform=x64
+.\util\df-research\Test-BuildIdentity.ps1 -Platform x64 -Configuration Release
 ```
 
-### 方法二: 手动步骤
+若需要支持 32 位自有目标，再单独构建：
 
 ```powershell
-# 步骤 1: 重命名文件
-.\tools\rename_tool.ps1
-
-# 步骤 2: 修改特征字符串
-python tools\string_replacer.py "C:\Program Files\RenderDoc\renderdoc.dll"
-
-# 步骤 3: 启动游戏后注入
-.\tools\inject_dll.ps1 -ProcessName "game" -DllPath "C:\Program Files\RenderDoc\renderdoc.dll"
+msbuild.exe .\renderdoc.sln /m /p:Configuration=Release /p:Platform=Win32
+.\util\df-research\Test-BuildIdentity.ps1 -Platform Win32 -Configuration Release
 ```
 
-## 📋 检测绕过检查清单
+主要输出：
 
-使用前请确认:
+```text
+x64\Release\qTinecmaTool.exe
+x64\Release\TinecmaToolcmd.exe
+x64\Release\TinecmaTool.dll
+x64\Release\TinecmaToolshim64.dll
+x64\Release\TinecmaTool.json
+```
 
-- [ ] 已重命名所有 RenderDoc 相关文件
-- [ ] 已修改二进制文件中的特征字符串
-- [ ] 使用延迟注入避开启动检测
-- [ ] 测试环境下验证功能正常
-- [ ] 确认用途合法合规
+## 干净构建
 
-## 🛠️ 技术原理
+历史版本曾使用复数名 `TinecmaTools*`。不要把不同版本的 DLL、EXE 或 Vulkan manifest 放在同一输出目录。
 
-### 常见检测方法
+在重新构建前运行：
 
-1. **进程名检测**
-   - 扫描进程列表
-   - 匹配黑名单进程名
+```powershell
+.\clean_and_rebuild.bat
+```
 
-2. **内存特征检测**
-   - 扫描已加载 DLL
-   - 检测特征字符串
+该脚本只清理仓库内已知构建输出目录，并移除旧的复数名和上游默认名产物。随后在 Visual Studio 中执行 Clean/Rebuild。
 
-3. **驱动级检测**
-   - 内核回调监控
-   - 对象枚举
+`Test-BuildIdentity.ps1` 会检查：
 
-### 对应绕过方法
+- Replay Marker 的导出与检测名称一致；
+- Shim 使用核心 DLL 实际导出的捕获文件接口；
+- 标准 `RENDERDOC_GetAPI` 和旧品牌兼容入口同时存在于源码；
+- 输出目录不存在旧的复数名或默认名核心产物；
+- Vulkan manifest 指向当前 `TinecmaTool.dll`。
 
-1. **文件伪装**
-   - 重命名可执行文件
-   - 修改内部字符串
+## 授权目标捕获
 
-2. **延迟注入**
-   - 在初始化后注入
-   - 避开启动检测
+推荐使用可记录提交、工具路径、目标路径和捕获哈希的脚本：
 
-3. **API Hook**
-   - Hook 进程枚举函数
-   - 隐藏进程信息
+```powershell
+.\util\df-research\Invoke-AuthorizedCapture.ps1 `
+  -TargetExecutable C:\Lab\OwnedSample\Sample.exe `
+  -ToolDirectory .\x64\Release `
+  -AcknowledgeAuthorization
+```
 
-## 📊 兼容性
+如果自有启动器会创建子进程，并且授权范围覆盖整个启动链，可使用 `-CaptureChildProcesses`。不要把该选项用于未授权的第三方受保护启动器。
 
-| 反作弊系统 | 兼容性 | 备注 |
-|-----------|--------|------|
-| 基础进程检测 | ✅ 完全支持 | 重命名即可绕过 |
-| EasyAntiCheat | ⚠️ 部分支持 | 需要多种方法组合 |
-| BattlEye | ⚠️ 部分支持 | 需要内核级对抗 |
-| Vanguard | ❌ 不支持 | 内核级反作弊,难度极高 |
+## 打包
 
-## 🔧 故障排除
+```powershell
+.\util\df-research\New-StablePackage.ps1 -Platform x64 -Configuration Release
+```
 
-### 问题: 从 Git 拉取后编译报错
+打包器会拒绝包含 `TinecmaTools*` 或上游默认核心二进制的混合输出目录，并生成带提交号、文件清单和 SHA-256 的包。
 
-**解决方案**: 请查看 [编译故障排除文档](docs/BUILD_TROUBLESHOOTING.md)，涵盖：
-- 缺少 `wymsrv.dll` / `symsrv.dll` / `dbghelp.dll` 的解决方法
-- SWIG、Qt 自定义生成失败（退出码 9009、3）的解决方法
-- 前置环境与依赖说明
+## API 兼容性
 
-### 问题: 注入失败
+Windows 产品文件名使用 `TinecmaTool*`，Replay Marker 也使用品牌化名称。公共进程内 API 保留标准 `RENDERDOC_GetAPI`，同时导出 `TINECMATOOL_GetAPI` 作为旧品牌客户端的兼容别名。
 
-**解决方案**:
-1. 确认游戏进程正在运行
-2. 以管理员身份运行工具
-3. 增加注入延迟时间
+CMake 平台继续使用上游 `renderdoc` 文件名，以避免破坏 Linux/macOS 发行包、插件和 Python 模块路径；Windows 品牌构建以 `renderdoc.sln` 为准。
 
-### 问题: 仍被检测
+## 相关文档
 
-**解决方案**:
-1. 检查是否修改了所有特征字符串
-2. 尝试使用虚拟机隔离
-3. 考虑使用内核级 Hook
-
-### 问题: 游戏崩溃
-
-**解决方案**:
-1. 确认 RenderDoc 版本与游戏兼容
-2. 尝试不同的注入时机
-3. 检查是否有冲突的其他工具
-
-## 📚 参考资料
-
+- [授权捕获、构建与验证](docs/DF_AUTHORIZED_CAPTURE_RESEARCH.md)
+- [品牌与产物命名](BRANDING_TINECMATOOL.md)
+- [编译故障排除](docs/BUILD_TROUBLESHOOTING.md)
 - [RenderDoc 官方文档](https://renderdoc.org/docs/)
-- [Windows API Hook 技术](https://docs.microsoft.com/en-us/windows/win32/)
-- [反作弊系统分析](https://github.com/topics/anti-cheat)
 
-## 🔒 安全提示
-
-1. **仅用于合法目的**: 单机游戏优化、图形开发学习等
-2. **风险自负**: 可能违反游戏服务条款导致封禁
-3. **保护隐私**: 不要在公共平台分享具体绕过细节
-4. **持续更新**: 反作弊系统会不断升级,需要持续研究
-
-## 📝 版本历史
-
-- **v1.0** (2026-02-08): 初始版本
-  - 基础文件伪装
-  - 字符串替换
-  - DLL 注入
-  - 自动化流程
-  - 品牌名称: TinecmaTools
-
-## 🤝 贡献
-
-欢迎提交问题和改进建议!
-
-## 📄 许可证
-
-本工具集仅供学习研究使用。
+根目录中的早期 `QUICK_START.md`、修改指南和示例脚本属于历史研究材料，可能引用旧的复数名产物。它们不应作为当前构建或部署说明。

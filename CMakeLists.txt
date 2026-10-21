@@ -109,6 +109,9 @@ set(VULKAN_JSON_SUFFIX "" CACHE STRING "Suffix for the vulkan implicit_layer jso
 
 option(INTERNAL_SELF_CAPTURE "Internal option: enable self-capture" OFF)
 
+# CMake platforms intentionally retain the upstream file/module basename for package and plugin
+# compatibility. The branded Windows build is produced from renderdoc.sln, whose projects define
+# RDOC_BASE_NAME=TinecmaTool. Keep public RENDERDOC_* APIs compatible on both paths.
 set(RDOC_BASE_NAME "renderdoc")
 if(INTERNAL_SELF_CAPTURE)
     set(RDOC_BASE_NAME "rdocself")

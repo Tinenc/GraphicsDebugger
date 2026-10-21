@@ -1,4 +1,6 @@
-# TinecmaTools：修改 RenderDoc 特征码绕过反作弊检测完整指南
+# TinecmaTools 修改记录（历史资料）
+
+> **已弃用：** 本文记录旧版复数命名和早期实验，不代表当前支持范围。当前项目只维护授权图形捕获、构建一致性和回放兼容；请以 [README.md](README.md)、[BRANDING_TINECMATOOL.md](BRANDING_TINECMATOOL.md) 与 [授权捕获研究线](docs/DF_AUTHORIZED_CAPTURE_RESEARCH.md) 为准。
 
 ## 前言
 
