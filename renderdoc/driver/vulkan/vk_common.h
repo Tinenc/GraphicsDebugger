@@ -123,6 +123,15 @@ BlendOperation MakeBlendOp(VkBlendOp op);
 StencilOperation MakeStencilOp(VkStencilOp op);
 rdcstr HumanDriverName(VkDriverId driverId);
 
+// True when this process is the executable this build is meant to capture.
+// The layer is registered as a Vulkan implicit layer without enable_environment
+// (the game launcher does not pass its environment down to the renderer), so the
+// loader tries to load it into every Vulkan process on the machine. Anything that
+// is not the target is handed off untouched - see vk_layer.cpp for where the
+// loader is told to skip us.
+// Override with TCM_LAYER_TARGET=<exe name>.
+bool IsLayerCaptureTarget();
+
 void SanitiseOldImageLayout(VkImageLayout &layout);
 void SanitiseNewImageLayout(VkImageLayout &layout);
 void SanitiseReplayImageLayout(VkImageLayout &layout);

@@ -63,11 +63,54 @@ static BOOL add_hooks()
     return true;
   }
 
+  // NOTE: no capture-target filtering here.
+  //
+  // With the injection setup the tool deliberately injects into Games.exe - the
+  // launcher UI - because that is the process which spawns Endfield.exe, and the
+  // CreateProcess hook only exists where our DLL is. Games.exe is obviously not
+  // "endfield.exe", so filtering on the target name here would make the injected
+  // DLL inert and leave nothing to carry the injection down to the game.
+  //
+  // The "do not disturb unrelated Vulkan processes" job belongs to the loader
+  // negotiation in vk_layer.cpp (VK_ERROR_INITIALIZATION_FAILED), which is where
+  // a layer can actually opt out. The layer json stays locked for this setup, so
+  // unrelated processes never load this DLL in the first place.
+
   RenderDoc::Inst().Initialise();
 
   RDCLOG("Loading into %ls", curFile);
 
-  LibraryHooks::RegisterHooks();
+  // Relay vs. render target.
+  //
+  // A relay process exists only to carry the injection onward through CreateProcess.
+  // Games.exe is one: it is a Qt5 + QtWebEngine UI, and its window is drawn through
+  // ANGLE (GLES over D3D11). Registering the graphics hooks there breaks that:
+  //
+  //   egl_platform.cpp(92) - Creating cloned context failed (3006)
+  //   gl_common.cpp(517)   - Detected vendor: None
+  //
+  // and the launcher window goes completely black. It also parks a dozen "OpenGLES
+  // device frame capturer" objects on the UI's contexts, which is pure noise.
+  //
+  // So: only the real render target gets the full hook set. Anything else gets the
+  // process hook alone - enough to intercept CreateProcess, nothing that touches GL.
+  rdcstr target = "endfield.exe";
+  {
+    wchar_t envbuf[256] = {};
+    DWORD envlen = GetEnvironmentVariableW(L"TCM_LAYER_TARGET", envbuf, ARRAY_COUNT(envbuf));
+    if(envlen > 0 && envlen < ARRAY_COUNT(envbuf))
+      target = strlower(StringFormat::Wide2UTF8(envbuf));
+  }
+
+  if(f == target)
+  {
+    LibraryHooks::RegisterHooks();
+  }
+  else
+  {
+    RDCLOG("Relay process (not %s), registering process hooks only", target.c_str());
+    LibraryHooks::RegisterProcessHooks();
+  }
 
   return TRUE;
 }

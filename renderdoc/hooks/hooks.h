@@ -149,6 +149,17 @@ public:
   static void OptionsUpdated();
   static void RemoveHookCallbacks();
 
+  // Registers only the hooks that are needed to follow process creation (the CreateProcess
+  // family), skipping every graphics API.
+  //
+  // Used for "relay" processes: a process that is injected purely so it can carry the
+  // injection down to the children it spawns. In the Endfield setup that is the launcher UI
+  // (Games.exe), which is a Qt5 + QtWebEngine application. Hooking its EGL/GLES - ANGLE over
+  // D3D11 - makes the launcher window render black, because our GLES wrapper cannot clone
+  // ANGLE's context ("Creating cloned context failed (3006)", "Detected vendor: None").
+  // The relay does not need any of that: it only has to intercept CreateProcess.
+  static void RegisterProcessHooks();
+
   // platform specific implementations
 
   // some platforms may unavoidably hook on replay, this gives them a chance to do any
@@ -186,9 +197,15 @@ private:
 struct LibraryHook
 {
   LibraryHook();
+  virtual ~LibraryHook() = default;
   virtual void RegisterHooks() = 0;
   virtual void OptionsUpdated() {}
   virtual void RemoveHooks() {}
+
+  // true for every graphics API hook (D3D11/D3D12/DXGI/Vulkan/EGL/GL/WGL/NVAPI/AMD...).
+  // Only the platform process hook (CreateProcess family) reports false, so that
+  // LibraryHooks::RegisterProcessHooks() can set up injection without touching rendering.
+  virtual bool isGraphicsAPI() const { return true; }
 private:
   friend class LibraryHooks;
 

@@ -79,10 +79,14 @@ public:
     m_WSARefCount = 1;
   }
 
+  // This is the only hook that is not a graphics API. LibraryHooks::RegisterProcessHooks()
+  // relies on it to set up CreateProcess interception in a relay process without dragging in
+  // the EGL/GLES/D3D hooks that break QtWebEngine based UIs.
+  bool isGraphicsAPI() const override { return false; }
+
   void RegisterHooks()
   {
     RDCLOG("Registering Win32 system hooks");
-
     // register libraries that we care about. We don't need a callback when they are loaded
     LibraryHooks::RegisterLibraryHook("kernel32.dll", NULL);
     LibraryHooks::RegisterLibraryHook("advapi32.dll", NULL);
@@ -301,7 +305,7 @@ private:
       // inherit logfile and capture options
       rdcpair<RDResult, uint32_t> res = Process::InjectIntoProcess(
           lpProcessInformation->dwProcessId, {}, RenderDoc::Inst().GetCaptureFileTemplate(),
-          RenderDoc::Inst().GetCaptureOptions(), false);
+          RenderDoc::Inst().GetCaptureOptions(), false, (void *)lpProcessInformation->hThread);
 
       if(res.first == ResultCode::Succeeded)
         RenderDoc::Inst().AddChildProcess((uint32_t)lpProcessInformation->dwProcessId, res.second);
@@ -324,42 +328,95 @@ private:
     return ret;
   }
 
+  // Returns true if this child process must NEVER receive our DLL. Cheap lower-case
+  // substring match on the full path / command line.
+  static bool IsSkipInjectTarget(const rdcstr &lowerpath)
+  {
+    static const char *skip[] = {
+        // our own tooling - injecting into ourselves recurses forever
+        "tinecmatoolcmd.exe",
+        "qtinecmatool.exe",
+        // known-incompatible helper process (SDK side-channel, Qt WebEngine)
+        "platformprocess.exe",
+        // QtWebEngine renderer: injected into, it trips
+        // "Assertion failed: 'm_ResourceRecords.empty()'" inside resource_manager.h while
+        // the launcher UI is still starting, which takes the whole Games.exe down with it.
+        // Observed 2026-10-23 03:06:38 - first launch died, second one worked only because
+        // the renderer happened not to be up yet. Skip it, the launcher UI is not our target.
+        "qtwebengineprocess",
+        // Anti-Cheat Expert (ACE) family - used by Endfield / Wuthering Waves / Delta Force.
+        // Injecting into the ACE setup/installer makes ACE (re)install its kernel driver and
+        // then kill the protected game process, so these must be filtered out explicitly.
+        "ace-setup",
+        "ace-tray",
+        "ace-game",
+        "ace-service",
+        "aceservice",
+        "ace-base",
+        "anticheatexpert",
+        "sguard",
+        "sgutray",
+        // crash reporting helpers
+        "crashsight",
+        "crashreport",
+        "kurosdk",
+        // Endfield-specific SDK helpers, same reasoning as platformprocess
+        "hgdownloadsdk",
+        "hgeventlogsdk",
+        "hgmarqueesdk",
+    };
+
+    for(const char *s : skip)
+    {
+      if(lowerpath.contains(s))
+        return true;
+    }
+
+    return false;
+  }
+
+  // With APC injection the target starts running as soon as the DLL lands, so the capture
+  // options pushed in afterwards can arrive after the process has already spawned its
+  // children. This override decouples the child-injection decision from that race.
+  static bool ForceChildInject()
+  {
+    static const bool force = []() -> bool {
+      char buf[8] = {0};
+      const DWORD len = GetEnvironmentVariableA("TCM_FORCE_CHILD_INJECT", buf, (DWORD)sizeof(buf));
+      return len > 0 && buf[0] == '1';
+    }();
+
+    return force;
+  }
+
   static bool ShouldInject(LPCWSTR lpApplicationName, LPCWSTR lpCommandLine)
   {
-    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren)
+    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren && !ForceChildInject())
       return false;
 
-    bool inject = true;
-
     // sanity check to make sure we're not going to go into an infinity loop injecting into
-    // ourselves, and skip known-incompatible child processes (e.g. Qt WebEngine).
+    // ourselves, and skip known-incompatible / protected child processes.
     if(lpApplicationName)
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("tinecmatoolcmd.exe") || app.contains("qtinecmatool.exe") ||
-         app.contains("platformprocess.exe"))
-      {
-        inject = false;
-      }
+      if(IsSkipInjectTarget(app))
+        return false;
     }
     if(lpCommandLine)
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("tinecmatoolcmd.exe") || cmd.contains("qtinecmatool.exe") ||
-         cmd.contains("platformprocess.exe"))
-      {
-        inject = false;
-      }
+      if(IsSkipInjectTarget(cmd))
+        return false;
     }
 
-    return inject;
+    return true;
   }
 
   static bool ShouldInject(LPCSTR lpApplicationName, LPCSTR lpCommandLine)
   {
-    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren)
+    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren && !ForceChildInject())
       return false;
 
     return ShouldInject(lpApplicationName ? StringFormat::UTF82Wide(lpApplicationName).c_str() : NULL,

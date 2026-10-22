@@ -38,6 +38,33 @@
 
 extern "C" const rdcstr VulkanLayerJSONBasename;
 
+// Which executable is this build supposed to capture?
+//
+// This build's layer json has no enable_environment, because the Endfield launcher
+// creates the game process with its own environment block, so the enable variable
+// never reaches the renderer. That means the loader tries to load this DLL into
+// EVERY Vulkan process on the machine - other TinecmaTool builds, replay windows
+// opening unrelated captures, browsers, OBS. None of them must be affected, so the
+// layer declares itself unusable for anything that is not the target and the loader
+// skips it entirely (see NegotiateLoaderLayerInterfaceVersion below).
+//
+// Override the target with TCM_LAYER_TARGET=<exe name> to reuse this build.
+bool IsLayerCaptureTarget()
+{
+  static const bool state = []() -> bool {
+    const rdcstr cfg = Process::GetEnvVariable("TCM_LAYER_TARGET");
+    const rdcstr target = cfg.empty() ? rdcstr("endfield.exe") : strlower(cfg);
+
+    rdcstr selfName;
+    FileIO::GetExecutableFilename(selfName);
+    if(selfName.empty())
+      return true;    // can't tell who we are - stay active, old behaviour
+
+    return strlower(get_basename(selfName)) == target;
+  }();
+  return state;
+}
+
 // this was removed from the vulkan definition header
 #undef VK_LAYER_EXPORT
 #define VK_LAYER_EXPORT
@@ -635,6 +662,21 @@ VK_LAYER_TINECMATOOL_CaptureNegotiateLoaderLayerInterfaceVersion(VkNegotiateLaye
 {
   if(pVersionStruct->sType != LAYER_NEGOTIATE_INTERFACE_STRUCT)
     return VK_ERROR_INITIALIZATION_FAILED;
+
+  // Not the process we are meant to capture. Report ourselves as unusable so the
+  // loader drops this layer completely - that keeps other TinecmaTool builds,
+  // rdc replay windows and every other Vulkan application on this machine working
+  // exactly as if the layer were not installed. Returning failure here is the
+  // documented way for a layer to opt out during negotiation.
+  //
+  // This has to happen at negotiation rather than in vkCreateInstance: if we let
+  // the layer stay in the chain, vkGetInstanceProcAddr would hand out our hooked_*
+  // entry points for instances we never wrapped, and GetRecord() would explode.
+  if(!IsLayerCaptureTarget())
+  {
+    RDCLOG("Not the capture target, telling the loader to skip this layer");
+    return VK_ERROR_INITIALIZATION_FAILED;
+  }
 
   if(pVersionStruct->loaderLayerInterfaceVersion >= 2)
   {

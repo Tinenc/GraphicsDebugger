@@ -249,10 +249,113 @@ extern "C" __declspec(dllexport) void __cdecl INTERNAL_ApplyEnvMods(void *ignore
   Process::ApplyEnvironmentModification();
 }
 
-void InjectDLL(HANDLE hProcess, rdcwstr libName)
+// Early-bird APC injection.
+//
+// The default path below creates a remote thread whose entry point is
+// kernel32!LoadLibraryW. That is the single most recognisable injection signature
+// there is, and anti-cheat kernel callbacks (ACE's ObRegisterCallbacks in
+// particular) see it immediately - the game dies seconds later with no WER entry.
+//
+// Instead: the target was created with CREATE_SUSPENDED, so before resuming we
+// queue an APC with the same LoadLibraryW pointer onto its main thread and then
+// resume. ntdll dispatches the APC after the loader is initialised but before the
+// entry point runs, so the DLL is in place before the target executes a single
+// instruction of its own - and no remote thread is ever created.
+//
+// Falls back to the classic remote thread if anything goes wrong.
+uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName);
+
+static bool InjectDLLViaAPC(HANDLE hProcess, HANDLE hThread, const wchar_t *dllPath)
+{
+  if(hThread == NULL)
+    return false;
+
+  const size_t pathLen = (wcslen(dllPath) + 1) * sizeof(wchar_t);
+
+  HMODULE kernel32 = GetModuleHandleA("kernel32.dll");
+  if(kernel32 == NULL)
+  {
+    RDCERR("APC injection: no kernel32.dll");
+    return false;
+  }
+
+  uintptr_t loadLibrary = (uintptr_t)GetProcAddress(kernel32, "LoadLibraryW");
+  if(loadLibrary == 0)
+  {
+    RDCERR("APC injection: can't resolve kernel32!LoadLibraryW");
+    return false;
+  }
+
+  void *remoteMem =
+      VirtualAllocEx(hProcess, NULL, pathLen, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+  if(remoteMem == NULL)
+  {
+    RDCWARN("APC injection: VirtualAllocEx failed: %u", GetLastError());
+    return false;
+  }
+
+  if(!WriteProcessMemory(hProcess, remoteMem, dllPath, pathLen, NULL))
+  {
+    RDCWARN("APC injection: writing dll path failed: %u", GetLastError());
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+    return false;
+  }
+
+  if(!QueueUserAPC((PAPCFUNC)loadLibrary, hThread, (ULONG_PTR)remoteMem))
+  {
+    RDCWARN("APC injection: QueueUserAPC failed: %u", GetLastError());
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+    return false;
+  }
+
+  // let the loader run - the queued APC fires right before the target's entry point
+  ResumeThread(hThread);
+
+  const DWORD pid = GetProcessId(hProcess);
+  bool loaded = false;
+
+  for(int i = 0; i < 200; i++)
+  {
+    if(FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll") != 0)
+    {
+      loaded = true;
+      break;
+    }
+
+    DWORD exitCode = 0;
+    if(GetExitCodeProcess(hProcess, &exitCode) && exitCode != STILL_ACTIVE)
+    {
+      RDCERR("APC injection: target process exited during injection (code 0x%08x)", exitCode);
+      break;
+    }
+
+    Sleep(50);
+  }
+
+  if(!loaded)
+    RDCERR("APC injection: module did not appear in the target within 10s");
+  else
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+
+  return loaded;
+}
+
+void InjectDLL(HANDLE hProcess, rdcwstr libName, HANDLE hSuspendedThread)
 {
   wchar_t dllPath[MAX_PATH + 1] = {0};
   wcscpy_s(dllPath, libName.c_str());
+
+  // preferred path: no remote thread at all
+  if(hSuspendedThread != NULL)
+  {
+    if(InjectDLLViaAPC(hProcess, hSuspendedThread, dllPath))
+    {
+      RDCLOG("Injected %ls via early-bird APC, no remote thread created", dllPath);
+      return;
+    }
+
+    RDCWARN("APC injection failed, falling back to CreateRemoteThread");
+  }
 
   static HMODULE kernel32 = GetModuleHandleA("kernel32.dll");
 
@@ -574,7 +677,8 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
 rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
                                                        const rdcarray<EnvironmentModification> &env,
                                                        const rdcstr &capturefile,
-                                                       const CaptureOptions &opts, bool waitForExit)
+                                                       const CaptureOptions &opts, bool waitForExit,
+                                                       void *hSuspendedThread)
 {
   rdcwstr wcapturefile = StringFormat::UTF82Wide(capturefile);
 
@@ -970,7 +1074,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
     return {ResultCode::Succeeded, (uint32_t)exitCode};
   }
 
-  InjectDLL(hProcess, renderdocPath);
+  InjectDLL(hProcess, renderdocPath, (HANDLE)hSuspendedThread);
 
   const char *rdoc_dll = STRINGIZE(RDOC_BASE_NAME);
 
@@ -1180,7 +1284,8 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     return {result, 0};
   }
 
-  rdcpair<RDResult, uint32_t> ret = InjectIntoProcess(pi.dwProcessId, {}, capturefile, opts, false);
+  rdcpair<RDResult, uint32_t> ret =
+      InjectIntoProcess(pi.dwProcessId, {}, capturefile, opts, false, (void *)pi.hThread);
 
   CloseHandle(pi.hProcess);
   ResumeThread(pi.hThread);

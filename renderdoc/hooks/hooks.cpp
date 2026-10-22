@@ -47,6 +47,19 @@ void LibraryHooks::RegisterHooks()
   EndHookRegistration();
 }
 
+void LibraryHooks::RegisterProcessHooks()
+{
+  BeginHookRegistration();
+
+  for(LibraryHook *lib : LibList())
+  {
+    if(!lib->isGraphicsAPI())
+      lib->RegisterHooks();
+  }
+
+  EndHookRegistration();
+}
+
 void LibraryHooks::RemoveHookCallbacks()
 {
   for(LibraryHook *lib : LibList())

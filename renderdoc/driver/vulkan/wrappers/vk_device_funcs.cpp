@@ -572,8 +572,14 @@ RDResult WrappedVulkan::Initialise(VkInitParams &params, uint64_t sectionVersion
   return ResultCode::Succeeded;
 }
 
+// IsLayerCaptureTarget() lives in vk_layer.cpp (declared in vk_common.h) because
+// the loader negotiation is where the layer actually opts out. The check below is
+// only a belt-and-braces path in case this DLL ever reaches vkCreateInstance for a
+// process that is not the capture target.
+
 VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo,
-                                         const VkAllocationCallbacks *, VkInstance *pInstance)
+                                         const VkAllocationCallbacks *pAllocator,
+                                         VkInstance *pInstance)
 {
   RDCASSERT(pCreateInfo);
 
@@ -605,6 +611,12 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
   layerCreateInfo->u.pLayerInfo = layerCreateInfo->u.pLayerInfo->pNext;
 
   PFN_vkCreateInstance createFunc = (PFN_vkCreateInstance)gpa(VK_NULL_HANDLE, "vkCreateInstance");
+
+  // Not our capture target - pass straight through. This is what keeps other
+  // TinecmaTool builds, rdc replay windows and every other Vulkan application on
+  // this machine working while the layer is registered unconditionally.
+  if(!IsLayerCaptureTarget())
+    return createFunc(pCreateInfo, pAllocator, pInstance);
 
   VkInstanceCreateInfo modifiedCreateInfo;
   modifiedCreateInfo = *pCreateInfo;
