@@ -233,7 +233,7 @@ void PythonContext::GlobalInit()
   qRegisterMetaType<QList<QString>>("QList<QString>");
 
   PyImport_AppendInittab("renderdoc", &PyInit_renderdoc);
-  PyImport_AppendInittab("qTinecmaTool", &PyInit_qrenderdoc);
+  PyImport_AppendInittab("qrenderdoc", &PyInit_qrenderdoc);
 
 #if PY_VERSION_HEX > 0x030B0000
   PyConfig config;
@@ -292,7 +292,16 @@ void PythonContext::GlobalInit()
   PyObject *main_module = PyImport_AddModule("__main__");
 
   PyModule_AddObject(main_module, "renderdoc", PyImport_ImportModule("renderdoc"));
-  PyModule_AddObject(main_module, "qTinecmaTool", PyImport_ImportModule("qTinecmaTool"));
+  PyObject *qrenderdoc_module = PyImport_ImportModule("qrenderdoc");
+  if(qrenderdoc_module)
+  {
+    // Keep the upstream module name for extension compatibility, and expose the branded alias
+    // without initialising the SWIG module a second time.
+    Py_INCREF(qrenderdoc_module);
+    PyModule_AddObject(main_module, "qrenderdoc", qrenderdoc_module);
+    PyDict_SetItemString(PyImport_GetModuleDict(), "qTinecmaTool", qrenderdoc_module);
+    PyModule_AddObject(main_module, "qTinecmaTool", qrenderdoc_module);
+  }
 
   main_dict = PyModule_GetDict(main_module);
 
@@ -530,7 +539,7 @@ bool PythonContext::CheckInterfaces(rdcstr &log)
   errors |= CheckCoreInterface(log);
   errors |= CheckQtInterface(log);
 
-  for(rdcstr module_name : {"renderdoc", "qTinecmaTool"})
+  for(rdcstr module_name : {"renderdoc", "qrenderdoc"})
   {
     PyObject *mod = PyImport_ImportModule(module_name.c_str());
     PyObject *dict = PyModule_GetDict(mod);
