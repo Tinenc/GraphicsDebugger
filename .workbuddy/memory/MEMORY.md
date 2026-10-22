@@ -91,6 +91,31 @@
   `resource_manager.h(820)` 撞 `Assertion failed: 'm_ResourceRecords.empty()'`，把整个 Games.exe 带崩）。
   **这条需要下次整体编译才生效**
 
+## Python 模块品牌名（2026-10-23 04:05 核查，改动未提交）
+- 输出名在 `qrenderdoc_local.vcxproj` **line 45 `<TargetName>qTinecmaTool</TargetName>`**；
+  line 31 是 `RootNamespace`，不是输出名 —— 别被误导
+- **SWIG 模块名故意保留 `qrenderdoc`**：`qrenderdoc.i` 的 `%module qrenderdoc` 决定
+  `PyInit_qrenderdoc` 符号 + `.pyd` 文件名，改了等于废掉所有现存扩展脚本
+- 做法是**双名兼容**（`PythonContext.cpp::GlobalInit()` 约 297-306）：
+  `sys.modules["qTinecmaTool"]` + `__main__` 里同时挂两个名字 → `import qrenderdoc`
+  和 `import qTinecmaTool` 都work，SWIG 模块只初始化一次。
+  两个 AddObject 各偷 1 个引用，正好用掉 `Py_INCREF` 出来的那 1 个，计数平衡
+- `PyImport_AppendInittab("qrenderdoc", ...)` **保持不改**：内建注册名，必须与 `%module` 一致
+- `interface_check.h::checkname()` 剥前缀要三份，长度各不同：
+  `renderdoc.`=10 / `qrenderdoc.`=11 / `qTinecmaTool.`=**13**
+- `program_name` 必须等于 exe basename（Python 拿它推导 `sys.prefix`/stdlib 路径）。
+  原先写 `L"qrenderdoc"` 与实际 `qTinecmaTool.exe` 不符，只因 `python36.dll` 就在 exe 旁边才没出事
+- `qrenderdoc.cpp` 里 `setGlobal("pyrenderdoc", ...)` **不改**：用户脚本入口，上游文档全用它
+
+### qrenderdoc/ 的 cl /Zs 自检要额外头路径
+比 renderdoc/ 那套多三项（否则依次报 Python.h → QApplication → renderdoc_replay.h）：
+```
+qrenderdoc/3rdparty/python/include
+qrenderdoc/3rdparty/qt/include + QtCore QtGui QtWidgets QtSvg QtNetwork 各子目录
+renderdoc/api/replay
+```
+`PythonContext.cpp` 按此配置 0 error 通过。
+
 ## ⚠️ 方案 2 与方案 3 互相打架（03:00 踩到，已修）
 - 症状：APC 注入成功（日志有 `Injected ... via early-bird APC`）但 Games.exe 不写日志不开端口
 - 原因：方案 2 在 `add_hooks()` 里加的 `if(!IsLayerCaptureTarget()) return TRUE;`
