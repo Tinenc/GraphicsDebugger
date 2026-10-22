@@ -110,7 +110,12 @@ static inline QString ToQStr(PyObject *value)
   return QString();
 }
 
-static wchar_t program_name[] = L"qrenderdoc";
+// Python derives sys.prefix and the stdlib search path from this name, so it has
+// to match the executable that is actually running. It said "qrenderdoc" while
+// the binary is qTinecmaTool.exe (<TargetName> in qrenderdoc_local.vcxproj); it
+// only worked because python36.dll sits next to the exe and PyConfig falls back
+// to the DLL location. Keep this in sync with TargetName.
+static wchar_t program_name[] = L"qTinecmaTool";
 static wchar_t python_home[1024] = {0};
 
 struct OutputRedirector
@@ -292,7 +297,16 @@ void PythonContext::GlobalInit()
   PyObject *main_module = PyImport_AddModule("__main__");
 
   PyModule_AddObject(main_module, "renderdoc", PyImport_ImportModule("renderdoc"));
-  PyModule_AddObject(main_module, "qrenderdoc", PyImport_ImportModule("qrenderdoc"));
+  PyObject *qrenderdoc_module = PyImport_ImportModule("qrenderdoc");
+  if(qrenderdoc_module)
+  {
+    // Keep the upstream module name for extension compatibility, and expose the branded alias
+    // without initialising the SWIG module a second time.
+    Py_INCREF(qrenderdoc_module);
+    PyModule_AddObject(main_module, "qrenderdoc", qrenderdoc_module);
+    PyDict_SetItemString(PyImport_GetModuleDict(), "qTinecmaTool", qrenderdoc_module);
+    PyModule_AddObject(main_module, "qTinecmaTool", qrenderdoc_module);
+  }
 
   main_dict = PyModule_GetDict(main_module);
 

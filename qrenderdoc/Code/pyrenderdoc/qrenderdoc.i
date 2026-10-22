@@ -1,5 +1,5 @@
 
-%module(docstring="This is the API to QRenderDoc's high-level UI panels and functionality.") qrenderdoc
+%module(docstring="This is the API to TinecmaTool's high-level UI panels and functionality. It is also importable as 'qTinecmaTool'; the internal module name stays 'qrenderdoc' for compatibility with upstream extensions.") qrenderdoc
 
 %feature("autodoc", "0");
 
