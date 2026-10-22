@@ -21,7 +21,8 @@
   原先没有这条规则，autocrlf 关掉的环境（Linux/macOS 默认）会把 bat 检出成 LF，
   而两个脚本大量用 `goto` 和多行 `(...)` 块，LF-only 会被 cmd.exe 解析错。
   验证方法：`git archive <rev> tools/launch_games.bat` 解出来应是 `loneLF=0`
-- 已推送 3 个 commit：`77db360eb` 代码 / `5a48b0813` 文档+脚本 / `83be47066` gitattributes
+- 已推送 5 个 commit：`77db360eb` 代码 / `5a48b0813` 文档+脚本 / `83be47066` gitattributes
+  / `9f9a52d80` Python 模块别名 / `480001665` 记忆更新（远端 HEAD）
 
 ## ✅ 现行方案 = 方案 3：APC 注入 + CreateProcess 链式注入（2026-10-23 03:07 跑通）
 - **json 保持 locked**（`enable_environment` 在），注册表指向本树，**抓完不用跑恢复脚本**
@@ -91,7 +92,7 @@
   `resource_manager.h(820)` 撞 `Assertion failed: 'm_ResourceRecords.empty()'`，把整个 Games.exe 带崩）。
   **这条需要下次整体编译才生效**
 
-## Python 模块品牌名（2026-10-23 04:05 核查，改动未提交）
+## Python 模块品牌名（2026-10-23 04:09 已提交 `9f9a52d80`）
 - 输出名在 `qrenderdoc_local.vcxproj` **line 45 `<TargetName>qTinecmaTool</TargetName>`**；
   line 31 是 `RootNamespace`，不是输出名 —— 别被误导
 - **SWIG 模块名故意保留 `qrenderdoc`**：`qrenderdoc.i` 的 `%module qrenderdoc` 决定
