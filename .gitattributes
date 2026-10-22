@@ -21,6 +21,12 @@
 *.vcxproj text eol=crlf
 *.shfbproj text eol=crlf
 
+# Batch files must be CRLF on every platform. cmd.exe mis-parses goto labels and
+# multi-line (...) blocks in LF-only scripts, and the launchers under tools/ use
+# both heavily. Stored as LF in the repository, checked out as CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 *.resx text eol=crlf
 *.aml text eol=crlf
 
