@@ -324,42 +324,112 @@ private:
     return ret;
   }
 
+  // Child processes we must never load into. Everything here is a case where injecting does not
+  // merely fail to help - it actively breaks the capture, the launcher, or the machine.
+  //
+  // Matching is a case-insensitive substring test against the lowercased executable path and the
+  // lowercased command line, so entries are deliberately fragments ("aceservice" also covers
+  // "ACEServiceU64.exe").
+  static bool IsSkipInjectTarget(const rdcstr &lowerpath)
+  {
+    static const char *skip[] = {
+        // our own tooling - injecting into ourselves recurses forever
+        "tinecmatoolcmd.exe",
+        "qtinecmatool.exe",
+        // launcher helper that talks to the store SDK over a private channel
+        "platformprocess.exe",
+        // QtWebEngine renderer: injecting into it trips
+        // "Assertion failed: 'm_ResourceRecords.empty()'" inside resource_manager.h while the
+        // launcher UI is still starting, which takes the whole launcher down with it. Observed on
+        // the Endfield capture (2026-10-23 03:06:38). The launcher UI is never our target.
+        "qtwebengineprocess",
+        // Anti-Cheat Expert (ACE) family. Injecting into the ACE setup/installer/tray makes ACE
+        // (re)install its kernel driver and then terminate the protected game process, so these
+        // have to be filtered out explicitly. ACE is shared by Naraka, DF, Endfield and Wuthering
+        // Waves on this machine.
+        "ace-setup",
+        "ace-tray",
+        "ace-game",
+        "ace-service",
+        "aceservice",
+        "ace-base",
+        "ace-boot",
+        "anticheatexpert",
+        "sguard",
+        "sgutray",
+        // Naraka (NetEase) anti-cheat: NeacClient.exe / NeacSafe64.sys are the client and kernel
+        // driver of the same scheme. Same reasoning as ACE above.
+        "neacclient",
+        "neacsafe",
+        "neacsetup",
+        "neacservice",
+        "neacinterface",
+        // Naraka's bundled CC recording stack ships CCGameCaptureHook64.dll, i.e. it hooks the
+        // same DXGI/D3D entry points we do. Two hooks on one swapchain yields an empty capture or
+        // a crash, so stay out of it.
+        "ccgame",
+        "ccrecord",
+        "ccmini",
+        // NetEase SDK helpers - same class of side-channel process as platformprocess.exe
+        "ntunisdk",
+        "ntqrcode",
+        // crash reporting helpers
+        "crashsight",
+        "crashreport",
+        "appdump",
+        "unitycrashhandler",
+    };
+
+    for(const char *s : skip)
+    {
+      if(lowerpath.contains(s))
+        return true;
+    }
+
+    return false;
+  }
+
+  // Decouples the child-injection decision from the capture-options race: the target may spawn its
+  // children before the options pushed in after injection have landed.
+  static bool ForceChildInject()
+  {
+    static const bool force = []() -> bool {
+      char buf[8] = {0};
+      const DWORD len = GetEnvironmentVariableA("TCM_FORCE_CHILD_INJECT", buf, (DWORD)sizeof(buf));
+      return len > 0 && buf[0] == '1';
+    }();
+
+    return force;
+  }
+
   static bool ShouldInject(LPCWSTR lpApplicationName, LPCWSTR lpCommandLine)
   {
-    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren)
+    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren && !ForceChildInject())
       return false;
 
-    bool inject = true;
-
     // sanity check to make sure we're not going to go into an infinity loop injecting into
-    // ourselves, and skip known-incompatible child processes (e.g. Qt WebEngine).
+    // ourselves, and skip known-incompatible / protected child processes.
     if(lpApplicationName)
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("tinecmatoolcmd.exe") || app.contains("qtinecmatool.exe") ||
-         app.contains("platformprocess.exe"))
-      {
-        inject = false;
-      }
+      if(IsSkipInjectTarget(app))
+        return false;
     }
     if(lpCommandLine)
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("tinecmatoolcmd.exe") || cmd.contains("qtinecmatool.exe") ||
-         cmd.contains("platformprocess.exe"))
-      {
-        inject = false;
-      }
+      if(IsSkipInjectTarget(cmd))
+        return false;
     }
 
-    return inject;
+    return true;
   }
 
   static bool ShouldInject(LPCSTR lpApplicationName, LPCSTR lpCommandLine)
   {
-    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren)
+    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren && !ForceChildInject())
       return false;
 
     return ShouldInject(lpApplicationName ? StringFormat::UTF82Wide(lpApplicationName).c_str() : NULL,
