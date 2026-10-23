@@ -45,6 +45,20 @@ function Write-Ok($msg)   { Write-Host "   [OK]   $msg" -ForegroundColor Green }
 function Write-Warn2($msg){ Write-Host "   [WARN] $msg" -ForegroundColor Yellow }
 function Write-Bad($msg)  { Write-Host "   [FAIL] $msg" -ForegroundColor Red }
 
+# ---------------------------------------------------------------- 0. 提权检查
+# TinecmaToolcmd 需要管理员才能打开目标进程并注入。非管理员时注入会失败，
+# 而 RenderDoc 在注入失败后仍会 resume 目标进程 —— 结果是游戏裸跑一趟、
+# 没有任何工具日志，看起来像"什么都没发生"。这里提前拦住。
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host ""
+    Write-Host "本脚本必须以管理员身份运行。" -ForegroundColor Red
+    Write-Host "  注入失败时目标进程仍会被拉起，但没有任何钩子，日志也不会生成 —— 只会浪费一次 ACE 启动。" -ForegroundColor Yellow
+    Write-Host "  右键 PowerShell / Windows Terminal -> 以管理员身份运行，再执行本脚本。" -ForegroundColor Yellow
+    exit 2
+}
+
 # ---------------------------------------------------------------- 1. 工具校验
 Write-Step "工具与产物"
 
@@ -162,9 +176,15 @@ Write-Host "     1) 进入游戏，窗口化（不要全屏独占）"
 Write-Host "     2) 到主界面/局内后按 F12"
 Write-Host "     3) 抓完退出游戏，让命令返回" -ForegroundColor Yellow
 
-& $cmd @toolArgs
+$toolOut = Join-Path $CaptureDir ("naraka_$stamp" + "_tool.log")
+Write-Host "   工具输出会同时写入: $toolOut" -ForegroundColor DarkGray
+
+& $cmd @toolArgs 2>&1 | Tee-Object -FilePath $toolOut
 $toolExit = $LASTEXITCODE
 Write-Host "`n   TinecmaToolcmd 退出码: $toolExit"
+if ($toolExit -ne 0) {
+    Write-Bad "工具以非 0 退出，注入大概率失败。先看上面输出与 $toolOut"
+}
 
 # ---------------------------------------------------------------- 4. 判读
 Write-Step "日志判读"
@@ -182,10 +202,14 @@ if ($rdcs.Count -gt 0) {
 $after = @()
 if (Test-Path $logDir) { $after = Get-ChildItem $logDir -Filter "RenderDoc_*.log" | Select-Object -ExpandProperty FullName }
 $log = $after | Where-Object { $before -notcontains $_ } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $log) { $log = $after | Sort-Object LastWriteTime -Descending | Select-Object -First 1 }
-if (-not $log) { Write-Bad "找不到工具日志"; return }
+if (-not $log) {
+    Write-Bad "本次运行没有生成任何新的工具日志 —— 注入根本没有发生。"
+    Write-Host "   目标进程可能已被拉起但未带钩子（RenderDoc 注入失败后仍会 resume）。" -ForegroundColor Yellow
+    Write-Host "   先看工具输出：$toolOut" -ForegroundColor Yellow
+    return
+}
 
-Write-Host "   日志: $log"
+Write-Host "   新日志: $log"
 $text = Get-Content $log -Raw
 
 # 逐级判据。前一条不过就不必看后面。
