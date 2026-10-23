@@ -343,6 +343,19 @@ private:
         // launcher UI is still starting, which takes the whole launcher down with it. Observed on
         // the Endfield capture (2026-10-23 03:06:38). The launcher UI is never our target.
         "qtwebengineprocess",
+        // Chromium/CEF/Electron helpers. These spawn a renderer process per frame/tab and
+        // immediately restart it if it dies, so a failed injection does not fail once - it turns
+        // into a spawn loop. Observed 2026-10-24 02:59 on a Global Hook session: steam.exe and
+        // steamwebhelper.exe had the DLL, every CreateProcessAsUserW spawned another renderer
+        // that we failed to inject into (error 0x12), and the tool log reached 147 MB with ~4200
+        // attempts per second while hundreds of conhost.exe piled up. CEF is never our target.
+        "steamwebhelper",
+        "steam.exe",
+        "chrome.exe",
+        "msedge",
+        "loothoarder",
+        "webview_support_browser",
+        "electron",
         // Anti-Cheat Expert (ACE) family. Injecting into the ACE setup/installer/tray makes ACE
         // (re)install its kernel driver and then terminate the protected game process, so these
         // have to be filtered out explicitly. ACE is shared by Naraka, DF, Endfield and Wuthering
