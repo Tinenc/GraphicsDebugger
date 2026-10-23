@@ -1,0 +1,78 @@
+{
+  "verifiedAt": "2026-10-24",
+  "timezone": "Asia/Shanghai",
+  "status": "unsupported-protected",
+  "base": {
+    "branch": "Naraka",
+    "forkPoint": "1726b53b4",
+    "sourceBranch": "DF研究",
+    "toolCommit": "2aa530807"
+  },
+  "target": {
+    "game": "Naraka: Bladepoint",
+    "exe": "F:/Naraka/program/NarakaBladepoint.exe",
+    "launchChain": [
+      "LauncherGame.exe (x86, .NET stub -> starts tool/LootHoarder.exe and exits)",
+      "tool/LootHoarder.exe (Electron UI)",
+      "program/StartGame.exe (x64, ticket check + Neac bootstrap)",
+      "program/NarakaBladepoint.exe (x64, VMProtect)"
+    ],
+    "engine": "Unity 2019.4.41f2 / IL2CPP",
+    "api": "D3D12 (confirmed: Forcing GfxDevice: Direct3D 12, level 12.1)",
+    "gpu": "NVIDIA GeForce RTX 4090"
+  },
+  "capture": {
+    "file": null,
+    "frame": null,
+    "bytes": 0,
+    "sha256": null,
+    "draws": 0,
+    "dispatches": 0,
+    "present": []
+  },
+  "attempts": [
+    {
+      "at": "2026-10-24 00:58:40",
+      "target": "F:/Naraka/LauncherGame.exe",
+      "method": "GUI Launch Application",
+      "result": "rejected-by-design",
+      "detail": "LauncherGame.exe is a .NET stub: it starts tool/LootHoarder.exe and exits. Remote handshake then WSAECONNRESET after 1 s. No crash event logged."
+    },
+    {
+      "at": "2026-10-24 01:14:06",
+      "target": "F:/Naraka/program/NarakaBladepoint.exe",
+      "method": "GUI Launch Application (direct)",
+      "result": "no-graphics-hook",
+      "detail": "Injection succeeded and all hooks registered, but Graphics function resolved = 0 for the whole session, no wrapped device and no first present. Player.log then reported 启动不合法 and the process exited after ~30 s. Main image delayImportRVA=0x0 (VMProtect stripped the delay import table), so DF's M3 takeover has nothing to attach to."
+    },
+    {
+      "at": "2026-10-24 03:33:55",
+      "target": "F:/Naraka/LauncherGame.exe",
+      "method": "GUI Launch Application + hook children (hookIntoChildren=1, decoded from capopts)",
+      "result": "rejected-by-blacklist",
+      "detail": "The child process is LootHoarder.exe (Electron/CEF), which IsSkipInjectTarget() now blocks on purpose after the 02:14 CEF spawn-loop incident. Chain ends silently at the stub by design."
+    },
+    {
+      "at": "2026-10-24 03:43:40",
+      "target": "F:/Naraka/program/StartGame.exe",
+      "method": "TinecmaToolcmd capture -w --opt-hook-children (StartGame anchored)",
+      "result": "unsupported-protected",
+      "detail": "Injection succeeded (TinecmaTool.dll resident in the 74-module table, KERNEL32 IAT hooks installed). StartGame then never spawned NeacClient.exe nor NarakaBladepoint.exe for 92 s. NeacLoader.log wrote 03:43:41 (port 105104) but Neac.log received no client entry. Control run at 03:38:40 with the identical command and no injection brought Neac up in under 1 s and booted the game on D3D12 for 30 s. The only variable is our DLL."
+    }
+  ],
+  "evidence": {
+    "toolLog": "RenderDoc_2026.10.24_03.43.40.log",
+    "toolLogBytes": 3611,
+    "toolLogLines": 29,
+    "toolLogSha256": "8507352fc1f69eb11803c1638e09c840f149192b22b7b0042c40d5319bcb3ac4",
+    "controlRunLog": "Neac.log 03:38:40 (port 27324 flag 0) / Player.log 03:39:05 Forcing GfxDevice: Direct3D 12",
+    "blockedRunLog": "NeacLoader.log 03:43:41 (port 105104); Neac.log unchanged since 03:40; zero child processes",
+    "drawCountMethod": "n/a - no capture produced"
+  },
+  "limits": [
+    "Validated on the current local Naraka client and this machine only.",
+    "No anti-cheat bypass of any kind was attempted. ACE/Neac services were never stopped, reconfigured or tampered with.",
+    "tempdx12.txt was written by the launcher UI, never by hand.",
+    "global-metadata.dat is encrypted (magic 0x57CA2533); no IL2CPP structure was derived."
+  ]
+}

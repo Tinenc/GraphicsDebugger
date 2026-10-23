@@ -1,6 +1,6 @@
 # Naraka：以 StartGame.exe 为锚点挂载抓帧（方案 S）
 
-> 状态：**待验证**（2026-10-24）
+> 状态：**已实测 —— `unsupported-protected`**（2026-10-24 03:43，见 §9）
 > 分支 `Naraka`，fork 自 `origin/DF研究 @1726b53b4`
 > 目标：`F:\Naraka\program\StartGame.exe`（x64）→ 派生 `NarakaBladepoint.exe`（x64, VMProtect）
 
@@ -158,3 +158,24 @@ TinecmaToolcmd.exe capture --opt-hook-children --opt-disallow-fullscreen ^
 | 注入机制 | 远程线程 + 子进程传播 | 同（本分支未引入 APC） |
 | 保护 | ACE | Neac + ACE + VMProtect |
 | 关键改造 | M3 延迟导入、M4 原生 factory 桥 | 已有；D3D11 侧需额外做导出存根 hook |
+
+## 9. 实测结果（2026-10-24 03:43）：`unsupported-protected`
+
+命令：
+
+```
+TinecmaToolcmd capture -w --opt-hook-children --opt-disallow-fullscreen \
+  -c ...\Temp\Naraka\naraka_20261024_034340 -d F:\Naraka\program F:\Naraka\program\StartGame.exe
+```
+
+**注入成功**：`RenderDoc_2026.10.24_03.43.40.log` 有 `Loading into F:\Naraka\program\StartGame.exe`，图形钩子全部注册，`StartGame.exe` 的 KERNEL32 IAT 钩子装好；进程模块表 74 项里能查到 `TinecmaTool.dll` 驻留。
+
+**然后链路停住**：StartGame 在 92 秒内**没有派生任何进程**。`NeacLoader.log` 03:43:41 写了 `port 105104`（StartGame 的 pid），但 `Neac.log` 自 03:40 起再无新条目 —— **Neac 客户端始终没起来**，`NeacClient.exe` 与 `NarakaBladepoint.exe` 都没出现在进程表。无 `.rdc` 生成。
+
+**这是一次干净的 A/B**：同一条命令、同一个 StartGame，03:38:40 那次注入失败（未提权）时，Neac 在 1 秒内起来、游戏于 03:39:05 以 `Forcing GfxDevice: Direct3D 12` 启动并跑满 30 秒，且**没有「启动不合法」**。唯一变量就是 StartGame 体内多了我们的 DLL。
+
+结论：**StartGame 是反作弊引导环节，注入它会阻断 Neac 启动**。按 `DF_AUTHORIZED_CAPTURE_RESEARCH.md` 的边界记录 `status: "unsupported-protected"`，到此为止，不换注入姿势重试。
+
+机器状态：StartGame 已退出，无残留进程；ACE/Neac 服务未做任何改动；`tempdx12.txt` 与 `ExtraVars.unityargs` 保持启动器写出的原样。
+
+演进到静态资产解析（`StreamingAssets` + `globalgamemanagers` + `AppRes.info`）。
