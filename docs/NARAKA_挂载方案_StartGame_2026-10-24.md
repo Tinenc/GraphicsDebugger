@@ -176,6 +176,8 @@ TinecmaToolcmd capture -w --opt-hook-children --opt-disallow-fullscreen \
 
 结论：**StartGame 是反作弊引导环节，注入它会阻断 Neac 启动**。按 `DF_AUTHORIZED_CAPTURE_RESEARCH.md` 的边界记录 `status: "unsupported-protected"`，到此为止，不换注入姿势重试。
 
-机器状态：StartGame 已退出，无残留进程；ACE/Neac 服务未做任何改动；`tempdx12.txt` 与 `ExtraVars.unityargs` 保持启动器写出的原样。
+**直接证据**：03:46:52 `NeacClient.exe` 弹出 `Initialization error 4` 后退出 —— Neac 客户端确实被拉起，但初始化被拒。`Neac.log` 全程没有这次运行的会话条目。
+
+机器状态：StartGame 已退出，无残留进程；ACE 四个服务（`ACE-BASE` / `ACE-GAME` / `ACE-ADVT` / `ACE-SSC-DRV64`）注册值均为 `Start=3`（manual），**未被修改**；`tempdx12.txt` 与 `ExtraVars.unityargs` 保持启动器写出的原样。
 
 演进到静态资产解析（`StreamingAssets` + `globalgamemanagers` + `AppRes.info`）。

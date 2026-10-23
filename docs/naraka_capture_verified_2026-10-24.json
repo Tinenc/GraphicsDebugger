@@ -57,7 +57,8 @@
       "target": "F:/Naraka/program/StartGame.exe",
       "method": "TinecmaToolcmd capture -w --opt-hook-children (StartGame anchored)",
       "result": "unsupported-protected",
-      "detail": "Injection succeeded (TinecmaTool.dll resident in the 74-module table, KERNEL32 IAT hooks installed). StartGame then never spawned NeacClient.exe nor NarakaBladepoint.exe for 92 s. NeacLoader.log wrote 03:43:41 (port 105104) but Neac.log received no client entry. Control run at 03:38:40 with the identical command and no injection brought Neac up in under 1 s and booted the game on D3D12 for 30 s. The only variable is our DLL."
+      "detail": "Injection succeeded (TinecmaTool.dll resident in the 74-module table, KERNEL32 IAT hooks installed). StartGame then never spawned NeacClient.exe nor NarakaBladepoint.exe for 92 s. NeacLoader.log wrote 03:43:41 (port 105104) but Neac.log received no client entry. Control run at 03:38:40 with the identical command and no injection brought Neac up in under 1 s and booted the game on D3D12 for 30 s. The only variable is our DLL.",
+      "anticheatDialog": "NeacClient.exe raised 'Initialization error 4' at 03:46:52 and exited; Neac.log never received a session entry for this run."
     }
   ],
   "evidence": {
@@ -67,6 +68,8 @@
     "toolLogSha256": "8507352fc1f69eb11803c1638e09c840f149192b22b7b0042c40d5319bcb3ac4",
     "controlRunLog": "Neac.log 03:38:40 (port 27324 flag 0) / Player.log 03:39:05 Forcing GfxDevice: Direct3D 12",
     "blockedRunLog": "NeacLoader.log 03:43:41 (port 105104); Neac.log unchanged since 03:40; zero child processes",
+    "anticheatSignal": "NeacClient.exe dialog 'Initialization error 4' at 03:46:52, then exit",
+    "aceConfigAfter": "ACE-BASE/ACE-GAME/ACE-ADVT/ACE-SSC-DRV64 all Start=3 (manual), unmodified",
     "drawCountMethod": "n/a - no capture produced"
   },
   "limits": [
