@@ -57,28 +57,38 @@ LauncherGame.exe (x86, 引导壳, 立即退出)
 | 4 | `AppInit_DLLs` 为空且 `LoadAppInit_DLLs=0` | 脚本预检 | 全局钩子残留会污染所有新进程 |
 | 5 | CC 录制未运行 | `Get-Process CCGameRecord` | 与我们的 DXGI hook 抢交换链，表现为无 `first present` |
 | 6 | `GameInit` 票据存在 | `StreamingAssets\GameInit\GameInit`（实测 221 B, 2026-10-20） | StartGame 判「启动不合法」 |
-| 7 | 期望后端已知 | `tempdx12.txt` / `ExtraVars.unityargs` | 判据用错（D3D11 与 D3D12 的日志行不同） |
+| 7 | 期望后端已知 | `NarakaBladepoint_Data\tempdx12.txt` / `ExtraVars.unityargs` | 判据用错（D3D11 与 D3D12 的日志行不同） |
 
-## 4. 渲染后端：优先推到 D3D12
+> `tempdx12.txt` 不在 `program\` 下，而在 `program\NarakaBladepoint_Data\` 下 —— `StartGame` 体内是相对路径 `../../NarakaBladepoint_Data/tempdx12.txt`（相对它的 cwd `F:\Naraka\program` 的上一级再上一级不成立，实际解析结果以该文件所在位置为准）。
 
-实测最近一次会话（`Player.log` 2026-10-24 02:44:50）仍是：
+## 4. 渲染后端：D3D12 标记已就位
+
+**启动器的原始调用方式**（`tool\cache\lh.log`，权威依据）：
 
 ```
-GfxDevice: creating device client; threaded=1
-Direct3D:
-    Version:  Direct3D 11.0 [level 11.1]
+[osUtils][runComplexCmd] F:\Naraka\program\StartGame.exe params: [ '-ngp' ]
+                         options: { cwd: 'F:\\Naraka\\program', detached: true }
 ```
 
-`F:\Naraka\program\ExtraVars.unityargs` 在 **02:48** 被写成 ` -force-d3d12`，但那次会话 02:44 就起来了，**这个改动还没被验证过**。
+两点值得记住：
 
-**为什么值得优先走 D3D12**：DF 的成功抓帧是 D3D12，为此做的两项改造（M3 接管延迟导入槽、M4 桥接原生 DXGI factory）都在本分支里。Naraka 如果走 D3D12，等于复用一条已跑通的路；而 D3D11 侧已实测出现结构性死结（见 §7）。
+1. `cwd` 必须是 `F:\Naraka\program`，否则 `../../` 相对路径全部失效。
+2. `-ngp` **不需要传**：`StartGame.exe` 体内搜索 `ngp` 零命中（无 `-ngp`、无 `ngp.txt` 字符串），它忽略该参数。这样也避开了 `renderdoccmd` 参数解析吞掉未知选项的风险。
 
-两条把游戏推到 D3D12 的路：
+**当前 D3D12 状态（2026-10-24 03:2x 实测）**：
 
-1. **优先**：在 `LootHoarder` 界面里找 DX12 开关（`StartGame.exe` 里有串 `Are you sure to use DirectX12 to run the game?`）。走这个开关，启动器会自己写 `tempdx12.txt` 并做 MD5↔注册表登记。
-2. 次选：保留 `ExtraVars.unityargs` 里的 `-force-d3d12`，正常经启动器启动一次，然后看 `Player.log` 里是否出现 `Direct3D 12`。
+| 文件 | 状态 |
+|---|---|
+| `program\NarakaBladepoint_Data\tempdx12.txt` | 存在，23 B，02:48，内容 `dx121792781281121715520` |
+| `program\ExtraVars.unityargs` | ` -force-d3d12`，02:48 |
 
-> **红线**：不要手工伪造 `tempdx12.txt`。`StartGame.exe` 会做 MD5↔注册表比对，不等就删文件并标记 `treat as copied/forged`。这不是技术难点，是不能碰的线。
+`tempdx12.txt` 内容首 4 字符即 `dx12`，命中 `StartGame` 的 `tempDx12ArgsFlag verified, contains dx12, position: 0` 分支。MD5↔注册表比对只在登记值存在且不等时触发（`HKCU\Software\24Entertainment\Naraka` 下未发现相关登记值），因此当前标记有效。
+
+**但这只是"标记有效"，不等于"已验证"**：`Player.log` 仍是 02:44:50 那次会话，后端为 `Direct3D 11.0 [level 11.1]`。DX12 要等**下一次经 StartGame 启动**才会真正生效，所以本次抓帧同时也是首次 DX12 验证。
+
+> **红线**：不要手工改写 `tempdx12.txt`。判定为 forged 时 `StartGame` 会删文件并标记 `treat as copied/forged`。当前文件由启动器 UI 正常写出，保持原样即可。
+
+**为什么值得走 D3D12**：DF 的成功抓帧是 D3D12，为此做的两项改造（M3 接管延迟导入槽、M4 桥接原生 DXGI factory）都在本分支里。Naraka 走 D3D12 等于复用一条已跑通的路；而 D3D11 侧已实测出现结构性死结（见 §7）。
 
 ## 5. 执行
 
@@ -103,6 +113,8 @@ TinecmaToolcmd.exe capture --opt-hook-children --opt-disallow-fullscreen ^
   -d "F:\Naraka\program" ^
   "F:\Naraka\program\StartGame.exe"
 ```
+
+目标**不带任何参数**，`-d` 必须是 `F:\Naraka\program`（见 §4 的 `lh.log` 依据）。
 
 人工动作只有三个：进游戏、窗口化、到可操作画面按 **F12**，然后退出。
 

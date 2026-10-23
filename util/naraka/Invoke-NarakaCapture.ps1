@@ -40,7 +40,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Write-Step($msg) { Write-Host "`n== $msg ==" -ForegroundColor Cyan }
+function Write-Step($msg) { Write-Host ""; Write-Host "== $msg ==" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "   [OK]   $msg" -ForegroundColor Green }
 function Write-Warn2($msg){ Write-Host "   [WARN] $msg" -ForegroundColor Yellow }
 function Write-Bad($msg)  { Write-Host "   [FAIL] $msg" -ForegroundColor Red }
@@ -89,11 +89,20 @@ if (-not $SkipPreflight) {
     if ($cc) { Write-Warn2 "CC 录制在运行，会与我们的 DXGI hook 抢交换链，建议先关掉游戏内录制" }
     else { Write-Ok "CC 录制未运行" }
 
-    # 渲染后端判断
-    $tdx = Join-Path $WorkDir "tempdx12.txt"
+    # 渲染后端判断。注意 tempdx12.txt 实际位于 NarakaBladepoint_Data 下，
+    # 因为 StartGame 用相对路径 ../../NarakaBladepoint_Data/tempdx12.txt。
+    $tdx = Join-Path $WorkDir "NarakaBladepoint_Data\tempdx12.txt"
     $ev  = Join-Path $WorkDir "ExtraVars.unityargs"
-    if (Test-Path $tdx) { Write-Ok "tempdx12.txt 存在 -> 预期 D3D12" }
-    else { Write-Warn2 "tempdx12.txt 不存在 -> 启动器默认 D3D11" }
+    if (Test-Path $tdx) {
+        $flagTxt = (Get-Content $tdx -Raw).Trim()
+        if ($flagTxt -match "dx12") {
+            Write-Ok ("tempdx12.txt -> D3D12 标记有效 ('{0}', {1})" -f $flagTxt, (Get-Item $tdx).LastWriteTime)
+        } else {
+            Write-Warn2 ("tempdx12.txt 存在但内容不含 dx12: '{0}'" -f $flagTxt)
+        }
+    } else {
+        Write-Warn2 "tempdx12.txt 不存在 -> 预期 D3D11"
+    }
 
     if (Test-Path $ev) {
         $args0 = (Get-Content $ev -Raw).Trim()
@@ -192,6 +201,22 @@ $failedAt = $null
 foreach ($s in $stages) {
     if ($text -match $s.Pattern) { Write-Ok $s.Name }
     else { Write-Bad ($s.Name + "  <= 未出现"); $failedAt = $s.Name; break }
+}
+
+Write-Step "实际渲染后端（Player.log）"
+$plog = Join-Path $env:USERPROFILE "AppData\LocalLow\24Entertainment\Naraka\Player.log"
+if (Test-Path $plog) {
+    Write-Host ("   " + $plog + "  (mtime " + (Get-Item $plog).LastWriteTime + ")")
+    $plines = Select-String -Path $plog -Pattern "Direct3D 12|Direct3D 11|Version:\s+Direct3D|D3D12 device|InitD3D11|InitD3D12" -ErrorAction SilentlyContinue
+    if ($plines) {
+        $plines | Select-Object -First 6 | ForEach-Object { Write-Host ("   " + $_.Line.Trim()) }
+        if (($plines | Out-String) -match "Direct3D 12") { Write-Ok "本次会话跑在 D3D12" }
+        elseif (($plines | Out-String) -match "Direct3D 11") { Write-Warn2 "本次会话仍跑在 D3D11 —— DX12 标记没生效" }
+    } else {
+        Write-Warn2 "Player.log 里没找到后端行，可能本次没进到设备创建阶段"
+    }
+} else {
+    Write-Warn2 "找不到 Player.log"
 }
 
 Write-Step "关键行摘录"
