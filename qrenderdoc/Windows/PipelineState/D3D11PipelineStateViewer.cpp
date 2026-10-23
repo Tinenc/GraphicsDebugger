@@ -24,14 +24,17 @@
 
 #include "D3D11PipelineStateViewer.h"
 #include <float.h>
+#include <cmath>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QScrollBar>
+#include <QStringList>
 #include <QXmlStreamWriter>
 #include "Code/Resources.h"
 #include "Widgets/ComputeDebugSelector.h"
 #include "Widgets/Extended/RDHeaderView.h"
 #include "flowlayout/FlowLayout.h"
+#include "../../../renderdoc/maths/matrix.h"
 #include "toolwindowmanager/ToolWindowManager.h"
 #include "PipelineStateViewer.h"
 #include "ui_D3D11PipelineStateViewer.h"
@@ -71,6 +74,196 @@ struct D3D11ViewTag
 };
 
 Q_DECLARE_METATYPE(D3D11ViewTag);
+
+namespace
+{
+struct CameraMatrixRecord
+{
+  Matrix4f matrix;
+  uint32_t byteOffset = 0;
+  bool transposed = false;
+};
+
+struct CameraCandidate
+{
+  uint32_t viewOffset = 0;
+  uint32_t inverseViewOffset = 0;
+  uint32_t viewProjectionOffset = 0;
+  bool transposed = false;
+  float position[3] = {};
+};
+
+static float MaxAbs(const Matrix4f &m)
+{
+  float ret = 0.0f;
+  for(size_t i = 0; i < 16; i++)
+    ret = qMax(ret, fabsf(m[i]));
+  return ret;
+}
+
+static float MaxAbsDifference(const Matrix4f &a, const Matrix4f &b)
+{
+  float ret = 0.0f;
+  for(size_t i = 0; i < 16; i++)
+    ret = qMax(ret, fabsf(a[i] - b[i]));
+  return ret;
+}
+
+static Matrix4f TransposeMatrix(const Matrix4f &m)
+{
+  Matrix4f ret;
+  for(size_t row = 0; row < 4; row++)
+    for(size_t column = 0; column < 4; column++)
+      ret[row * 4 + column] = m[column * 4 + row];
+  return ret;
+}
+
+static Matrix4f MultiplyMatrix(const Matrix4f &a, const Matrix4f &b)
+{
+  Matrix4f ret;
+  for(size_t row = 0; row < 4; row++)
+    for(size_t column = 0; column < 4; column++)
+      ret[row * 4 + column] = a[row * 4 + 0] * b[0 * 4 + column] +
+                              a[row * 4 + 1] * b[1 * 4 + column] +
+                              a[row * 4 + 2] * b[2 * 4 + column] +
+                              a[row * 4 + 3] * b[3 * 4 + column];
+  return ret;
+}
+
+static Matrix4f InverseRigidMatrix(const Matrix4f &m)
+{
+  Matrix4f ret = Matrix4f::Identity();
+
+  for(size_t row = 0; row < 3; row++)
+    for(size_t column = 0; column < 3; column++)
+      ret[row * 4 + column] = m[column * 4 + row];
+
+  for(size_t column = 0; column < 3; column++)
+    ret[12 + column] = -(m[12] * ret[column] + m[13] * ret[4 + column] +
+                         m[14] * ret[8 + column]);
+
+  return ret;
+}
+
+static bool IsFiniteMatrix(const Matrix4f &m)
+{
+  for(size_t i = 0; i < 16; i++)
+    if(!std::isfinite(m[i]))
+      return false;
+  return true;
+}
+
+static float Dot3(const Matrix4f &m, size_t a, size_t b)
+{
+  return m[a] * m[b] + m[a + 1] * m[b + 1] + m[a + 2] * m[b + 2];
+}
+
+static bool IsRigidView(const Matrix4f &m)
+{
+  if(!IsFiniteMatrix(m) || fabsf(m[3]) > 0.01f || fabsf(m[7]) > 0.01f ||
+     fabsf(m[11]) > 0.01f || fabsf(m[15] - 1.0f) > 0.01f)
+    return false;
+
+  if(fabsf(Dot3(m, 0, 0) - 1.0f) > 0.03f || fabsf(Dot3(m, 4, 4) - 1.0f) > 0.03f ||
+     fabsf(Dot3(m, 8, 8) - 1.0f) > 0.03f || fabsf(Dot3(m, 0, 4)) > 0.03f ||
+     fabsf(Dot3(m, 0, 8)) > 0.03f || fabsf(Dot3(m, 4, 8)) > 0.03f)
+    return false;
+
+  const float det3 = m[0] * (m[5] * m[10] - m[6] * m[9]) -
+                     m[4] * (m[1] * m[10] - m[2] * m[9]) +
+                     m[8] * (m[1] * m[6] - m[2] * m[5]);
+  if(fabsf(fabsf(det3) - 1.0f) > 0.05f)
+    return false;
+
+  // Object transforms and identity matrices are common false positives. The full detector still
+  // requires inverse and projection evidence, but excluding exact identity keeps diagnostics useful.
+  return MaxAbsDifference(m, Matrix4f::Identity()) > 0.001f;
+}
+
+static bool IsPerspectiveProjection(const Matrix4f &m)
+{
+  if(!IsFiniteMatrix(m))
+    return false;
+
+  const float scale = qMax(1.0f, MaxAbs(m));
+  if(fabsf(m[0]) < 0.0001f || fabsf(m[5]) < 0.0001f || fabsf(m[11]) < 0.25f ||
+     fabsf(m[15]) > 0.05f * scale)
+    return false;
+
+  // Permit off-axis projection and temporal jitter in [8] and [9], as well as reversed depth.
+  const size_t expectedZero[] = {1, 2, 3, 4, 6, 7, 12, 13};
+  for(size_t i : expectedZero)
+    if(fabsf(m[i]) > 0.05f * scale)
+      return false;
+
+  return true;
+}
+
+static rdcarray<CameraCandidate> FindCameraCandidates(const bytebuf &data)
+{
+  rdcarray<CameraMatrixRecord> matrices;
+  rdcarray<CameraMatrixRecord> rigid;
+
+  for(uint32_t offset = 0; offset + sizeof(float) * 16 <= data.size(); offset += 16)
+  {
+    float values[16];
+    memcpy(values, data.data() + offset, sizeof(values));
+    Matrix4f raw;
+    raw.SetFrom(values);
+
+    if(!IsFiniteMatrix(raw))
+      continue;
+
+    CameraMatrixRecord stored = {raw, offset, false};
+    CameraMatrixRecord transposed = {TransposeMatrix(raw), offset, true};
+    matrices.push_back(stored);
+    matrices.push_back(transposed);
+
+    if(IsRigidView(stored.matrix))
+      rigid.push_back(stored);
+    if(IsRigidView(transposed.matrix))
+      rigid.push_back(transposed);
+  }
+
+  rdcarray<CameraCandidate> ret;
+  for(const CameraMatrixRecord &view : rigid)
+  {
+    const Matrix4f inverse = InverseRigidMatrix(view.matrix);
+    const float inverseTolerance = 0.003f * qMax(1.0f, MaxAbs(inverse));
+
+    for(const CameraMatrixRecord &inverseView : rigid)
+    {
+      if(inverseView.transposed != view.transposed || inverseView.byteOffset == view.byteOffset ||
+         MaxAbsDifference(inverseView.matrix, inverse) > inverseTolerance)
+        continue;
+
+      for(const CameraMatrixRecord &viewProjection : matrices)
+      {
+        if(viewProjection.transposed != view.transposed ||
+           viewProjection.byteOffset == view.byteOffset ||
+           viewProjection.byteOffset == inverseView.byteOffset)
+          continue;
+
+        const Matrix4f projection = MultiplyMatrix(viewProjection.matrix, inverse);
+        if(!IsPerspectiveProjection(projection))
+          continue;
+
+        CameraCandidate candidate;
+        candidate.viewOffset = view.byteOffset;
+        candidate.inverseViewOffset = inverseView.byteOffset;
+        candidate.viewProjectionOffset = viewProjection.byteOffset;
+        candidate.transposed = view.transposed;
+        candidate.position[0] = inverse[12];
+        candidate.position[1] = inverse[13];
+        candidate.position[2] = inverse[14];
+        ret.push_back(candidate);
+      }
+    }
+  }
+
+  return ret;
+}
+}
 
 D3D11PipelineStateViewer::D3D11PipelineStateViewer(ICaptureContext &ctx,
                                                    PipelineStateViewer &common, QWidget *parent)
@@ -487,6 +680,96 @@ D3D11PipelineStateViewer::~D3D11PipelineStateViewer()
 {
   delete ui;
   delete m_ComputeDebugSelector;
+}
+
+void D3D11PipelineStateViewer::on_detectCamera_clicked()
+{
+  if(!m_Ctx.IsCaptureLoaded())
+    return;
+
+  struct BoundConstantBuffer
+  {
+    uint32_t slot = 0;
+    Descriptor descriptor;
+  };
+
+  rdcarray<BoundConstantBuffer> buffers;
+  const uint32_t eventId = m_Ctx.CurEvent();
+  const ShaderStageMask vertexMask = MaskForStage(ShaderStage::Vertex);
+  for(size_t i = 0; i < m_Locations.size(); i++)
+  {
+    if(!(m_Locations[i].stageMask & vertexMask) ||
+       m_Locations[i].category != DescriptorCategory::ConstantBlock ||
+       m_Descriptors[i].resource == ResourceId())
+      continue;
+
+    buffers.push_back({m_Locations[i].fixedBindNumber, m_Descriptors[i]});
+  }
+
+  if(buffers.empty())
+  {
+    RDDialog::information(this, tr("Free Camera Diagnostics"),
+                          tr("No vertex shader constant buffers are bound at this event."));
+    return;
+  }
+
+  ui->detectCamera->setEnabled(false);
+  m_Ctx.Replay().AsyncInvoke([this, buffers, eventId](IReplayController *r) {
+    QStringList results;
+    for(const BoundConstantBuffer &binding : buffers)
+    {
+      const uint64_t scanLength = qMin<uint64_t>(binding.descriptor.byteSize, 64ULL * 1024ULL);
+      if(scanLength < sizeof(float) * 16)
+        continue;
+
+      bytebuf data = r->GetBufferData(binding.descriptor.resource, binding.descriptor.byteOffset,
+                                      scanLength);
+      const rdcarray<CameraCandidate> candidates = FindCameraCandidates(data);
+
+      for(const CameraCandidate &candidate : candidates)
+      {
+        results.push_back(
+            tr("VS b%1: View +%2, InverseView +%3, ViewProjection +%4, %5 storage, "
+               "camera = (%6, %7, %8)")
+                .arg(binding.slot)
+                .arg(candidate.viewOffset)
+                .arg(candidate.inverseViewOffset)
+                .arg(candidate.viewProjectionOffset)
+                .arg(candidate.transposed ? tr("transposed") : tr("direct"))
+                .arg(candidate.position[0], 0, 'g', 7)
+                .arg(candidate.position[1], 0, 'g', 7)
+                .arg(candidate.position[2], 0, 'g', 7));
+
+        if(results.count() >= 32)
+          break;
+      }
+
+      if(results.count() >= 32)
+        break;
+    }
+
+    GUIInvoke::call(this, [this, results, eventId]() {
+      ui->detectCamera->setEnabled(true);
+
+      if(results.isEmpty())
+      {
+        RDDialog::information(
+            this, tr("Free Camera Diagnostics"),
+            tr("No complete View + InverseView + ViewProjection group was found in the currently "
+               "bound VS constant-buffer ranges. This event may use a different camera layout, "
+               "or it may not be a scene draw."));
+      }
+      else
+      {
+        QString message =
+            tr("Camera candidates at EID %1:\n\n%2").arg(eventId).arg(results.join(lit("\n")));
+        if(results.count() == 32)
+          message += tr("\n\nOnly the first 32 candidates are shown.");
+
+        RDDialog::information(this, tr("Free Camera Diagnostics"), message);
+      }
+    });
+  });
 }
 
 void D3D11PipelineStateViewer::OnCaptureLoaded()

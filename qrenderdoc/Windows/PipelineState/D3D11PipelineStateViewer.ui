@@ -137,6 +137,29 @@
        </widget>
       </item>
       <item>
+       <widget class="QToolButton" name="detectCamera">
+        <property name="toolTip">
+         <string>Scan the currently bound vertex shader constant-buffer ranges for a view, inverse-view, and view-projection matrix group.</string>
+        </property>
+        <property name="text">
+         <string>Find Camera</string>
+        </property>
+        <property name="icon">
+         <iconset resource="../../Resources/resources.qrc">
+          <normaloff>:/find.png</normaloff>:/find.png</iconset>
+        </property>
+        <property name="checkable">
+         <bool>false</bool>
+        </property>
+        <property name="toolButtonStyle">
+         <enum>Qt::ToolButtonTextBesideIcon</enum>
+        </property>
+        <property name="autoRaise">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QToolButton" name="extensions">
         <property name="text">
          <string>Extensions</string>

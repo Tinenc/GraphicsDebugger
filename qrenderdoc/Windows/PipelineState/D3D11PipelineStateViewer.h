@@ -64,6 +64,7 @@ private slots:
   void on_showUnused_toggled(bool checked);
   void on_showEmpty_toggled(bool checked);
   void on_exportHTML_clicked();
+  void on_detectCamera_clicked();
   void on_meshView_clicked();
   void on_iaLayouts_itemActivated(RDTreeWidgetItem *item, int column);
   void on_iaBuffers_itemActivated(RDTreeWidgetItem *item, int column);

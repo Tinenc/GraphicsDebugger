@@ -39,7 +39,29 @@
 #include "strings/string_utils.h"
 #include "graphics_diagnostics.h"
 
+#if ENABLED(ENABLE_UNIT_TESTS)
+#include "catch/catch.hpp"
+#endif
+
 #define VERBOSE_DEBUG_HOOK OPTION_OFF
+
+static uint64_t DelayImportThunkRVA(DWORD tableRVA, DWORD slot, DWORD thunkSize)
+{
+  return uint64_t(tableRVA) + uint64_t(slot) * uint64_t(thunkSize);
+}
+
+#if ENABLED(ENABLE_UNIT_TESTS) && defined(_WIN64)
+TEST_CASE("Delay import thunk RVAs use 64-bit arithmetic", "[win32][hooks]")
+{
+  const DWORD thunkSize = 8;
+
+  CHECK(DelayImportThunkRVA(0xfffffff8U, 1, thunkSize) == 0x100000000ULL);
+
+  // Keep the multiplication in 64 bits too. With 32-bit slot * thunkSize arithmetic this wraps
+  // to zero before being widened.
+  CHECK(DelayImportThunkRVA(0, 0x20000000U, thunkSize) == 0x100000000ULL);
+}
+#endif
 
 // map from address of IAT entry, to original contents
 std::map<void **, void *> s_InstalledHooks;
@@ -227,12 +249,13 @@ struct CachedHookData
       if(rva >= imageSize || size > imageSize - rva)
         return false;
       SIZE_T copied = 0;
-      BOOL success = ReadProcessMemory(GetCurrentProcess(), (byte *)module + rva, output, size, &copied);
+      BOOL success =
+          ReadProcessMemory(GetCurrentProcess(), (byte *)module + rva, output, size, &copied);
       if(!success && !mainDelayReadFailureLogged)
       {
         DWORD error = GetLastError();
-        RDCLOG("Graphics main delay read unavailable: moduleBase=%p rva=0x%lx error=%lu",
-               module, rva, error);
+        RDCLOG("Graphics main delay read unavailable: moduleBase=%p rva=0x%lx error=%lu", module,
+               rva, error);
         mainDelayReadFailureLogged = true;
       }
       return success && copied == size;
@@ -248,8 +271,8 @@ struct CachedHookData
         DWORD attributes, name, module, iat, names, bound, unload, timestamp;
       } descriptor = {};
       uint64_t descriptorRVA = uint64_t(directory.VirtualAddress) + uint64_t(index) * 32ULL;
-      if(descriptorRVA > 0xffffffffULL || !read(DWORD(descriptorRVA), &descriptor, sizeof(descriptor)) ||
-         !descriptor.name)
+      if(descriptorRVA > 0xffffffffULL ||
+         !read(DWORD(descriptorRVA), &descriptor, sizeof(descriptor)) || !descriptor.name)
         break;
       if(!(descriptor.attributes & 1))
         continue;
@@ -262,8 +285,8 @@ struct CachedHookData
       for(DWORD slot = 0; slot < 256; slot++)
       {
         IMAGE_THUNK_DATA name = {}, target = {};
-        uint64_t nameRVA = uint64_t(descriptor.names) + uint64_t(slot) * sizeof(name);
-        uint64_t slotRVA = uint64_t(descriptor.iat) + uint64_t(slot) * sizeof(target);
+        uint64_t nameRVA = DelayImportThunkRVA(descriptor.names, slot, DWORD(sizeof(name)));
+        uint64_t slotRVA = DelayImportThunkRVA(descriptor.iat, slot, DWORD(sizeof(target)));
         if(nameRVA > 0xffffffffULL || slotRVA > 0xffffffffULL ||
            !read(DWORD(nameRVA), &name, sizeof(name)) || !name.u1.AddressOfData ||
            !read(DWORD(slotRVA), &target, sizeof(target)))
@@ -288,9 +311,10 @@ struct CachedHookData
           function = importedName;
         }
 
-        RDCLOG("Graphics main delay target: moduleBase=%p import=%s!%s entry=%p target=%p previous=%p",
-               module, library, function.c_str(), entry, address,
-               previous == mainDelayTargets.end() ? NULL : previous->second);
+        RDCLOG(
+            "Graphics main delay target: moduleBase=%p import=%s!%s entry=%p target=%p previous=%p",
+            module, library, function.c_str(), entry, address,
+            previous == mainDelayTargets.end() ? NULL : previous->second);
         mainDelayTargets[entry] = address;
         LogGraphicsCreationCaller("main-delay-import-target", address);
 
@@ -312,8 +336,10 @@ struct CachedHookData
             *hook.orig = (void *)real;
           bool already = false;
           if(ApplyHook(hook, slotEntry, already, "main-image-delay-import", module, library))
-            RDCLOG("Graphics resolved delay hook installed: moduleBase=%p import=%s!%s entry=%p "
-                   "real=%p hook=%p", module, library, hook.function.c_str(), entry, real, hook.hook);
+            RDCLOG(
+                "Graphics resolved delay hook installed: moduleBase=%p import=%s!%s entry=%p "
+                "real=%p hook=%p",
+                module, library, hook.function.c_str(), entry, real, hook.hook);
           break;
         }
       }
@@ -499,14 +525,16 @@ struct CachedHookData
     if(module == GetModuleHandleW(NULL))
     {
       const IMAGE_DATA_DIRECTORY &imports = optHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-      const IMAGE_DATA_DIRECTORY &delay = optHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT];
+      const IMAGE_DATA_DIRECTORY &delay =
+          optHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT];
       if(!mainImportsLogged || mainImportRVA != imports.VirtualAddress ||
          mainImportSize != imports.Size || mainDelayImportRVA != delay.VirtualAddress ||
          mainDelayImportSize != delay.Size)
       {
-        RDCLOG("Graphics main image imports: module=%s moduleBase=%p importRVA=0x%lx "
-               "importSize=0x%lx delayImportRVA=0x%lx delayImportSize=0x%lx",
-               modName, module, imports.VirtualAddress, imports.Size, delay.VirtualAddress, delay.Size);
+        RDCLOG(
+            "Graphics main image imports: module=%s moduleBase=%p importRVA=0x%lx "
+            "importSize=0x%lx delayImportRVA=0x%lx delayImportSize=0x%lx",
+            modName, module, imports.VirtualAddress, imports.Size, delay.VirtualAddress, delay.Size);
         mainImportsLogged = true;
         mainImportRVA = imports.VirtualAddress;
         mainImportSize = imports.Size;
