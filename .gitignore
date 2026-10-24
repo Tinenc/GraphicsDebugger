@@ -56,3 +56,10 @@ __pycache__
 !qrenderdoc/3rdparty/qt/**/bin/*.exe
 !qrenderdoc/3rdparty/qt/**/bin/*.dll
 !qrenderdoc/3rdparty/pyside/**
+
+# naraka fixture build output
+artifacts/naraka-fixture/*.obj
+artifacts/naraka-fixture/*.exe
+artifacts/naraka-fixture/*.pdb
+artifacts/naraka-fixture/fixture.log
+artifacts/naraka-fixture/out*.txt

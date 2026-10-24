@@ -1,0 +1,69 @@
+==============================================================================
+mode = import   exit=3221226505   3.9s
+log  = C:\Users\Administrator\AppData\Local\Temp\TinecmaTool\RenderDoc_2026.10.24_15.06.48.log
+tool stderr: 'C:\Program Files\GraphicsDebugger-Naraka\artifacts\naraka-fixture\naraka_fixture.exe' finished executing.
+-- fixture --
+   [fixture] api=d3d11 resolve=import frames=10 captureFrame=4
+   [fixture] RenderDoc in-app API acquired (version 1.7.0), template=C:\Users\Administrator\AppData\Local\Temp\Naraka\fixture-tests\import\fixture
+   [fixture] resolve=import (IAT slot)
+   [fixture] device created, feature level 0xb100
+   [fixture] TriggerCapture() at frame 4
+   [fixture] rendered 10 frames, exiting
+   [fixture] captures recorded: 1
+   [fixture] rdc[0] = C:\Users\Administrator\AppData\Local\Temp\Naraka\fixture-tests\import\fixture_frame5.rdc
+-- tool log --
+   [YES] dll injected                     x1
+   [YES] d3d11 hooks registered           x1
+   [no ] GetProcAddress interception      
+   [YES] IAT slot patched                 x6
+   [YES] hooked function actually called  x4
+   [YES] device wrapped                   x1
+   [YES] present intercept                x1
+-- rdc --
+   fixture_frame5.rdc (0.82 MB)
+==============================================================================
+mode = dynamic   exit=3221226505   2.4s
+log  = C:\Users\Administrator\AppData\Local\Temp\TinecmaTool\RenderDoc_2026.10.24_15.06.52.log
+tool stderr: 'C:\Program Files\GraphicsDebugger-Naraka\artifacts\naraka-fixture\naraka_fixture.exe' finished executing.
+-- fixture --
+   [fixture] api=d3d11 resolve=dynamic frames=10 captureFrame=4
+   [fixture] RenderDoc in-app API acquired (version 1.7.0), template=C:\Users\Administrator\AppData\Local\Temp\Naraka\fixture-tests\dynamic\fixture
+   [fixture] resolve=dynamic (LoadLibraryA + GetProcAddress)
+   [fixture] device created, feature level 0xb100
+   [fixture] TriggerCapture() at frame 4
+   [fixture] rendered 10 frames, exiting
+   [fixture] captures recorded: 1
+   [fixture] rdc[0] = C:\Users\Administrator\AppData\Local\Temp\Naraka\fixture-tests\dynamic\fixture_frame5.rdc
+-- tool log --
+   [YES] dll injected                     x1
+   [YES] d3d11 hooks registered           x1
+   [YES] GetProcAddress interception      x1
+   [YES] IAT slot patched                 x6
+   [YES] hooked function actually called  x4
+   [YES] device wrapped                   x1
+   [YES] present intercept                x1
+-- rdc --
+   fixture_frame5.rdc (0.82 MB)
+==============================================================================
+mode = manual   exit=3221226505   2.5s
+log  = C:\Users\Administrator\AppData\Local\Temp\TinecmaTool\RenderDoc_2026.10.24_15.06.54.log
+tool stderr: 'C:\Program Files\GraphicsDebugger-Naraka\artifacts\naraka-fixture\naraka_fixture.exe' finished executing.
+-- fixture --
+   [fixture] api=d3d11 resolve=manual frames=10 captureFrame=4
+   [fixture] RenderDoc in-app API acquired (version 1.7.0), template=C:\Users\Administrator\AppData\Local\Temp\Naraka\fixture-tests\manual\fixture
+   [fixture] resolve=manual (hand-walked export directory, no GetProcAddress)
+   [fixture] device created, feature level 0xb100
+   [fixture] TriggerCapture() at frame 4
+   [fixture] rendered 10 frames, exiting
+   [fixture] captures recorded: 0
+-- tool log --
+   [YES] dll injected                     x1
+   [YES] d3d11 hooks registered           x1
+   [no ] GetProcAddress interception      
+   [YES] IAT slot patched                 x6
+   [YES] hooked function actually called  x3
+   [no ] device wrapped                   
+   [no ] present intercept                
+-- rdc --
+   <none>
+==============================================================================
