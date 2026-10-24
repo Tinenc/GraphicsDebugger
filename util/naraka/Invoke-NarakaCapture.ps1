@@ -163,6 +163,7 @@ $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $capTemplate = Join-Path $CaptureDir ("naraka_$stamp")
 $toolArgs = @(
     "capture",
+    "-w",
     "--opt-hook-children",
     "--opt-disallow-fullscreen",
     "-c", $capTemplate,
