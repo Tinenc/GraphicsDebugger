@@ -31,4 +31,13 @@ if not exist "%MSVC%\bin\Hostx64\x64\cl.exe" (
   /Fe:naraka_fixture.exe ^
   /link /SUBSYSTEM:CONSOLE
 
-echo EXITCODE=%ERRORLEVEL%
+echo EXITCODE_D3D11=%ERRORLEVEL%
+
+"%MSVC%\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /O2 /EHsc /MD /W3 ^
+  /D_CRT_SECURE_NO_WARNINGS ^
+  /I"%REPO%\renderdoc\api\app" ^
+  naraka_fixture12.cpp ^
+  /Fe:naraka_fixture12.exe ^
+  /link /SUBSYSTEM:CONSOLE
+
+echo EXITCODE_D3D12=%ERRORLEVEL%

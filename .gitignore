@@ -63,3 +63,5 @@ artifacts/naraka-fixture/*.exe
 artifacts/naraka-fixture/*.pdb
 artifacts/naraka-fixture/fixture.log
 artifacts/naraka-fixture/out*.txt
+artifacts/naraka-fixture/fixture12.log
+artifacts/naraka-fixture/r12.txt

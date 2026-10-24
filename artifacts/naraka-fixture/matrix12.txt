@@ -1,0 +1,143 @@
+==============================================================================
+d3d12 / import   exit=3221226505   5.1s
+log = C:\Users\Administrator\AppData\Local\Temp\TinecmaTool\RenderDoc_2026.10.24_19.58.23.log
+-- fixture --
+   [fx12] api=d3d12 resolve=import frames=10 captureFrame=4
+   [fx12] RenderDoc in-app API acquired (1.7.0), template=C:\Users\Administrator\AppData\Local\Temp\Naraka\fixture-tests\d3d12\import\fixture12
+   [fx12] resolve=import (IAT slot)
+   [fx12] device created
+   [fx12] command queue created
+   [fx12] CreateSwapChainForHwnd -> 0x00000000
+   [fx12] QI(IDXGISwapChain3) -> 0x00000000
+   [fx12] uavHeap -> 0x00000000 ptr=000001D4B9DFA028
+   [fx12] CreateCommittedResource(A) -> 0x00000000 ptr=000001D4B9D488B8
+   [fx12] CreateCommittedResource(B) -> 0x00000000 ptr=000001D4B9D48808
+   [fx12] RTVs created
+   [fx12] CreateCommittedResource(csOut) -> 0x00000000 ptr=000001D4B9D48758
+   [fx12] UAV created
+   [fx12] GetBuffer(0) -> 0x00000000 ptr=000001D4B9D48A18
+   [fx12] GetBuffer(1) -> 0x00000000 ptr=000001D4B9D48968
+   [fx12] backbuffers ready
+   [fx12] root signature -> 0x00000000
+   [fx12] shaders compiled  vs=736 psG=856 psC=556 cs=612
+   [fx12] psoGBuffer=000001D4BAE50580
+   [fx12] psoComposite=000001D4BAE504C8
+   [fx12] serialize compute root sig -> 0x00000000
+   [fx12] create compute root sig -> 0x00000000 ptr=000001D4BB085670
+   [fx12] compute bytecode 612 bytes
+   [fx12] psoCompute -> 0x80070057 ptr=0000000000000000
+   [fx12] allocator -> 0x00000000
+   [fx12] command list -> 0x00000000
+   [fx12] TriggerCapture() at frame 4
+   [fx12] rendered 10 frames, exiting
+   [fx12] captures recorded: 1
+   [fx12] rdc[0] = C:\Users\Administrator\AppData\Local\Temp\Naraka\fixture-tests\d3d12\import\fixture12_frame6.rdc
+-- tool log --
+   [YES] dll injected                   x1
+   [YES] d3d12 hooks registered         x1
+   [no ] GetProcAddress interception    
+   [YES] IAT slot patched               x5
+   [YES] device create returned         x1
+   [YES] command queue wrapped          x1
+   [no ] M4 factory bridge              
+   [YES] device wrapped                 x1
+   [YES] present intercept              x1
+-- rdc --
+   fixture12_frame6.rdc (4.06 MB)
+==============================================================================
+d3d12 / dynamic   exit=3221226505   2.2s
+log = C:\Users\Administrator\AppData\Local\Temp\TinecmaTool\RenderDoc_2026.10.24_19.58.27.log
+-- fixture --
+   [fx12] api=d3d12 resolve=dynamic frames=10 captureFrame=4
+   [fx12] RenderDoc in-app API acquired (1.7.0), template=C:\Users\Administrator\AppData\Local\Temp\Naraka\fixture-tests\d3d12\dynamic\fixture12
+   [fx12] resolve=dynamic (LoadLibraryA + GetProcAddress)
+   [fx12] device created
+   [fx12] command queue created
+   [fx12] CreateSwapChainForHwnd -> 0x00000000
+   [fx12] QI(IDXGISwapChain3) -> 0x00000000
+   [fx12] uavHeap -> 0x00000000 ptr=00000150C55C8508
+   [fx12] CreateCommittedResource(A) -> 0x00000000 ptr=00000150C656FE78
+   [fx12] CreateCommittedResource(B) -> 0x00000000 ptr=00000150C656FDC8
+   [fx12] RTVs created
+   [fx12] CreateCommittedResource(csOut) -> 0x00000000 ptr=00000150C656FD18
+   [fx12] UAV created
+   [fx12] GetBuffer(0) -> 0x00000000 ptr=00000150C656FFD8
+   [fx12] GetBuffer(1) -> 0x00000000 ptr=00000150C656FF28
+   [fx12] backbuffers ready
+   [fx12] root signature -> 0x00000000
+   [fx12] shaders compiled  vs=736 psG=856 psC=556 cs=612
+   [fx12] psoGBuffer=00000150C55A5F20
+   [fx12] psoComposite=00000150C55A5E68
+   [fx12] serialize compute root sig -> 0x00000000
+   [fx12] create compute root sig -> 0x00000000 ptr=00000150C67B4E10
+   [fx12] compute bytecode 612 bytes
+   [fx12] psoCompute -> 0x80070057 ptr=0000000000000000
+   [fx12] allocator -> 0x00000000
+   [fx12] command list -> 0x00000000
+   [fx12] TriggerCapture() at frame 4
+   [fx12] rendered 10 frames, exiting
+   [fx12] captures recorded: 1
+   [fx12] rdc[0] = C:\Users\Administrator\AppData\Local\Temp\Naraka\fixture-tests\d3d12\dynamic\fixture12_frame6.rdc
+-- tool log --
+   [YES] dll injected                   x1
+   [YES] d3d12 hooks registered         x1
+   [YES] GetProcAddress interception    x1
+   [YES] IAT slot patched               x5
+   [YES] device create returned         x1
+   [YES] command queue wrapped          x1
+   [no ] M4 factory bridge              
+   [YES] device wrapped                 x1
+   [YES] present intercept              x1
+-- rdc --
+   fixture12_frame6.rdc (4.06 MB)
+==============================================================================
+d3d12 / manual   exit=3221226505   1.7s
+log = C:\Users\Administrator\AppData\Local\Temp\TinecmaTool\RenderDoc_2026.10.24_19.58.29.log
+-- fixture --
+   [fx12] api=d3d12 resolve=manual frames=10 captureFrame=4
+   [fx12] RenderDoc in-app API acquired (1.7.0), template=C:\Users\Administrator\AppData\Local\Temp\Naraka\fixture-tests\d3d12\manual\fixture12
+   [fx12] resolve=manual (hand-walked export directory, no GetProcAddress)
+   [fx12] device created
+   [fx12] command queue created
+   [fx12] CreateSwapChainForHwnd -> 0x00000000
+   [fx12] QI(IDXGISwapChain3) -> 0x00000000
+   [fx12] uavHeap -> 0x00000000 ptr=0000018488E87A30
+   [fx12] CreateCommittedResource(A) -> 0x00000000 ptr=0000018488E89660
+   [fx12] CreateCommittedResource(B) -> 0x00000000 ptr=0000018488E8B0C0
+   [fx12] RTVs created
+   [fx12] CreateCommittedResource(csOut) -> 0x00000000 ptr=0000018488E93A10
+   [fx12] UAV created
+   [fx12] GetBuffer(0) -> 0x00000000 ptr=0000018488E74F90
+   [fx12] GetBuffer(1) -> 0x00000000 ptr=0000018488E758D0
+   [fx12] backbuffers ready
+   [fx12] root signature -> 0x00000000
+   [fx12] shaders compiled  vs=736 psG=856 psC=556 cs=612
+   [fx12] psoGBuffer=0000018488F34B80
+   [fx12] psoComposite=0000018488F09D40
+   [fx12] serialize compute root sig -> 0x00000000
+   [fx12] create compute root sig -> 0x00000000 ptr=0000018488EA5EC0
+   [fx12] compute bytecode 612 bytes
+   [fx12] psoCompute -> 0x80070057 ptr=0000000000000000
+   [fx12] allocator -> 0x00000000
+   [fx12] command list -> 0x00000000
+   [fx12] TriggerCapture() at frame 4
+   [fx12] rendered 10 frames, exiting
+   [fx12] captures recorded: 0
+-- tool log --
+   [YES] dll injected                   x1
+   [YES] d3d12 hooks registered         x1
+   [no ] GetProcAddress interception    
+   [YES] IAT slot patched               x5
+   [no ] device create returned         
+   [no ] command queue wrapped          
+   [no ] M4 factory bridge              
+   [no ] device wrapped                 
+   [no ] present intercept              
+-- rdc --
+   <none>
+==============================================================================
+SUMMARY
+   api    mode     resolved   wrapped    present    rdc
+   d3d12  import   -          yes        yes        1
+   d3d12  dynamic  yes        yes        yes        1
+   d3d12  manual   -          NO         NO         0
