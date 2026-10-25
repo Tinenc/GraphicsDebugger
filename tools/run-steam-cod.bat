@@ -124,9 +124,9 @@ for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq %TARGET%" /FO CSV
 )
 if defined RUNNING (
   call :log "[warn] %TARGET% is already running, pid=!RUNNING!"
-  call :log "[warn] d3d12.dll loads about 40s after the process starts, so"
-  call :log "[warn] injecting now may be too late to catch device creation."
-  choice /c YN /n /t 5 /d N /m "  inject into the running process anyway? [Y/N] "
+  call :log "[warn] d3d12.dll loads about 40s after start, so a late inject may"
+  call :log "[warn] miss device creation. If capture looks empty, restart the game."
+  choice /c YN /n /t 8 /d Y /m "  inject into the running process? [Y/n] "
   if errorlevel 2 goto :fresh
   set "PID=!RUNNING!"
   goto :inject
