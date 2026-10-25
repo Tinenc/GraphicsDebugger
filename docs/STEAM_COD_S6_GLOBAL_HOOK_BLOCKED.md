@@ -64,6 +64,34 @@ Display  : 26H2   Build 26300   UBR 9711
 因此没能直接确认 Ricochet 驱动是否额外参与拦截 —— 但 AppInit 的失败发生在**系统加载器层**，
 与反作弊无关（`mstsc.exe` 不带任何反作弊）。
 
+## 2.5 定量：`cod.exe` 的内存分配放行率
+
+`race_inject.py` 里 `cod.exe` 有一次性注入「成功」（ETW 能看到 DLL），为了判断那是时间窗
+还是偶然，用 `probe_va.py` 在一次游戏运行里持续探测（只分配 1 字节再释放，不注入）：
+
+```
+每 2 秒一次，共 44 次采样
+  +  66.7s  ALLOW             <- 唯一一次
+  其余 43 次  denied at VirtualAllocEx  err=5
+```
+
+**放行率 1/44 ≈ 2.3%，且落在不可预测的时刻。** 这不是可用窗口，是竞态——反作弊驱动
+某一刻的内部状态让权限短暂可见。结论：**不存在值得抢的注入时机**，自建注入器（用 shellcode
+带回模块基址以完成 `INTERNAL_*` 初始化）也不会有稳定收益。
+
+顺带说明 `race_inject` 那次「成功」为什么没用：DLL 虽被 `LoadLibraryW` 加载，但
+`loc == 0`（模块枚举被拒）使 `INTERNAL_SetCaptureFile/SetDebugLogFile/SetCaptureOptions`
+全部跳过，`Core::Initialise` 从未执行。结果是一个**惰性 DLL**，随后 `cod.exe` 直接崩在
+`TinecmaTool.dll` 里：
+
+```
+错误代码: 0xC0000005 (0x00000000)
+模块:     TinecmaTool.dll
+可执行文件: cod.exe
+```
+
+**硬约束（已写进代码）**：拿不到 `loc` 就不能把 DLL 留在进程里——只加载不初始化等于给游戏埋一颗空指针。
+
 ## 3 那还剩什么
 
 | 方案 | 可行性 | 风险 |
