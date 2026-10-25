@@ -41,6 +41,8 @@ if not exist "%TOOL%" (
 )
 
 if not exist "%CAPTURES%" mkdir "%CAPTURES%" >nul 2>&1
+set "RUNLOG=%CAPTURES%\run.log"
+>>"%RUNLOG%" echo ===== %DATE% %TIME% mode=%MODE% =====
 
 if /i "%MODE%"=="launch" goto :launch
 if /i "%MODE%"=="steam"  goto :steam
@@ -91,9 +93,9 @@ for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq %TARGET%" /FO CSV
   if not defined RUNNING set "RUNNING=%%~P"
 )
 if defined RUNNING (
-  echo [warn] %TARGET% is already running, pid=!RUNNING!
-  echo [warn] d3d12.dll loads about 40s after the process starts, so injecting
-  echo        now may be too late to catch the D3D12 device creation.
+  call :log "[warn] %TARGET% is already running, pid=!RUNNING!"
+  call :log "[warn] d3d12.dll loads about 40s after the process starts, so"
+  call :log "[warn] injecting now may be too late to catch device creation."
   choice /c YN /n /t 5 /d N /m "  inject into the running process anyway? [Y/N] "
   if errorlevel 2 goto :fresh
   set "PID=!RUNNING!"
@@ -101,16 +103,17 @@ if defined RUNNING (
 )
 
 :fresh
-echo [wait] Start Call of Duty from Steam now.
-echo [wait] Watching for %TARGET% ...
+call :log "[wait] Start Call of Duty from Steam now."
+call :log "[wait] Watching for %TARGET% ..."
 
 :waitloop
 if not defined WAITS set "WAITS=0"
 set /a WAITS+=1
+if not defined HEART set "HEART=0"
 if !WAITS! geq 600 (
-  echo [warn] gave up after about 10 minutes, %TARGET% never started.
-  echo [hint] check that Steam actually launched the game, or start it by hand
-  echo        and run:  %~nx0 wait
+  call :log "[warn] gave up after about 10 minutes, %TARGET% never started."
+  call :log "[hint] check that Steam actually launched the game, or start it"
+  call :log "[hint] by hand and run:  %~nx0 wait"
   goto :fail
 )
 set "PID="
@@ -118,21 +121,48 @@ for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq %TARGET%" /FO CSV
   if not defined PID set "PID=%%~P"
 )
 if defined PID goto :inject
+set /a HEART+=1
+if !HEART! geq 3 (
+  set "HEART=0"
+  call :status
+)
+:tick
 ping -n 2 127.0.0.1 >nul
 goto :waitloop
 
+rem heartbeat: is the HQ shell up yet? tells the user something is happening
+:status
+set "SHELL="
+for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq cod.exe" /FO CSV /NH 2^>nul ^| findstr /i "cod.exe"') do (
+  if not defined SHELL set "SHELL=%%~P"
+)
+if defined SHELL (
+  echo [wait] +%WAITS%s  cod.exe pid=%SHELL% is up, waiting for %TARGET% ...
+  >>"%RUNLOG%" echo [%TIME%] +%WAITS%s cod.exe pid=%SHELL%
+) else (
+  echo [wait] +%WAITS%s  nothing running yet - has the game been launched?
+  >>"%RUNLOG%" echo [%TIME%] +%WAITS%s nothing running
+)
+goto :eof
+
+:log
+echo %~1
+>>"%RUNLOG%" echo [%TIME%] %~1
+goto :eof
+
 :inject
-echo [found] %TARGET% pid=%PID%
-echo [inject] injecting...
+call :log "[found] %TARGET% pid=%PID%"
+call :log "[inject] %TOOL% inject --PID=%PID%"
 "%TOOL%" inject --PID=%PID% %EXTRA% -c "%CAPTURES%\steam-cod"
 set "RC=%errorlevel%"
-echo [inject] rc=%RC%
+call :log "[inject] rc=%RC%"
 if not "%RC%"=="0" goto :injectfail
 
 echo.
-echo [ok] hooked into pid %PID%
-echo [ok] captures go to %CAPTURES%
-echo [ok] press the capture hotkey in game (F12 / PrintScreen) to grab a frame
+call :log "[ok] hooked into pid %PID%"
+call :log "[ok] captures go to %CAPTURES%"
+call :log "[ok] press the capture hotkey in game (F12 / PrintScreen) to grab a frame"
+echo [ok] full transcript: %RUNLOG%
 echo [ok] this window can be closed
 goto :done
 
