@@ -19,15 +19,21 @@ set "HERE=%~dp0"
 rem repo root, one level up from tools\
 for %%i in ("%HERE%..") do set "ROOT=%%~fi\"
 set "TOOL=%ROOT%x64\Development\TinecmaToolcmd.exe"
-set "GAMEDIR=F:\SteamLibrary\steamapps\common\Call of Duty HQ\sp26"
+set "WAREHOUSE=F:\SteamLibrary\steamapps\common\Call of Duty HQ"
+set "GAMEDIR=%WAREHOUSE%\sp26"
 set "TARGET=sp26-cod.exe"
 set "CAPTURES=%ROOT%artifacts\steam-cod-captures"
 
 set "MODE=%~1"
-if "%MODE%"=="" set "MODE=wait"
+if "%MODE%"=="" set "MODE=steam"
 rem everything after the mode, passed through to the tool (e.g. -w)
 set "EXTRA="
 if not "%~2"=="" for /f "tokens=1,*" %%a in ("%*") do set "EXTRA=%%b"
+
+rem elevation matters: an elevated shell often fails to hand steam:// to a
+rem non-elevated Steam client, so the URI is routed through explorer instead.
+net session >nul 2>&1
+if errorlevel 1 (set "ELEVATED=0") else (set "ELEVATED=1")
 
 if /i "%MODE%"=="help"   goto :usage
 if /i "%MODE%"=="-h"     goto :usage
@@ -45,6 +51,7 @@ set "RUNLOG=%CAPTURES%\run.log"
 >>"%RUNLOG%" echo ===== %DATE% %TIME% mode=%MODE% =====
 
 if /i "%MODE%"=="launch" goto :launch
+if /i "%MODE%"=="hq"     goto :hq
 if /i "%MODE%"=="steam"  goto :steam
 if /i "%MODE%"=="wait"   goto :wait
 echo [error] unknown mode: %MODE%
@@ -67,6 +74,24 @@ echo [exit] rc=%RC%
 goto :done
 
 rem ---------------------------------------------------------------------------
+:hq
+rem Let the tool own the HQ launcher and hook whatever child it spawns.
+rem Unlike steam.exe this is safe to do: cod.exe is not a Chromium app, its
+rem child is sp26-cod.exe. It may still want Steam's launch ticket - if the HQ
+rem asks to be started from Steam, fall back to:  %~nx0 steam
+if not exist "%WAREHOUSE%\cod.exe" (
+  call :log "[error] cod.exe not found: %WAREHOUSE%\cod.exe"
+  goto :fail
+)
+call :log "[hq] launching the HQ shell under the tool (children get hooked)"
+pushd "%WAREHOUSE%"
+"%TOOL%" capture -w --opt-hook-children %EXTRA% -c "%CAPTURES%\steam-cod" "%WAREHOUSE%\cod.exe"
+set "RC=%errorlevel%"
+popd
+call :log "[hq] rc=%RC%"
+goto :done
+
+rem ---------------------------------------------------------------------------
 :steam
 rem Hand the launch to Steam itself and only wait for the renderer.
 rem Do NOT use 'capture steam.exe --opt-hook-children': that hooks Steam's
@@ -82,8 +107,13 @@ if defined RUNNING (
   goto :inject
 )
 echo [steam] asking Steam to start Call of Duty (app 1938090) ...
-start "" "steam://rungameid/1938090"
-echo [wait] Watching for %TARGET% ...
+if "%ELEVATED%"=="1" (
+  call :log "[steam] elevated shell - routing the URI through explorer"
+  explorer.exe "steam://rungameid/1938090"
+) else (
+  start "" "steam://rungameid/1938090"
+)
+call :log "[wait] Watching for %TARGET% (HQ shell cod.exe shows up first)"
 goto :waitloop
 
 rem ---------------------------------------------------------------------------
@@ -184,10 +214,11 @@ rem ---------------------------------------------------------------------------
 echo.
 echo  TinecmaTool + Steam COD
 echo.
-echo    %~nx0                wait for sp26-cod.exe and inject
-echo    %~nx0 steam          let Steam launch the game, then inject
+echo    %~nx0                let Steam launch the game, wait, inject   [default]
+echo    %~nx0 hq             launch the HQ shell under the tool, hook children
+echo    %~nx0 wait           only wait, you start the game yourself
 echo    %~nx0 wait -w        inject, then block until the game exits
-echo    %~nx0 launch         start the renderer under the tool
+echo    %~nx0 launch         start the renderer exe directly under the tool
 echo    %~nx0 help           this text
 echo.
 echo  tool     : %TOOL%
