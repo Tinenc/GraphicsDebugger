@@ -1,0 +1,292 @@
+{
+  "path": "F:/SteamLibrary/steamapps/common/Call of Duty HQ/thx_sdk.dll",
+  "size": 4639744,
+  "machine": "8664",
+  "arch": "x64",
+  "sections_count": 9,
+  "timestamp": 1789481265,
+  "optional_magic": "020b",
+  "image_base": "0x180000000",
+  "entry_point_rva": "0x28260c",
+  "subsystem": 2,
+  "is_dll": false,
+  "data_dirs": {
+    "export": [
+      4385920,
+      384
+    ],
+    "import": [
+      4386304,
+      40
+    ],
+    "resource": [
+      4763648,
+      1264
+    ],
+    "exception": [
+      4718592,
+      34824
+    ],
+    "security": [
+      0,
+      0
+    ],
+    "reloc": [
+      4767744,
+      7104
+    ],
+    "debug": [
+      4299696,
+      84
+    ],
+    "tls": [
+      4300160,
+      40
+    ],
+    "load_config": [
+      4299376,
+      320
+    ],
+    "iat": [
+      3301376,
+      800
+    ],
+    "delay_import": [
+      0,
+      0
+    ],
+    "clr": [
+      0,
+      0
+    ]
+  },
+  "sections": [
+    {
+      "name": ".text",
+      "va": 4096,
+      "vsize": 2823104,
+      "rawptr": 1024,
+      "rawsize": 2823168,
+      "chars": "60000020",
+      "writable": false,
+      "executable": true,
+      "entropy": 6.8
+    },
+    {
+      "name": "IPPCODE",
+      "va": 2830336,
+      "vsize": 470941,
+      "rawptr": 2824192,
+      "rawsize": 471040,
+      "chars": "60000020",
+      "writable": false,
+      "executable": true,
+      "entropy": 6.46
+    },
+    {
+      "name": ".rdata",
+      "va": 3301376,
+      "vsize": 1087710,
+      "rawptr": 3295232,
+      "rawsize": 1088000,
+      "chars": "40000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 6.01
+    },
+    {
+      "name": ".data",
+      "va": 4390912,
+      "vsize": 326756,
+      "rawptr": 4383232,
+      "rawsize": 209920,
+      "chars": "c0000040",
+      "writable": true,
+      "executable": false,
+      "entropy": 0.71
+    },
+    {
+      "name": ".pdata",
+      "va": 4718592,
+      "vsize": 34824,
+      "rawptr": 4593152,
+      "rawsize": 35328,
+      "chars": "40000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 6.08
+    },
+    {
+      "name": "IPPDATA",
+      "va": 4755456,
+      "vsize": 1984,
+      "rawptr": 4628480,
+      "rawsize": 2048,
+      "chars": "c0000040",
+      "writable": true,
+      "executable": false,
+      "entropy": 3.37
+    },
+    {
+      "name": ".fptable",
+      "va": 4759552,
+      "vsize": 256,
+      "rawptr": 4630528,
+      "rawsize": 512,
+      "chars": "c0000040",
+      "writable": true,
+      "executable": false,
+      "entropy": 0.0
+    },
+    {
+      "name": ".rsrc",
+      "va": 4763648,
+      "vsize": 1264,
+      "rawptr": 4631040,
+      "rawsize": 1536,
+      "chars": "40000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 3.69
+    },
+    {
+      "name": ".reloc",
+      "va": 4767744,
+      "vsize": 7104,
+      "rawptr": 4632576,
+      "rawsize": 7168,
+      "chars": "42000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 5.44
+    }
+  ],
+  "imports": [
+    {
+      "dll": "KERNEL32.dll",
+      "count": 99,
+      "funcs": [
+        "+GetCurrentThreadId",
+        "+GetStdHandle",
+        "+WriteFile",
+        "+GetCurrentProcessId",
+        "+GetConsoleMode",
+        "+WriteConsoleA",
+        "+GetConsoleScreenBufferInfo",
+        "+SetConsoleTextAttribute",
+        "+WriteConsoleW",
+        "+CreateFileW",
+        "+QueryPerformanceCounter",
+        "+CloseHandle",
+        "+WaitForSingleObjectEx",
+        "+SwitchToThread",
+        "+GetExitCodeThread",
+        "+ReleaseSRWLockExclusive",
+        "+AcquireSRWLockExclusive",
+        "+TryAcquireSRWLockExclusive",
+        "+WakeConditionVariable",
+        "+WakeAllConditionVariable",
+        "+SleepConditionVariableSRW",
+        "+WideCharToMultiByte",
+        "+MultiByteToWideChar",
+        "+EnterCriticalSection",
+        "+LeaveCriticalSection",
+        "+InitializeCriticalSectionEx",
+        "+DeleteCriticalSection",
+        "+GetSystemTimeAsFileTime",
+        "+GetModuleHandleW",
+        "+GetProcAddress",
+        "+EncodePointer",
+        "+DecodePointer",
+        "+LCMapStringEx",
+        "+GetStringTypeW",
+        "+GetCPInfo",
+        "+RtlCaptureContext",
+        "+RtlLookupFunctionEntry",
+        "+RtlVirtualUnwind",
+        "+UnhandledExceptionFilter",
+        "+SetUnhandledExceptionFilter",
+        "+GetCurrentProcess",
+        "+TerminateProcess",
+        "+IsProcessorFeaturePresent",
+        "+IsDebuggerPresent",
+        "+GetStartupInfoW",
+        "+InitializeSListHead",
+        "+RtlPcToFileHeader",
+        "+RaiseException",
+        "+RtlUnwindEx",
+        "+InterlockedFlushSList",
+        "+GetLastError",
+        "+SetLastError",
+        "+InitializeCriticalSectionAndSpinCount",
+        "+TlsAlloc",
+        "+TlsGetValue",
+        "+TlsSetValue",
+        "+TlsFree",
+        "+FreeLibrary",
+        "+LoadLibraryExW",
+        "+SetStdHandle",
+        "+GetFileType",
+        "+GetModuleHandleExW",
+        "+ExitProcess",
+        "+GetModuleFileNameW",
+        "+HeapAlloc",
+        "+HeapFree",
+        "+FlsAlloc",
+        "+FlsGetValue",
+        "+FlsSetValue",
+        "+FlsFree",
+        "+VirtualProtect",
+        "+GetDateFormatW",
+        "+GetTimeFormatW",
+        "+CompareStringW",
+        "+LCMapStringW",
+        "+GetLocaleInfoW",
+        "+IsValidLocale",
+        "+GetUserDefaultLCID",
+        "+EnumSystemLocalesW",
+        "+GetTimeZoneInformation",
+        "+HeapReAlloc",
+        "+HeapSize",
+        "+HeapQueryInformation",
+        "+FlushFileBuffers",
+        "+GetConsoleOutputCP",
+        "+GetFileSizeEx",
+        "+SetFilePointerEx",
+        "+FindClose",
+        "+FindFirstFileExW",
+        "+FindNextFileW",
+        "+IsValidCodePage",
+        "+GetACP",
+        "+GetOEMCP",
+        "+GetCommandLineA",
+        "+GetCommandLineW",
+        "+GetEnvironmentStringsW",
+        "+FreeEnvironmentStringsW",
+        "+SetEnvironmentVariableW",
+        "+GetProcessHeap"
+      ]
+    }
+  ],
+  "delay_imports": [],
+  "exports": {
+    "dll_name": "thx_sdk.dll",
+    "count": 13,
+    "named": 13,
+    "names": [
+      "thxHpsCreate",
+      "thxHpsDestroy",
+      "thxHpsPrepare",
+      "thxHpsProcess",
+      "thxHpsSetConfig",
+      "thxLssCreate",
+      "thxLssCreateWithProfile",
+      "thxLssDestroy",
+      "thxLssPrepare",
+      "thxLssProcess",
+      "thxLssSetConfig",
+      "thxSdkSetAllocator",
+      "thxSdkVersion"
+    ]
+  }
+}

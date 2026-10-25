@@ -1,0 +1,438 @@
+{
+  "path": "C:/Windows/System32/d3d12.dll",
+  "size": 157520,
+  "machine": "8664",
+  "arch": "x64",
+  "sections_count": 7,
+  "timestamp": 4015690381,
+  "optional_magic": "020b",
+  "image_base": "0x180000000",
+  "entry_point_rva": "0xae90",
+  "subsystem": 3,
+  "is_dll": false,
+  "data_dirs": {
+    "export": [
+      108816,
+      736
+    ],
+    "import": [
+      109552,
+      520
+    ],
+    "resource": [
+      135168,
+      1008
+    ],
+    "exception": [
+      126976,
+      6012
+    ],
+    "security": [
+      135168,
+      22352
+    ],
+    "reloc": [
+      139264,
+      432
+    ],
+    "debug": [
+      97632,
+      112
+    ],
+    "tls": [
+      91720,
+      40
+    ],
+    "load_config": [
+      91392,
+      328
+    ],
+    "iat": [
+      91760,
+      1144
+    ],
+    "delay_import": [
+      0,
+      0
+    ],
+    "clr": [
+      0,
+      0
+    ]
+  },
+  "sections": [
+    {
+      "name": ".text",
+      "va": 4096,
+      "vsize": 79580,
+      "rawptr": 4096,
+      "rawsize": 81920,
+      "chars": "60000020",
+      "writable": false,
+      "executable": true,
+      "entropy": 6.0
+    },
+    {
+      "name": "fothk",
+      "va": 86016,
+      "vsize": 4096,
+      "rawptr": 86016,
+      "rawsize": 4096,
+      "chars": "60000020",
+      "writable": false,
+      "executable": true,
+      "entropy": 0.02
+    },
+    {
+      "name": ".rdata",
+      "va": 90112,
+      "vsize": 24456,
+      "rawptr": 90112,
+      "rawsize": 24576,
+      "chars": "40000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 5.28
+    },
+    {
+      "name": ".data",
+      "va": 114688,
+      "vsize": 12128,
+      "rawptr": 114688,
+      "rawsize": 4096,
+      "chars": "c0000040",
+      "writable": true,
+      "executable": false,
+      "entropy": 0.87
+    },
+    {
+      "name": ".pdata",
+      "va": 126976,
+      "vsize": 6012,
+      "rawptr": 118784,
+      "rawsize": 8192,
+      "chars": "40000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 3.99
+    },
+    {
+      "name": ".rsrc",
+      "va": 135168,
+      "vsize": 1008,
+      "rawptr": 126976,
+      "rawsize": 4096,
+      "chars": "40000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 1.08
+    },
+    {
+      "name": ".reloc",
+      "va": 139264,
+      "vsize": 520,
+      "rawptr": 131072,
+      "rawsize": 4096,
+      "chars": "42000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 1.02
+    }
+  ],
+  "imports": [
+    {
+      "dll": "msvcp_win.dll",
+      "count": 8,
+      "funcs": [
+        "+_Mtx_init_in_situ",
+        "+_Mtx_trylock",
+        "+_Mtx_unlock",
+        "+_Mtx_lock",
+        "+?_Throw_Cpp_error@std@@YAXH@Z",
+        "+?_Syserror_map@std@@YAPEBDH@Z",
+        "+?_Xlength_error@std@@YAXPEBD@Z",
+        "+_Mtx_destroy_in_situ"
+      ]
+    },
+    {
+      "dll": "api-ms-win-crt-runtime-l1-1-0.dll",
+      "count": 2,
+      "funcs": [
+        "+_initterm",
+        "+_initterm_e"
+      ]
+    },
+    {
+      "dll": "api-ms-win-crt-private-l1-1-0.dll",
+      "count": 33,
+      "funcs": [
+        "+_o__callnewh",
+        "+_o__cexit",
+        "+_o__configure_narrow_argv",
+        "+_o__crt_atexit",
+        "+_o__errno",
+        "+_o__execute_onexit_table",
+        "+_o__initialize_narrow_environment",
+        "+_o__initialize_onexit_table",
+        "+_o__invalid_parameter_noinfo",
+        "+_o__invalid_parameter_noinfo_noreturn",
+        "+_o__purecall",
+        "+_o__register_onexit_function",
+        "+_o__seh_filter_dll",
+        "+memmove",
+        "+_o_atoi",
+        "+_o_free",
+        "+_o_malloc",
+        "+_o_tolower",
+        "+__C_specific_handler",
+        "+_o___stdio_common_vswprintf",
+        "+_CxxThrowException",
+        "+_o___stdio_common_vsprintf_s",
+        "+_o___stdio_common_vsprintf",
+        "+_o___std_type_info_destroy_list",
+        "+_o___std_exception_destroy",
+        "+_o___std_exception_copy",
+        "+wcsstr",
+        "+__std_terminate",
+        "+__CxxFrameHandler4",
+        "+memchr",
+        "+memcmp",
+        "+memcpy",
+        "+_o__stricmp"
+      ]
+    },
+    {
+      "dll": "api-ms-win-crt-string-l1-1-0.dll",
+      "count": 1,
+      "funcs": [
+        "+memset"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-libraryloader-l1-2-0.dll",
+      "count": 8,
+      "funcs": [
+        "+GetModuleFileNameA",
+        "+GetProcAddress",
+        "+GetModuleHandleExA",
+        "+GetModuleHandleExW",
+        "+GetModuleHandleW",
+        "+LoadLibraryExW",
+        "+FreeLibrary",
+        "+GetModuleFileNameW"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-synch-l1-1-0.dll",
+      "count": 16,
+      "funcs": [
+        "+CreateSemaphoreExW",
+        "+WaitForSingleObject",
+        "+InitializeCriticalSection",
+        "+ReleaseMutex",
+        "+ReleaseSRWLockExclusive",
+        "+LeaveCriticalSection",
+        "+EnterCriticalSection",
+        "+DeleteCriticalSection",
+        "+AcquireSRWLockShared",
+        "+CreateMutexExW",
+        "+ReleaseSemaphore",
+        "+ReleaseSRWLockShared",
+        "+AcquireSRWLockExclusive",
+        "+OpenSemaphoreW",
+        "+WaitForSingleObjectEx",
+        "+InitializeCriticalSectionEx"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-heap-l1-1-0.dll",
+      "count": 4,
+      "funcs": [
+        "+HeapReAlloc",
+        "+GetProcessHeap",
+        "+HeapAlloc",
+        "+HeapFree"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-errorhandling-l1-1-0.dll",
+      "count": 4,
+      "funcs": [
+        "+GetLastError",
+        "+UnhandledExceptionFilter",
+        "+SetLastError",
+        "+SetUnhandledExceptionFilter"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-threadpool-l1-2-0.dll",
+      "count": 4,
+      "funcs": [
+        "+CreateThreadpoolTimer",
+        "+CloseThreadpoolTimer",
+        "+SetThreadpoolTimer",
+        "+WaitForThreadpoolTimerCallbacks"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-processthreads-l1-1-0.dll",
+      "count": 4,
+      "funcs": [
+        "+GetCurrentThreadId",
+        "+TerminateProcess",
+        "+GetCurrentProcessId",
+        "+GetCurrentProcess"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-localization-l1-2-0.dll",
+      "count": 1,
+      "funcs": [
+        "+FormatMessageW"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-debug-l1-1-0.dll",
+      "count": 4,
+      "funcs": [
+        "+IsDebuggerPresent",
+        "+OutputDebugStringA",
+        "+DebugBreak",
+        "+OutputDebugStringW"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-handle-l1-1-0.dll",
+      "count": 1,
+      "funcs": [
+        "+CloseHandle"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-string-l1-1-0.dll",
+      "count": 2,
+      "funcs": [
+        "+WideCharToMultiByte",
+        "+MultiByteToWideChar"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-heap-l2-1-0.dll",
+      "count": 1,
+      "funcs": [
+        "+LocalFree"
+      ]
+    },
+    {
+      "dll": "api-ms-win-eventing-provider-l1-1-0.dll",
+      "count": 4,
+      "funcs": [
+        "+EventUnregister",
+        "+EventWriteTransfer",
+        "+EventRegister",
+        "+EventSetInformation"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-registry-l1-1-0.dll",
+      "count": 6,
+      "funcs": [
+        "+RegCloseKey",
+        "+RegOpenKeyExA",
+        "+RegQueryValueExA",
+        "+RegGetValueW",
+        "+RegOpenKeyExW",
+        "+RegEnumKeyExA"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-libraryloader-l1-2-1.dll",
+      "count": 1,
+      "funcs": [
+        "+LoadLibraryW"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-sysinfo-l1-1-0.dll",
+      "count": 3,
+      "funcs": [
+        "+GetSystemTimeAsFileTime",
+        "+GetSystemDirectoryW",
+        "+GetTickCount"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-profile-l1-1-0.dll",
+      "count": 2,
+      "funcs": [
+        "+QueryPerformanceCounter",
+        "+QueryPerformanceFrequency"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-interlocked-l1-1-0.dll",
+      "count": 1,
+      "funcs": [
+        "+InitializeSListHead"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-rtlsupport-l1-1-0.dll",
+      "count": 4,
+      "funcs": [
+        "+RtlVirtualUnwind",
+        "+RtlCaptureStackBackTrace",
+        "+RtlCaptureContext",
+        "+RtlLookupFunctionEntry"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-processthreads-l1-1-1.dll",
+      "count": 1,
+      "funcs": [
+        "+IsProcessorFeaturePresent"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-file-l1-1-0.dll",
+      "count": 2,
+      "funcs": [
+        "+CreateFileA",
+        "+GetFileSize"
+      ]
+    },
+    {
+      "dll": "api-ms-win-core-psapi-l1-1-0.dll",
+      "count": 1,
+      "funcs": [
+        "+K32GetModuleInformation"
+      ]
+    }
+  ],
+  "delay_imports": [],
+  "exports": {
+    "dll_name": "d3d12.dll",
+    "count": 19,
+    "named": 18,
+    "names": [
+      "D3D12CoreCreateLayeredDevice",
+      "D3D12CoreGetLayeredDeviceSize",
+      "D3D12CoreRegisterLayers",
+      "D3D12CreateDevice",
+      "D3D12CreateRootSignatureDeserializer",
+      "D3D12CreateVersionedRootSignatureDeserializer",
+      "D3D12DeviceRemovedExtendedData",
+      "D3D12EnableExperimentalFeatures",
+      "D3D12GetDebugInterface",
+      "D3D12GetInterface",
+      "D3D12PIXEventsReplaceBlock",
+      "D3D12PIXGetThreadInfo",
+      "D3D12PIXNotifyWakeFromFenceSignal",
+      "D3D12PIXReportCounter",
+      "D3D12SerializeRootSignature",
+      "D3D12SerializeVersionedRootSignature",
+      "GetBehaviorValue",
+      "SetAppCompatStringPointer"
+    ]
+  }
+}

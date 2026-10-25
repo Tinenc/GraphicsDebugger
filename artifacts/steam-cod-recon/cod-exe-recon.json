@@ -1,0 +1,319 @@
+{
+  "path": "F:\\SteamLibrary\\steamapps\\common\\Call of Duty HQ\\cod.exe",
+  "size": 231518712,
+  "machine": "8664",
+  "arch": "x64",
+  "sections_count": 9,
+  "timestamp": 1792820526,
+  "optional_magic": "020b",
+  "image_base": "0x140000000",
+  "entry_point_rva": "0x15791010",
+  "subsystem": 2,
+  "is_dll": false,
+  "data_dirs": {
+    "export": [
+      222046484,
+      3966
+    ],
+    "import": [
+      360865160,
+      20
+    ],
+    "resource": [
+      359378944,
+      546232
+    ],
+    "exception": [
+      355774464,
+      1846872
+    ],
+    "security": [
+      231507968,
+      10744
+    ],
+    "reloc": [
+      359927808,
+      50240
+    ],
+    "debug": [
+      222016408,
+      28
+    ],
+    "tls": [
+      360261848,
+      40
+    ],
+    "load_config": [
+      222009232,
+      320
+    ],
+    "iat": [
+      222065688,
+      14032
+    ],
+    "delay_import": [
+      222045944,
+      96
+    ],
+    "clr": [
+      0,
+      0
+    ]
+  },
+  "sections": [
+    {
+      "name": ".text",
+      "va": 4096,
+      "vsize": 213786624,
+      "rawptr": 1024,
+      "rawsize": 213786624,
+      "chars": "60000020",
+      "writable": false,
+      "executable": true,
+      "entropy": 7.4
+    },
+    {
+      "name": ".rdata",
+      "va": 213790720,
+      "vsize": 10850304,
+      "rawptr": 213787648,
+      "rawsize": 10847232,
+      "chars": "40000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 6.75
+    },
+    {
+      "name": ".data",
+      "va": 224641024,
+      "vsize": 131133440,
+      "rawptr": 224634880,
+      "rawsize": 3507712,
+      "chars": "c0000040",
+      "writable": true,
+      "executable": false,
+      "entropy": 4.14
+    },
+    {
+      "name": ".pdata",
+      "va": 355774464,
+      "vsize": 3567616,
+      "rawptr": 228142592,
+      "rawsize": 1847296,
+      "chars": "40000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 7.2
+    },
+    {
+      "name": ".tls",
+      "va": 359342080,
+      "vsize": 32768,
+      "rawptr": 229989888,
+      "rawsize": 30720,
+      "chars": "c0000040",
+      "writable": true,
+      "executable": false,
+      "entropy": 0.2
+    },
+    {
+      "name": "buildinf",
+      "va": 359374848,
+      "vsize": 4096,
+      "rawptr": 230020608,
+      "rawsize": 2560,
+      "chars": "c0000040",
+      "writable": true,
+      "executable": false,
+      "entropy": 0.59
+    },
+    {
+      "name": ".rsrc",
+      "va": 359378944,
+      "vsize": 548864,
+      "rawptr": 230023168,
+      "rawsize": 546304,
+      "chars": "40000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 6.4
+    },
+    {
+      "name": ".reloc",
+      "va": 359927808,
+      "vsize": 266240,
+      "rawptr": 230569472,
+      "rawsize": 266240,
+      "chars": "42000040",
+      "writable": false,
+      "executable": false,
+      "entropy": 1.63
+    },
+    {
+      "name": ".text",
+      "va": 360194048,
+      "vsize": 671780,
+      "rawptr": 230835712,
+      "rawsize": 672256,
+      "chars": "e0000020",
+      "writable": true,
+      "executable": true,
+      "entropy": 7.48
+    }
+  ],
+  "imports": [],
+  "delay_imports": [
+    {
+      "dll": "d3d12.dll",
+      "rva_based": true,
+      "attributes": 1,
+      "funcs": [
+        "#101",
+        "+D3D12GetInterface",
+        "+D3D12SerializeRootSignature",
+        "+D3D12SerializeVersionedRootSignature"
+      ]
+    },
+    {
+      "dll": "thx_sdk.dll",
+      "rva_based": true,
+      "attributes": 1,
+      "funcs": [
+        "+thxHpsCreate",
+        "+thxHpsDestroy",
+        "+thxHpsPrepare",
+        "+thxHpsProcess",
+        "+thxHpsSetConfig",
+        "+thxLssCreateWithProfile",
+        "+thxLssDestroy",
+        "+thxLssPrepare",
+        "+thxLssProcess",
+        "+thxLssSetConfig",
+        "+thxSdkSetAllocator"
+      ]
+    }
+  ],
+  "exports": {
+    "dll_name": "game_steam_ship.exe",
+    "count": 116,
+    "named": 116,
+    "names": [
+      "D3D12SDKPath",
+      "D3D12SDKVersion",
+      "NvOptimusEnablement",
+      "ctlAUXAccess",
+      "ctlAllowPCIeLinkSpeedUpdate",
+      "ctlCheckDriverVersion",
+      "ctlClose",
+      "ctlEdidManagement",
+      "ctlEngineGetActivity",
+      "ctlEngineGetProperties",
+      "ctlEnumEngineGroups",
+      "ctlEnumFans",
+      "ctlEnumFrequencyDomains",
+      "ctlEnumLeds",
+      "ctlEnumMemoryModules",
+      "ctlEnumPowerDomains",
+      "ctlEnumTemperatureSensors",
+      "ctlEnumerateDevices",
+      "ctlEnumerateDisplayOutputs",
+      "ctlEnumerateFirmwareComponents",
+      "ctlEnumerateI2CPinPairs",
+      "ctlEnumerateMuxDevices",
+      "ctlFanGetConfig",
+      "ctlFanGetProperties",
+      "ctlFanGetState",
+      "ctlFanSetDefaultMode",
+      "ctlFanSetFixedSpeedMode",
+      "ctlFanSetSpeedTableMode",
+      "ctlFrequencyGetAvailableClocks",
+      "ctlFrequencyGetProperties",
+      "ctlFrequencyGetRange",
+      "ctlFrequencyGetState",
+      "ctlFrequencyGetThrottleTime",
+      "ctlFrequencySetRange",
+      "ctlGetAdaperDisplayEncoderProperties",
+      "ctlGetBrightnessSetting",
+      "ctlGetCurrentScaling",
+      "ctlGetCurrentSharpness",
+      "ctlGetDeviceProperties",
+      "ctlGetDisplayProperties",
+      "ctlGetFirmwareComponentProperties",
+      "ctlGetFirmwareProperties",
+      "ctlGetIntelArcSyncInfoForMonitor",
+      "ctlGetIntelArcSyncProfile",
+      "ctlGetLACEConfig",
+      "ctlGetLinkedDisplayAdapters",
+      "ctlGetMuxProperties",
+      "ctlGetPowerOptimizationCaps",
+      "ctlGetPowerOptimizationSetting",
+      "ctlGetSet3DFeature",
+      "ctlGetSetCombinedDisplay",
+      "ctlGetSetCustomMode",
+      "ctlGetSetDisplayGenlock",
+      "ctlGetSetDisplaySettings",
+      "ctlGetSetDynamicContrastEnhancement",
+      "ctlGetSetRetroScaling",
+      "ctlGetSetVideoProcessingFeature",
+      "ctlGetSetWireFormat",
+      "ctlGetSharpnessCaps",
+      "ctlGetSupported3DCapabilities",
+      "ctlGetSupportedRetroScalingCapability",
+      "ctlGetSupportedScalingCapability",
+      "ctlGetSupportedVideoProcessingCapabilities",
+      "ctlGetVblankTimestamp",
+      "ctlGetZeDevice",
+      "ctlI2CAccess",
+      "ctlI2CAccessOnPinPair",
+      "ctlInit",
+      "ctlLedGetProperties",
+      "ctlLedGetState",
+      "ctlLedSetState",
+      "ctlLinkDisplayAdapters",
+      "ctlMemoryGetBandwidth",
+      "ctlMemoryGetProperties",
+      "ctlMemoryGetState",
+      "ctlOverclockGetProperties",
+      "ctlOverclockGpuFrequencyOffsetGet",
+      "ctlOverclockGpuFrequencyOffsetSet",
+      "ctlOverclockGpuLockGet",
+      "ctlOverclockGpuLockSet",
+      "ctlOverclockGpuVoltageOffsetGet",
+      "ctlOverclockGpuVoltageOffsetSet",
+      "ctlOverclockPowerLimitGet",
+      "ctlOverclockPowerLimitSet",
+      "ctlOverclockResetToDefault",
+      "ctlOverclockTemperatureLimitGet",
+      "ctlOverclockTemperatureLimitSet",
+      "ctlOverclockVramFrequencyOffsetGet",
+      "ctlOverclockVramFrequencyOffsetSet",
+      "ctlOverclockVramVoltageOffsetGet",
+      "ctlOverclockVramVoltageOffsetSet",
+      "ctlOverclockWaiverSet",
+      "ctlPanelDescriptorAccess",
+      "ctlPciGetProperties",
+      "ctlPciGetState",
+      "ctlPixelTransformationGetConfig",
+      "ctlPixelTransformationSetConfig",
+      "ctlPowerGetEnergyCounter",
+      "ctlPowerGetLimits",
+      "ctlPowerGetProperties",
+      "ctlPowerSetLimits",
+      "ctlPowerTelemetryGet",
+      "ctlReservedCall",
+      "ctlSetBrightnessSetting",
+      "ctlSetCurrentScaling",
+      "ctlSetCurrentSharpness",
+      "ctlSetIntelArcSyncProfile",
+      "ctlSetLACEConfig",
+      "ctlSetPowerOptimizationSetting",
+      "ctlSetRuntimePath",
+      "ctlSoftwarePSR",
+      "ctlSwitchMux",
+      "ctlTemperatureGetProperties",
+      "ctlTemperatureGetState",
+      "ctlUnlinkDisplayAdapters",
+      "ctlWaitForPropertyChange"
+    ]
+  }
+}
