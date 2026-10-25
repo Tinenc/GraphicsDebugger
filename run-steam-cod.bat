@@ -41,6 +41,7 @@ if not exist "%TOOL%" (
 if not exist "%CAPTURES%" mkdir "%CAPTURES%" >nul 2>&1
 
 if /i "%MODE%"=="launch" goto :launch
+if /i "%MODE%"=="steam"  goto :steam
 if /i "%MODE%"=="wait"   goto :wait
 echo [error] unknown mode: %MODE%
 goto :usage
@@ -60,6 +61,26 @@ set "RC=%errorlevel%"
 popd
 echo [exit] rc=%RC%
 goto :done
+
+rem ---------------------------------------------------------------------------
+:steam
+rem Hand the launch to Steam itself and only wait for the renderer.
+rem Do NOT use 'capture steam.exe --opt-hook-children': that hooks Steam's
+rem Chromium children and sends them into a renderer restart loop.
+set "RUNNING="
+for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq %TARGET%" /FO CSV /NH 2^>nul ^| findstr /i "%TARGET%"') do (
+  if not defined RUNNING set "RUNNING=%%~P"
+)
+if defined RUNNING (
+  echo [warn] %TARGET% is already running, pid=!RUNNING!
+  echo [warn] injecting that instance; d3d12.dll may already be loaded.
+  set "PID=!RUNNING!"
+  goto :inject
+)
+echo [steam] asking Steam to start Call of Duty (app 1938090) ...
+start "" "steam://rungameid/1938090"
+echo [wait] Watching for %TARGET% ...
+goto :waitloop
 
 rem ---------------------------------------------------------------------------
 :wait
@@ -82,6 +103,14 @@ echo [wait] Start Call of Duty from Steam now.
 echo [wait] Watching for %TARGET% ...
 
 :waitloop
+if not defined WAITS set "WAITS=0"
+set /a WAITS+=1
+if !WAITS! geq 600 (
+  echo [warn] gave up after about 10 minutes, %TARGET% never started.
+  echo [hint] check that Steam actually launched the game, or start it by hand
+  echo        and run:  %~nx0 wait
+  goto :fail
+)
 set "PID="
 for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq %TARGET%" /FO CSV /NH 2^>nul ^| findstr /i "%TARGET%"') do (
   if not defined PID set "PID=%%~P"
@@ -124,6 +153,7 @@ echo.
 echo  TinecmaTool + Steam COD
 echo.
 echo    %~nx0                wait for sp26-cod.exe and inject
+echo    %~nx0 steam          let Steam launch the game, then inject
 echo    %~nx0 wait -w        inject, then block until the game exits
 echo    %~nx0 launch         start the renderer under the tool
 echo    %~nx0 help           this text
