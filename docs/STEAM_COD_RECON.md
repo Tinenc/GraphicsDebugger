@@ -1,5 +1,10 @@
 # Steam-Cod 树 · `cod.exe` 抓帧可行性侦察（第一次静态摸底）
 
+> **目标修正（2026-10-25 S4 ETW 实测）**：`cod.exe` 只是 Call of Duty HQ 的启动壳，加载 `dxgi.dll`
+> 但**从不加载 `d3d12.dll`**。真实渲染进程是 **`sp26\sp26-cod.exe`**。两者 PE 结构同构
+> （同样空导入表、同样 `d3d12.dll!ordinal:101` 延迟导入、同样 116 个导出），**本文结论对其同样成立**。
+> 详见 `docs/STEAM_COD_S4_TARGET_AND_LOAD_ORDER.md`。
+
 - 分支：`Steam-Cod`，基线 `1726b53b4`（= origin/DF研究，0/0 对齐）
 - 目标：`F:\SteamLibrary\steamapps\common\Call of Duty HQ\cod.exe`（Call of Duty HQ，cod26 资源集）
 - 本报告全部为**只读静态解析**，未运行游戏、未注入、未改任何文件

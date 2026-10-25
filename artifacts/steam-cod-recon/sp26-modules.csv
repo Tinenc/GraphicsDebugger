@@ -1,0 +1,208 @@
+pid,t_seconds,module,image_base,image_path
+165580,0.0000,sp26-cod.exe,0x7FF6994D0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\sp26-cod.exe
+165580,0.0003,ntdll.dll,0x7FFCA2340000,\Device\HarddiskVolume3\Windows\System32\ntdll.dll
+165580,0.0331,kernel32.dll,0x7FFCA0C30000,\Device\HarddiskVolume3\Windows\System32\kernel32.dll
+165580,0.0334,KernelBase.dll,0x7FFC9FB50000,\Device\HarddiskVolume3\Windows\System32\KernelBase.dll
+165580,0.4752,azure-attest-manager.dll,0x7FFC7B140000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\azure-attest-manager.dll
+165580,0.4765,ucrtbase.dll,0x7FFC9F9F0000,\Device\HarddiskVolume3\Windows\System32\ucrtbase.dll
+165580,0.4766,AzureAttestManager.dll,0x7FFBB0740000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\AzureAttestManager.dll
+165580,0.4767,msvcp140.dll,0x7FFB1D980000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\msvcp140.dll
+165580,0.4767,AzureAttestNormal.dll,0x7FFB97590000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\AzureAttestNormal.dll
+165580,0.4770,vcruntime140.dll,0x7FFC05B00000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\vcruntime140.dll
+165580,0.4786,advapi32.dll,0x7FFCA2180000,\Device\HarddiskVolume3\Windows\System32\advapi32.dll
+165580,0.4788,msvcrt.dll,0x7FFCA0050000,\Device\HarddiskVolume3\Windows\System32\msvcrt.dll
+165580,0.4790,sechost.dll,0x7FFCA20D0000,\Device\HarddiskVolume3\Windows\System32\sechost.dll
+165580,0.4792,rpcrt4.dll,0x7FFCA04F0000,\Device\HarddiskVolume3\Windows\System32\rpcrt4.dll
+165580,0.4792,crypt32.dll,0x7FFC9F5E0000,\Device\HarddiskVolume3\Windows\System32\crypt32.dll
+165580,0.4794,crypt32.dll,0x1F9FA970000,\Device\HarddiskVolume3\Windows\System32\crypt32.dll
+165580,0.4796,bcrypt.dll,0x7FFC9F410000,\Device\HarddiskVolume3\Windows\System32\bcrypt.dll
+165580,0.4798,tbs.dll,0x7FFC83380000,\Device\HarddiskVolume3\Windows\System32\tbs.dll
+165580,0.4801,ncrypt.dll,0x7FFC9ECE0000,\Device\HarddiskVolume3\Windows\System32\ncrypt.dll
+165580,0.4802,vcruntime140_1.dll,0x7FFC7B130000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\vcruntime140_1.dll
+165580,0.4827,ntasn1.dll,0x7FFC9EC90000,\Device\HarddiskVolume3\Windows\System32\ntasn1.dll
+165580,0.4849,gdi32.dll,0x7FFCA1FA0000,\Device\HarddiskVolume3\Windows\System32\gdi32.dll
+165580,0.4851,win32u.dll,0x7FFC9FF60000,\Device\HarddiskVolume3\Windows\System32\win32u.dll
+165580,0.4853,gdi32full.dll,0x7FFC9F8C0000,\Device\HarddiskVolume3\Windows\System32\gdi32full.dll
+165580,0.4855,msvcp_win.dll,0x7FFC9F530000,\Device\HarddiskVolume3\Windows\System32\msvcp_win.dll
+165580,0.4858,user32.dll,0x7FFCA0130000,\Device\HarddiskVolume3\Windows\System32\user32.dll
+165580,0.4869,imm32.dll,0x7FFCA2270000,\Device\HarddiskVolume3\Windows\System32\imm32.dll
+165580,0.4890,DXCore.dll,0x7FFC9C6C0000,\Device\HarddiskVolume3\Windows\System32\DXCore.dll
+165580,0.4894,ws2_32.dll,0x7FFCA0B30000,\Device\HarddiskVolume3\Windows\System32\ws2_32.dll
+165580,0.4898,oleaut32.dll,0x7FFCA1110000,\Device\HarddiskVolume3\Windows\System32\oleaut32.dll
+165580,0.4901,combase.dll,0x7FFCA1200000,\Device\HarddiskVolume3\Windows\System32\combase.dll
+165580,0.4913,bink2w64.dll,0x7FFB1D900000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\bink2w64.dll
+165580,0.4939,ole32.dll,0x7FFCA0D80000,\Device\HarddiskVolume3\Windows\System32\ole32.dll
+165580,0.4941,winmm.dll,0x7FFC8AF30000,\Device\HarddiskVolume3\Windows\System32\winmm.dll
+165580,0.4948,IPHLPAPI.DLL,0x7FFC9DB90000,\Device\HarddiskVolume3\Windows\System32\IPHLPAPI.DLL
+165580,0.4950,shlwapi.dll,0x7FFCA0D00000,\Device\HarddiskVolume3\Windows\System32\shlwapi.dll
+165580,0.4956,steam_api64.dll,0x7FFB97540000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\steam_api64.dll
+165580,0.4976,shell32.dll,0x7FFCA15A0000,\Device\HarddiskVolume3\Windows\System32\shell32.dll
+165580,0.4985,wer.dll,0x7FFC9C8B0000,\Device\HarddiskVolume3\Windows\System32\wer.dll
+165580,0.5047,amd_ags_x64.dll,0x7FFC01490000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\amd_ags_x64.dll
+165580,0.5065,dxgi.dll,0x7FFC9C710000,\Device\HarddiskVolume3\Windows\System32\dxgi.dll
+165580,0.5069,powrprof.dll,0x7FFC9F380000,\Device\HarddiskVolume3\Windows\System32\powrprof.dll
+165580,0.5072,umpdc.dll,0x7FFC9F360000,\Device\HarddiskVolume3\Windows\System32\umpdc.dll
+165580,0.5078,GFSDK_Aftermath_Lib.x64.dll,0x7FFB10FB0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\GFSDK_Aftermath_Lib.x64.dll
+165580,0.5318,version.dll,0x7FFC98160000,\Device\HarddiskVolume3\Windows\System32\version.dll
+165580,0.5333,discord_partner_sdk.dll,0x7FFA67DA0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\discord_partner_sdk.dll
+165580,0.5717,setupapi.dll,0x7FFCA0610000,\Device\HarddiskVolume3\Windows\System32\setupapi.dll
+165580,0.5719,qwave.dll,0x7FFBD0E20000,\Device\HarddiskVolume3\Windows\System32\qwave.dll
+165580,0.5743,traffic.dll,0x7FFBD6FC0000,\Device\HarddiskVolume3\Windows\System32\traffic.dll
+165580,0.5754,wmiclnt.dll,0x7FFC909D0000,\Device\HarddiskVolume3\Windows\System32\wmiclnt.dll
+165580,0.5934,propsys.dll,0x7FFC9A7D0000,\Device\HarddiskVolume3\Windows\System32\propsys.dll
+165580,0.5934,cfgmgr32.dll,0x7FFC9F080000,\Device\HarddiskVolume3\Windows\System32\cfgmgr32.dll
+165580,0.5934,avrt.dll,0x7FFC993D0000,\Device\HarddiskVolume3\Windows\System32\avrt.dll
+165580,0.5950,cryptbase.dll,0x7FFC9E990000,\Device\HarddiskVolume3\Windows\System32\cryptbase.dll
+165580,0.5975,XInput9_1_0.dll,0x7FFC75C60000,\Device\HarddiskVolume3\Windows\System32\XInput9_1_0.dll
+165580,0.5987,dinput8.dll,0x7FFC431A0000,\Device\HarddiskVolume3\Windows\System32\dinput8.dll
+165580,0.6014,wintrust.dll,0x7FFC9F770000,\Device\HarddiskVolume3\Windows\System32\wintrust.dll
+165580,0.6022,msasn1.dll,0x7FFC9EBE0000,\Device\HarddiskVolume3\Windows\System32\msasn1.dll
+165580,0.6029,dbghelp.dll,0x7FFB1D760000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\dbghelp.dll
+165580,0.6134,amd_fidelityfx_loader_dx12.dll,0x7FFC6CDC0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\amd_fidelityfx_loader_dx12.dll
+165580,0.6148,pdh.dll,0x7FFC8EBD0000,\Device\HarddiskVolume3\Windows\System32\pdh.dll
+165580,0.6157,comctl32.dll,0x7FFC8E780000,\Device\HarddiskVolume3\Windows\WinSxS\amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.26100.9711_none_3e07b8b0e334e825\comctl32.dll
+165580,0.6174,winhttp.dll,0x7FFC98430000,\Device\HarddiskVolume3\Windows\System32\winhttp.dll
+165580,0.6181,imagehlp.dll,0x7FFCA0100000,\Device\HarddiskVolume3\Windows\System32\imagehlp.dll
+165580,0.6187,hid.dll,0x7FFC9D810000,\Device\HarddiskVolume3\Windows\System32\hid.dll
+165580,0.6198,mscms.dll,0x7FFC7B5A0000,\Device\HarddiskVolume3\Windows\System32\mscms.dll
+165580,0.6445,GameOverlayRenderer64.dll,0x7FFAF82D0000,\Device\HarddiskVolume3\Program Files (x86)\Steam\GameOverlayRenderer64.dll
+165580,0.6577,psapi.dll,0x7FFCA0BC0000,\Device\HarddiskVolume3\Windows\System32\psapi.dll
+165580,0.6778,InputHost.dll,0x7FFC8E000000,\Device\HarddiskVolume3\Windows\System32\InputHost.dll
+165580,0.6939,CoreMessaging.dll,0x7FFC9C060000,\Device\HarddiskVolume3\Windows\System32\CoreMessaging.dll
+165580,0.7149,bcryptprimitives.dll,0x7FFC9FF90000,\Device\HarddiskVolume3\Windows\System32\bcryptprimitives.dll
+165580,0.7181,kernel.appcore.dll,0x7FFC9E190000,\Device\HarddiskVolume3\Windows\System32\kernel.appcore.dll
+165580,1.1530,uxtheme.dll,0x7FFC9C5E0000,\Device\HarddiskVolume3\Windows\System32\uxtheme.dll
+165580,1.1596,devobj.dll,0x7FFC9F040000,\Device\HarddiskVolume3\Windows\System32\devobj.dll
+165580,1.1940,dnsapi.dll,0x7FFC9DC30000,\Device\HarddiskVolume3\Windows\System32\dnsapi.dll
+165580,1.1945,dsparse.dll,0x7FFC9E530000,\Device\HarddiskVolume3\Windows\System32\dsparse.dll
+165580,1.1966,nsi.dll,0x7FFCA0D70000,\Device\HarddiskVolume3\Windows\System32\nsi.dll
+165580,1.4884,windows.storage.dll,0x1F9FF3A0000,\Device\HarddiskVolume3\Windows\System32\windows.storage.dll
+165580,1.4891,windows.storage.dll,0x1F9FF3A0000,\Device\HarddiskVolume3\Windows\System32\windows.storage.dll
+165580,1.4972,SHCore.dll,0x7FFCA1D50000,\Device\HarddiskVolume3\Windows\System32\SHCore.dll
+165580,1.5044,cryptsp.dll,0x7FFC9EB70000,\Device\HarddiskVolume3\Windows\System32\cryptsp.dll
+165580,1.5095,rsaenh.dll,0x7FFC9E0F0000,\Device\HarddiskVolume3\Windows\System32\rsaenh.dll
+165580,34.2521,ResourcePolicyClient.dll,0x7FFC9CB00000,\Device\HarddiskVolume3\Windows\System32\ResourcePolicyClient.dll
+165580,34.2559,directxdatabasehelper.dll,0x7FFC99E20000,\Device\HarddiskVolume3\Windows\System32\directxdatabasehelper.dll
+165580,34.3758,clbcatq.dll,0x7FFCA1E50000,\Device\HarddiskVolume3\Windows\System32\clbcatq.dll
+165580,34.3779,WindowsCodecs.dll,0x7FFC9A8D0000,\Device\HarddiskVolume3\Windows\System32\WindowsCodecs.dll
+165580,34.3943,msctf.dll,0x7FFCA0F20000,\Device\HarddiskVolume3\Windows\System32\msctf.dll
+165580,34.4168,TextInputFramework.dll,0x7FFC7DE80000,\Device\HarddiskVolume3\Windows\System32\TextInputFramework.dll
+165580,34.4262,CoreUIComponents.dll,0x7FFC989B0000,\Device\HarddiskVolume3\Windows\System32\CoreUIComponents.dll
+165580,34.4366,WinTypes.dll,0x7FFC98D50000,\Device\HarddiskVolume3\Windows\System32\WinTypes.dll
+165580,34.4464,SogouTSF.ime,0x7FFC22CD0000,\Device\HarddiskVolume3\Windows\System32\SogouTSF.ime
+165580,34.4689,msimg32.dll,0x7FFC7E0E0000,\Device\HarddiskVolume3\Windows\System32\msimg32.dll
+165580,34.4856,SogouPY.ime,0x7FFC21160000,\Device\HarddiskVolume3\Windows\System32\SogouPY.ime
+165580,34.5878,userenv.dll,0x7FFC9E7E0000,\Device\HarddiskVolume3\Windows\System32\userenv.dll
+165580,34.5879,oleacc.dll,0x7FFC681F0000,\Device\HarddiskVolume3\Windows\System32\oleacc.dll
+165580,34.6197,profapi.dll,0x7FFC9F440000,\Device\HarddiskVolume3\Windows\System32\profapi.dll
+165580,34.6409,ntmarta.dll,0x7FFC9E2C0000,\Device\HarddiskVolume3\Windows\System32\ntmarta.dll
+165580,34.6556,Resource.dll,0x10000000,\Device\HarddiskVolume3\Program Files (x86)\SogouInput\16.9.0.5523\Resource.dll
+165580,34.6927,dwmapi.dll,0x7FFC9C870000,\Device\HarddiskVolume3\Windows\System32\dwmapi.dll
+165580,34.6959,d2d1.dll,0x7FFC9B070000,\Device\HarddiskVolume3\Windows\System32\d2d1.dll
+165580,34.7228,TextShaping.dll,0x7FFC71220000,\Device\HarddiskVolume3\Windows\System32\TextShaping.dll
+165580,34.7271,DWrite.dll,0x7FFC9AB60000,\Device\HarddiskVolume3\Windows\System32\DWrite.dll
+165580,34.7515,UIAutomationCore.dll,0x7FFC6DD80000,\Device\HarddiskVolume3\Windows\System32\UIAutomationCore.dll
+165580,34.8131,wbemprox.dll,0x7FFC80480000,\Device\HarddiskVolume3\Windows\System32\wbem\wbemprox.dll
+165580,34.8138,wbemcomn.dll,0x7FFC90B40000,\Device\HarddiskVolume3\Windows\System32\wbemcomn.dll
+165580,34.8173,threadpoolwinrt.dll,0x7FFC70A10000,\Device\HarddiskVolume3\Windows\System32\threadpoolwinrt.dll
+165580,34.8181,wbemsvc.dll,0x7FFC80310000,\Device\HarddiskVolume3\Windows\System32\wbem\wbemsvc.dll
+165580,34.8255,fastprox.dll,0x7FFC7FDC0000,\Device\HarddiskVolume3\Windows\System32\wbem\fastprox.dll
+165580,34.8278,amsi.dll,0x7FFC7D660000,\Device\HarddiskVolume3\Windows\System32\amsi.dll
+165580,34.8396,wmiutils.dll,0x7FFC7E7D0000,\Device\HarddiskVolume3\Windows\System32\wbem\wmiutils.dll
+165580,34.8532,WmiPerfInst.dll,0x7FFC70C30000,\Device\HarddiskVolume3\Windows\System32\wbem\WmiPerfInst.dll
+165580,34.9275,secur32.dll,0x7FFC9C490000,\Device\HarddiskVolume3\Windows\System32\secur32.dll
+165580,34.9285,sspicli.dll,0x7FFC9E450000,\Device\HarddiskVolume3\Windows\System32\sspicli.dll
+165580,34.9315,mswsock.dll,0x7FFC9E730000,\Device\HarddiskVolume3\Windows\System32\mswsock.dll
+165580,34.9379,rasadhlp.dll,0x7FFC97810000,\Device\HarddiskVolume3\Windows\System32\rasadhlp.dll
+165580,35.0186,FWPUCLNT.DLL,0x7FFC978A0000,\Device\HarddiskVolume3\Windows\System32\FWPUCLNT.DLL
+165580,35.0778,schannel.dll,0x7FFC9DFC0000,\Device\HarddiskVolume3\Windows\System32\schannel.dll
+165580,35.1884,ncryptsslp.dll,0x7FFC79660000,\Device\HarddiskVolume3\Windows\System32\ncryptsslp.dll
+165580,35.6744,MMDevAPI.dll,0x7FFC98170000,\Device\HarddiskVolume3\Windows\System32\MMDevAPI.dll
+165580,35.6836,AudioSes.dll,0x7FFC79C00000,\Device\HarddiskVolume3\Windows\System32\AudioSes.dll
+165580,35.6917,Windows.UI.dll,0x7FFC73010000,\Device\HarddiskVolume3\Windows\System32\Windows.UI.dll
+165580,35.7338,steamclient64.dll,0x7FFA646B0000,\Device\HarddiskVolume3\Program Files (x86)\Steam\steamclient64.dll
+165580,35.8258,vstdlib_s64.dll,0x7FFC757E0000,\Device\HarddiskVolume3\Program Files (x86)\Steam\vstdlib_s64.dll
+165580,35.8261,tier0_s64.dll,0x7FFC11A70000,\Device\HarddiskVolume3\Program Files (x86)\Steam\tier0_s64.dll
+165580,35.8291,tier0_s64.dll,0x1F988520000,\Device\HarddiskVolume3\Program Files (x86)\Steam\tier0_s64.dll
+165580,40.4286,icm32.dll,0x7FFB656B0000,\Device\HarddiskVolume3\Windows\System32\icm32.dll
+165580,40.4415,GameInputRedist.dll,0x7FFB083B0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\GameInputRedist.dll
+165580,40.4834,NapiNSP.dll,0x7FFC8D330000,\Device\HarddiskVolume3\Windows\System32\NapiNSP.dll
+165580,40.4853,winrnr.dll,0x7FFC8CAF0000,\Device\HarddiskVolume3\Windows\System32\winrnr.dll
+165580,40.4870,nlansp_c.dll,0x7FFC8DFD0000,\Device\HarddiskVolume3\Windows\System32\nlansp_c.dll
+165580,40.4889,wshbth.dll,0x7FFC97880000,\Device\HarddiskVolume3\Windows\System32\wshbth.dll
+165580,40.7180,D3D12.dll,0x7FFC24E20000,\Device\HarddiskVolume3\Windows\System32\D3D12.dll
+165580,40.7230,D3D12Core.dll,0x7FFA699A0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\D3D12\D3D12Core.dll
+165580,40.7582,cryptnet.dll,0x7FFC97C90000,\Device\HarddiskVolume3\Windows\System32\cryptnet.dll
+165580,40.7630,wldp.dll,0x7FFC9EA50000,\Device\HarddiskVolume3\Windows\System32\wldp.dll
+165580,40.7670,drvstore.dll,0x7FFC97B10000,\Device\HarddiskVolume3\Windows\System32\drvstore.dll
+165580,40.7760,nvapi64.dll,0x7FFC84120000,\Device\HarddiskVolume3\Windows\System32\nvapi64.dll
+165580,40.7847,nvapi64_impl.dll,0x7FFC83B80000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvapi64_impl.dll
+165580,41.0097,nvldumdx.dll,0x7FFC982E0000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvldumdx.dll
+165580,41.0815,nvgpucomp64.dll,0x7FFC90CE0000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvgpucomp64.dll
+165580,41.5889,NvMessageBus.dll,0x7FFC83010000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\Display.NvContainer\NvMessageBus.dll
+165580,41.6466,NvMemMapStoragex.dll,0x7FFC8BEC0000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\NvMemMapStoragex.dll
+165580,41.6981,nvwgf2umx.dll,0x7FFC841B0000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvwgf2umx.dll
+165580,42.2310,nvspcap64.dll,0x7FFC5EF00000,\Device\HarddiskVolume3\Windows\System32\nvspcap64.dll
+165580,42.6071,nvppex.dll,0x7FFC5F4C0000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvppex.dll
+165580,42.6616,dxilconv.dll,0x7FFB109C0000,\Device\HarddiskVolume3\Windows\System32\dxilconv.dll
+165580,42.6703,D3DSCache.dll,0x7FFC3A4B0000,\Device\HarddiskVolume3\Windows\System32\D3DSCache.dll
+165580,42.6907,amdxc64.dll,0x7FFA27020000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\u0205305.inf_amd64_0a0a37c758a0b24b\B026653\amdxc64.dll
+165580,42.8167,amdihk64.dll,0x7FFC17090000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\u0205305.inf_amd64_0a0a37c758a0b24b\B026653\amdihk64.dll
+165580,43.0312,Windows.Gaming.UI.GameBar.dll,0x7FFBD6FE0000,\Device\HarddiskVolume3\Windows\System32\Windows.Gaming.UI.GameBar.dll
+165580,43.0339,AppResolver.dll,0x7FFC68130000,\Device\HarddiskVolume3\Windows\System32\AppResolver.dll
+165580,43.0385,mpr.dll,0x7FFC8FF60000,\Device\HarddiskVolume3\Windows\System32\mpr.dll
+165580,43.0449,BCP47Langs.dll,0x7FFC733E0000,\Device\HarddiskVolume3\Windows\System32\BCP47Langs.dll
+165580,43.0533,twinapi.appcore.dll,0x7FFC8A2B0000,\Device\HarddiskVolume3\Windows\System32\twinapi.appcore.dll
+165580,43.1645,DXGIDebug.dll,0x7FFBE9C30000,\Device\HarddiskVolume3\Windows\System32\DXGIDebug.dll
+165580,43.2004,gpapi.dll,0x7FFC9E7B0000,\Device\HarddiskVolume3\Windows\System32\gpapi.dll
+165580,43.2195,winnsi.dll,0x7FFC9C360000,\Device\HarddiskVolume3\Windows\System32\winnsi.dll
+165580,43.2298,sl.interposer.dll,0x7FFB1D6B0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\sl.interposer.dll
+165580,43.2345,dbgcore.dll,0x7FFC77810000,\Device\HarddiskVolume3\Windows\System32\dbgcore.dll
+165580,43.3971,sl.common.dll,0x7FFB108E0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\sl.common.dll
+165580,43.4209,sl.dlss.dll,0x7FFB107E0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\sl.dlss.dll
+165580,43.4392,_nvngx.dll,0x7FFB07E20000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\_nvngx.dll
+165580,43.8305,nvngx_dlss.dll,0x7FFA237C0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\nvngx_dlss.dll
+165580,44.5091,nvngx_dlssg.dll,0x7FFA5AFB0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\nvngx_dlssg.dll
+165580,44.8005,nvngx_dlssg.dll,0x7FFA2C9A0000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvngx_dlssg.dll
+165580,44.8386,vulkan-1.dll,0x7FFA78380000,\Device\HarddiskVolume3\Windows\System32\vulkan-1.dll
+165580,44.8387,nvcuda.dll,0x7FFAFFB60000,\Device\HarddiskVolume3\Windows\System32\nvcuda.dll
+165580,44.9353,nvngx_dlssd.dll,0x7FFA1D210000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\nvngx_dlssd.dll
+165580,45.4476,sl.dlss_d.dll,0x7FFB10870000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\sl.dlss_d.dll
+165580,45.4717,sl.dlss_g.dll,0x7FFB08610000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\sl.dlss_g.dll
+165580,45.4959,sl.pcl.dll,0x7FFB1D650000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\sl.pcl.dll
+165580,45.5080,sl.reflex.dll,0x7FFB10780000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\sl.reflex.dll
+165580,46.1921,NvTelemetryAPI64.dll,0x7FFC703E0000,\Device\HarddiskVolume3\Program Files\NVIDIA Corporation\NvTelemetry\NvTelemetryAPI64.dll
+165580,46.3384,nvcuda64.dll,0x7FFC3C220000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvcuda64.dll
+165580,46.3970,nvdxgdmal64.dll,0x7FFC3C100000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvdxgdmal64.dll
+165580,46.4034,nvdiagclt64.dll,0x7FFC3C020000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvdiagclt64.dll
+165580,46.4219,nvobjectloader64.dll,0x7FFC3B1C0000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvobjectloader64.dll
+165580,46.6601,NvTelemetryBridge64.dll,0x7FFC8B020000,\Device\HarddiskVolume3\Program Files\NVIDIA Corporation\NvTelemetry\NvTelemetryBridge64.dll
+165580,47.1842,libxess.dll,0x7FFA12D50000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\libxess.dll
+165580,47.8521,amd_fidelityfx_upscaler_dx12.dll,0x7FFA228D0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\amd_fidelityfx_upscaler_dx12.dll
+165580,47.9525,amd_fidelityfx_denoiser_dx12.dll,0x7FFA7C1F0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\amd_fidelityfx_denoiser_dx12.dll
+165580,47.9816,nvrtum64.dll,0x7FFAF1760000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\nv_dispsi.inf_amd64_b8459fc8f905f657\nvrtum64.dll
+165580,48.2986,dcomp.dll,0x7FFC9B830000,\Device\HarddiskVolume3\Windows\System32\dcomp.dll
+165580,48.3076,Microsoft.Internal.WarpPal.dll,0x7FFC9AB40000,\Device\HarddiskVolume3\Windows\System32\Microsoft.Internal.WarpPal.dll
+165580,50.9510,sdk_legacy_led_x64.dll,0x7FFA78EC0000,\Device\HarddiskVolume3\Program Files\LGHUB\sdks\sdk_legacy_led_x64.dll
+165580,51.0836,webio.dll,0x7FFC7E1C0000,\Device\HarddiskVolume3\Windows\System32\webio.dll
+165580,51.0947,Windows.Networking.dll,0x7FFB080B0000,\Device\HarddiskVolume3\Windows\System32\Windows.Networking.dll
+165580,51.4213,dpapi.dll,0x7FFC9F100000,\Device\HarddiskVolume3\Windows\System32\dpapi.dll
+165580,61.3961,dhcpcsvc.dll,0x7FFC98220000,\Device\HarddiskVolume3\Windows\System32\dhcpcsvc.dll
+165580,61.3983,dhcpcsvc6.dll,0x7FFC983B0000,\Device\HarddiskVolume3\Windows\System32\dhcpcsvc6.dll
+165580,62.0041,PCPKsp.dll,0x7FFC69FF0000,\Device\HarddiskVolume3\Windows\System32\PCPKsp.dll
+165580,64.5702,ImmerseEngine26.dll,0x7FFC054B0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\ImmerseEngine26.dll
+165580,64.5748,ImmerseApi26.dll,0x7FFB1D5A0000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\ImmerseApi26.dll
+165580,64.5787,wininet.dll,0x7FFC8ED50000,\Device\HarddiskVolume3\Windows\System32\wininet.dll
+165580,64.5834,ImmerseAudioAPI26.dll,0x7FFB10E10000,\Device\HarddiskVolume8\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\ImmerseAudioAPI26.dll
+165580,64.5923,perfos.dll,0x7FFC75040000,\Device\HarddiskVolume3\Windows\System32\perfos.dll
+165580,64.5934,pfclient.dll,0x7FFC9BEB0000,\Device\HarddiskVolume3\Windows\System32\pfclient.dll
+165580,65.5280,WinSATAPI.dll,0x7FFB09700000,\Device\HarddiskVolume3\Windows\System32\WinSATAPI.dll
+165580,65.5301,GdiPlus.dll,0x7FFC76A40000,\Device\HarddiskVolume3\Windows\WinSxS\amd64_microsoft.windows.gdiplus_6595b64144ccf1df_1.1.26100.9711_none_6ef2ab963dc761f3\GdiPlus.dll
+165580,65.5406,msxml6.dll,0x7FFC80510000,\Device\HarddiskVolume3\Windows\System32\msxml6.dll
+165580,65.5532,urlmon.dll,0x7FFC74AA0000,\Device\HarddiskVolume3\Windows\System32\urlmon.dll
+165580,65.5539,iertutil.dll,0x7FFC83790000,\Device\HarddiskVolume3\Windows\System32\iertutil.dll
+165580,65.5544,srvcli.dll,0x7FFC8FD80000,\Device\HarddiskVolume3\Windows\System32\srvcli.dll
+165580,65.5544,netutils.dll,0x7FFC9DAE0000,\Device\HarddiskVolume3\Windows\System32\netutils.dll
+165580,65.6384,atiadlxx.dll,0x7FFC82160000,\Device\HarddiskVolume3\Windows\System32\DriverStore\FileRepository\u0205305.inf_amd64_0a0a37c758a0b24b\B026653\atiadlxx.dll
+165580,65.6467,wtsapi32.dll,0x7FFC9C4D0000,\Device\HarddiskVolume3\Windows\System32\wtsapi32.dll
+165580,99.1196,BluetoothApis.dll,0x7FFC99D70000,\Device\HarddiskVolume3\Windows\System32\BluetoothApis.dll

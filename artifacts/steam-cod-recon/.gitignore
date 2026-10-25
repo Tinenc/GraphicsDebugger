@@ -6,6 +6,12 @@
 *.pdb
 *.ilk
 *.rdc
+# ETW traces are tens of megabytes; only the derived CSVs are worth keeping
+*.etl
+cod-run.xml
+etwtest.xml
+etwtest.csv
+selftest*.csv
 # capture-side logs accumulate across runs and grow large; the fixture logs are the clean record
 *-capture.log
 d3d12_null_adapter_factory_capture.log
