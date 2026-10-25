@@ -333,12 +333,14 @@ private:
 
     // sanity check to make sure we're not going to go into an infinity loop injecting into
     // ourselves, and skip known-incompatible child processes (e.g. Qt WebEngine).
+    // steamwebhelper is Steam's Chromium host: injecting it stops the Steam UI from ever
+    // appearing, so it has to stay on this list even though we do want Steam's game children.
     if(lpApplicationName)
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
       if(app.contains("tinecmatoolcmd.exe") || app.contains("qtinecmatool.exe") ||
-         app.contains("platformprocess.exe"))
+         app.contains("platformprocess.exe") || app.contains("steamwebhelper.exe"))
       {
         inject = false;
       }
@@ -348,7 +350,7 @@ private:
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
       if(cmd.contains("tinecmatoolcmd.exe") || cmd.contains("qtinecmatool.exe") ||
-         cmd.contains("platformprocess.exe"))
+         cmd.contains("platformprocess.exe") || cmd.contains("steamwebhelper.exe"))
       {
         inject = false;
       }
