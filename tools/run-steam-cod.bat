@@ -16,10 +16,12 @@ rem  See docs/STEAM_COD_S4_TARGET_AND_LOAD_ORDER.md
 rem ===========================================================================
 
 set "HERE=%~dp0"
-set "TOOL=%HERE%x64\Development\TinecmaToolcmd.exe"
+rem repo root, one level up from tools\
+for %%i in ("%HERE%..") do set "ROOT=%%~fi\"
+set "TOOL=%ROOT%x64\Development\TinecmaToolcmd.exe"
 set "GAMEDIR=F:\SteamLibrary\steamapps\common\Call of Duty HQ\sp26"
 set "TARGET=sp26-cod.exe"
-set "CAPTURES=%HERE%artifacts\steam-cod-captures"
+set "CAPTURES=%ROOT%artifacts\steam-cod-captures"
 
 set "MODE=%~1"
 if "%MODE%"=="" set "MODE=wait"
