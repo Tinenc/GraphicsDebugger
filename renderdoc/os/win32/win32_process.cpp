@@ -1017,12 +1017,16 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
   }
   else if(loc == 0)
   {
-    // LoadLibraryW handed back a handle, so the DLL is inside the process, but the module list
-    // cannot be enumerated - protected processes refuse TH32CS_SNAPMODULE. Without a base
-    // address the INTERNAL_* setters cannot be injected, so the DLL runs with defaults.
-    RDCWARN("Injected %s.dll into process %u but its base address is not enumerable (protected "
-            "process). Continuing without INTERNAL_* configuration.",
-            rdoc_dll, pid);
+    // LoadLibraryW handed back a handle so the DLL is inside the process, but the module list
+    // cannot be enumerated - protected processes refuse TH32CS_SNAPMODULE. Without the base
+    // address none of the INTERNAL_* setters can be called, which means Core::Initialise never
+    // runs: no hooks, no log, an inert DLL. Reporting success here would be a lie.
+    SET_ERROR_RESULT(
+        result.first, ResultCode::InjectionFailed,
+        "Loaded %s.dll into process %u but could not resolve its base address (module "
+        "enumeration denied by a protected process). The INTERNAL_* configuration could not be "
+        "applied, so the DLL is resident but inert - no hooks are installed.",
+        rdoc_dll, pid);
   }
   else
   {
