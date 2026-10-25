@@ -249,9 +249,20 @@ extern "C" __declspec(dllexport) void __cdecl INTERNAL_ApplyEnvMods(void *ignore
   Process::ApplyEnvironmentModification();
 }
 
-void InjectDLL(HANDLE hProcess, rdcwstr libName)
+HMODULE InjectDLL(HANDLE hProcess, rdcwstr libName)
 {
+  // Remote LoadLibraryW returns the module handle, but a thread exit code is only 32-bit while
+  // the handle is pointer-sized. The value is therefore only used as a yes/no signal - the real
+  // base address still comes from enumerating the target's modules.
   wchar_t dllPath[MAX_PATH + 1] = {0};
+
+  if(libName.length() > MAX_PATH)
+  {
+    RDCERR("DLL path is too long to inject (%u chars): '%ls'", (uint32_t)libName.length(),
+           libName.c_str());
+    return NULL;
+  }
+
   wcscpy_s(dllPath, libName.c_str());
 
   static HMODULE kernel32 = GetModuleHandleA("kernel32.dll");
@@ -259,7 +270,7 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
   if(kernel32 == NULL)
   {
     RDCERR("Couldn't get handle for kernel32.dll");
-    return;
+    return NULL;
   }
 
   void *remoteMem =
@@ -275,7 +286,19 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
       if(hThread)
       {
         WaitForSingleObject(hThread, INFINITE);
+
+        DWORD exitCode = 0;
+        BOOL gotExit = GetExitCodeThread(hThread, &exitCode);
         CloseHandle(hThread);
+
+        RDCLOG("Remote LoadLibraryW('%ls'): exit code 0x%08x (read=%d)", libName.c_str(),
+               exitCode, gotExit);
+
+        VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+
+        // a non-zero low half means LoadLibraryW handed back a handle, i.e. the DLL is in the
+        // process. 0 means the load failed (missing dependency, blocked, protected process).
+        return (gotExit && exitCode != 0) ? (HMODULE)(uintptr_t)exitCode : NULL;
       }
       else
       {
@@ -294,6 +317,8 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
   {
     RDCERR("Couldn't allocate remote memory for DLL '%ls': %u", libName.c_str(), GetLastError());
   }
+
+  return NULL;
 }
 
 uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName)
@@ -970,7 +995,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
     return {ResultCode::Succeeded, (uint32_t)exitCode};
   }
 
-  InjectDLL(hProcess, renderdocPath);
+  HMODULE remoteModule = InjectDLL(hProcess, renderdocPath);
 
   const char *rdoc_dll = STRINGIZE(RDOC_BASE_NAME);
 
@@ -981,13 +1006,23 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
   rdcpair<RDResult, uint32_t> result = {ResultCode::Succeeded, 0};
 
-  if(loc == 0)
+  if(remoteModule == NULL)
   {
     SET_ERROR_RESULT(
         result.first, ResultCode::InjectionFailed,
-        "Failed to inject %s.dll into process. Check that the process did not crash or exit "
-        "early in initialisation, e.g. if the working directory is incorrectly set.",
-        rdoc_dll);
+        "Remote LoadLibraryW failed for %s.dll - the DLL never loaded into process %u. This is "
+        "a real load failure (blocked, protected target, or missing dependency), not a "
+        "visibility problem. See the log for the failing step.",
+        rdoc_dll, pid);
+  }
+  else if(loc == 0)
+  {
+    // LoadLibraryW handed back a handle, so the DLL is inside the process, but the module list
+    // cannot be enumerated - protected processes refuse TH32CS_SNAPMODULE. Without a base
+    // address the INTERNAL_* setters cannot be injected, so the DLL runs with defaults.
+    RDCWARN("Injected %s.dll into process %u but its base address is not enumerable (protected "
+            "process). Continuing without INTERNAL_* configuration.",
+            rdoc_dll, pid);
   }
   else
   {
