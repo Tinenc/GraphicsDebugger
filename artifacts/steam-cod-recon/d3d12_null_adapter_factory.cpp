@@ -15,6 +15,7 @@
 //   explicit-parent   adapter passed in, factory via adapter->GetParent           <- known green
 //   null-native       NULL adapter, factory via raw LdrGetProcedureAddress        <- control
 #define WIN32_LEAN_AND_MEAN
+#define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
@@ -72,8 +73,19 @@ static HRESULT RawCreateFactory1(REFIID riid, void **ppFactory)
   char exportName[] = "CreateDXGIFactory1";
   DiagnosticAnsiString name = {(USHORT)(sizeof(exportName) - 1), (USHORT)sizeof(exportName),
                                exportName};
+  // dxgi.dll is usually not loaded yet when the capture tool injects us, so GetModuleHandle
+  // alone is not enough - load it first, then resolve through Ldr to skip the export hooks.
+  HMODULE dxgi = GetModuleHandleW(L"dxgi.dll");
+  if(!dxgi)
+    dxgi = LoadLibraryW(L"dxgi.dll");
+  if(!dxgi)
+  {
+    Log("FAIL: dxgi.dll could not be loaded");
+    return E_FAIL;
+  }
+
   void *address = NULL;
-  if(rawGetProc(GetModuleHandleW(L"dxgi.dll"), &name, 0, &address) < 0 || !address)
+  if(rawGetProc(dxgi, &name, 0, &address) < 0 || !address)
     return E_FAIL;
 
   auto create = (HRESULT(WINAPI *)(REFIID, void **))address;
@@ -128,16 +140,26 @@ int main()
 
   if(!adapter)
   {
-    IDXGIDevice *dxgiDevice = NULL;
-    HR(device->QueryInterface(IID_PPV_ARGS(&dxgiDevice)));
-    HR(dxgiDevice->GetAdapter(&adapter));
-    dxgiDevice->Release();
-    Log("adapter from device=%p", adapter);
+    // Measured on this box (see probe_dxgi_device.cpp): a native ID3D12Device answers
+    // E_NOINTERFACE (0x80004002) to both IDXGIDevice and IDXGIObject. D3D12 devices do not
+    // implement IDXGIDevice at all, so there is no device -> adapter -> factory route here.
+    // A D3D12 factory can only come from dxgi.dll or from an adapter passed to CreateDevice.
+    IDXGIDevice *probe = NULL;
+    HRESULT probeHr = device->QueryInterface(IID_PPV_ARGS(&probe));
+    Log("NOTE device -> IDXGIDevice hr=0x%08lx (expected E_NOINTERFACE)", (unsigned long)probeHr);
+    Log("NOTE continuing without an adapter; the factory cannot come from the device");
   }
 
   IDXGIFactory2 *factory = NULL;
 
-  if(!strcmp(mode, "null-native"))
+  if(!strcmp(mode, "hooked-null"))
+  {
+    // The route an engine takes when it resolves dxgi through the ordinary GetProcAddress:
+    // the export hook wraps the factory, so swapchain creation goes through the wrapper.
+    HR(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)));
+    Log("factory via hooked CreateDXGIFactory2=%p", factory);
+  }
+  else if(!strcmp(mode, "null-native") || !adapter)
   {
     IDXGIFactory1 *raw = NULL;
     HR(RawCreateFactory1(IID_PPV_ARGS(&raw)));

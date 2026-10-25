@@ -1,0 +1,7 @@
+mode=hooked-null
+device=000001BC529BC480
+NOTE device -> IDXGIDevice hr=0x80004002 (expected E_NOINTERFACE)
+NOTE continuing without an adapter; the factory cannot come from the device
+factory via hooked CreateDXGIFactory2=000001BC5C073130
+swapchain=000001BCA65BC0F0
+RESULT mode=hooked-null captured=1 total=1

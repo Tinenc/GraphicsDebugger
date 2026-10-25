@@ -1,0 +1,6 @@
+mode=null-native
+device=0000020214399F60
+NOTE device -> IDXGIDevice hr=0x80004002 (expected E_NOINTERFACE)
+NOTE continuing without an adapter; the factory cannot come from the device
+factory via raw CreateDXGIFactory1=000002021DB23DA0
+FAIL factory->CreateSwapChainForHwnd(queue, window, &desc, NULL, NULL, &swapchain) hr=0x80004002

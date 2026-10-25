@@ -1,0 +1,6 @@
+mode=explicit-parent
+explicit adapter=000002605FC7AD40
+device=0000026056A7DAD0
+factory via adapter GetParent=0000026056A2C9F0
+swapchain=00000260AA77FA80
+RESULT mode=explicit-parent captured=1 total=1

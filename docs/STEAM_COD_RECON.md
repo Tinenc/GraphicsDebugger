@@ -171,21 +171,25 @@ Naraka 的经验在这里**不能直接套用**（那是 Neac + ACE）。Ricoche
 
 另：`C:\Program Files (x86)\Steam\steam.exe` 是 **32 位**启动器，和 Naraka 的 `LauncherGame.exe` 同理 —— **永远不作为注入目标**，真实目标只有 `cod.exe`。
 
-### R2 · swapchain / factory 从哪来 —— **已定位并打补丁（见 S2 报告）**
+### R2 · swapchain / factory 从哪来 —— **已实测，原假设证伪**
 
-`cod.exe` **没有导入 `dxgi.dll`**，系统 `d3d12.dll` 也不导入它。那么 `IDXGIFactory` 只可能来自：
+`cod.exe` **没有导入 `dxgi.dll`**，系统 `d3d12.dll` 也不导入它。原本推测 factory 走
+`device → IDXGIDevice → GetAdapter → GetParent`。**实测把这个推测否掉了**：
 
-- 本地 `D3D12Core.dll` 内部加载 dxgi，游戏通过 `ID3D12Device::QueryInterface(IDXGIDevice)` → `GetAdapter` → `GetParent(IDXGIFactory)` 拿到 factory；或
-- 运行时自己 `LoadLibrary("dxgi.dll")` + 手动解析。
+原生 `ID3D12Device` 对 `IDXGIDevice` 和 `IDXGIObject` 都返回 `E_NOINTERFACE (0x80004002)`
+（`probe_dxgi_device.cpp`，不注入直接跑）。D3D12 设备从设计上就不实现 `IDXGIDevice`。
 
-本树已经有这套桥（`dxgi_wrapped.cpp:181` `HookNativeDXGIFactoriesForAdapter`，给原生 vtable 的
-`CreateSwapChain` / `ForHwnd` / `ForCoreWindow` / `ForComposition` 打补丁），并有实测日志
-（`native factory bridge installed` → `swapchain wrapped`）。
+factory 只有两个来源：**`dxgi.dll` 的 `CreateDXGIFactory*`**，或调用方 `EnumAdapters` 后
+**传进** `D3D12CreateDevice`。四模式实测（`docs/STEAM_COD_S2_FACTORY_BRIDGE.md`）：
 
-唯一没覆盖的前提是 `D3D12CreateDevice` 的 `pAdapter == NULL`（原挂载点带 `&& pAdapter`）——
-已补：失败时从真实 device 反查 adapter 再装桥。详见 **`docs/STEAM_COD_S2_FACTORY_BRIDGE.md`**，
-配套夹具 `artifacts/steam-cod-recon/d3d12_null_adapter_factory.cpp`（三模式矩阵）。
-补丁**尚未编译、夹具尚未运行**，R2 现在是「已修补待实测」，不是已知绿。
+| 场景 | 结果 |
+|---|---|
+| 传 adapter（桥装） | captured=1，3.44 MB `.rdc` |
+| NULL + 被 hook 的 factory | captured=1，3.44 MB `.rdc` |
+| NULL + 原生 factory（绕 hook） | `CreateSwapChainForHwnd` → **`E_NOINTERFACE`** |
+
+所以风险形态变了：不是「抓不到帧」，而是「**若 cod.exe 绕过 `GetProcAddress` 自解析 dxgi，
+注入会让 swapchain 创建直接失败**」。`cod.exe` 静态导入表为空、自建了解析层，这一条只能实测。
 
 ### R3 · 设备接口版本覆盖 —— 中等风险（黄）
 
@@ -202,9 +206,9 @@ Naraka 的经验在这里**不能直接套用**（那是 Neac + ACE）。Ricoche
 | 步骤 | 动作 | 判据 |
 |---|---|---|
 | S1 | 只读运行观察：记录 `cod.exe` 的模块加载顺序与基址（`d3d12.dll` / `dxgi.dll` / `D3D12Core.dll` 谁先、谁后） | 能确定 dxgi 是 Core 内部加载还是游戏自加载 |
-| S2 | 造「ordinal 101 + `pAdapter == NULL` → `GetParent` 取 factory」夹具，验证 M4 —— **已做，见 `docs/STEAM_COD_S2_FACTORY_BRIDGE.md`** | 桥已存在；补了 NULL adapter 分支；三模式夹具待编待跑 |
-| S3 | 先编出 `TinecmaTool` / `TinecmaToolcmd`，再跑 `null-parent` / `explicit-parent` / `null-native` 三模式 | `null-parent` captured=1 且日志有 `adapter recovered` + `bridge installed` |
-| S4 | 反作弊评估（R1）单独做，不与抓帧混在一起 | —— |
+| S2 | 造「ordinal 101 + `pAdapter == NULL` → `GetParent` 取 factory」夹具，验证 M4 —— **已做，见 `docs/STEAM_COD_S2_FACTORY_BRIDGE.md`** | 原假设证伪：D3D12 设备拿不到 adapter；四模式矩阵已实跑 |
+| S3 | 工具已构建（`x64/Development`），四模式矩阵已跑完 | `explicit-parent` / `hooked-null` 均 captured=1；原生 factory 路径复现 `E_NOINTERFACE` |
+| S4 | 只读跑一次 `cod.exe`（不注入或最小注入），按日志判据确认它走哪条 factory 路 | 看有没有 `bridge installed` / `Graphics function resolved: library=dxgi.dll` / `E_NOINTERFACE` |
 
 S3（编工具 + 跑矩阵）是现在唯一挡路的事：没有可用的 capture 二进制，任何运行时结论都拿不到。
 

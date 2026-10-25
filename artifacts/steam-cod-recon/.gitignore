@@ -1,0 +1,12 @@
+# build outputs of the recon fixtures (kept out of git, rebuilt by build-local.cmd)
+*.exe
+*.obj
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.rdc
+# capture-side logs accumulate across runs and grow large; the fixture logs are the clean record
+*-capture.log
+d3d12_null_adapter_factory_capture.log
+d3d12_null_adapter_factory.log
