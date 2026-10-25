@@ -914,8 +914,42 @@ private:
 
     HRESULT ret =
         d3d12hooks.Create_Internal(createFunc, NULL, pAdapter, MinimumFeatureLevel, riid, ppDevice);
-    if(SUCCEEDED(ret) && ppDevice && *ppDevice && pAdapter)
-      HookNativeDXGIFactoriesForAdapter(pAdapter);
+
+    if(SUCCEEDED(ret) && ppDevice && *ppDevice)
+    {
+      if(pAdapter)
+      {
+        HookNativeDXGIFactoriesForAdapter(pAdapter);
+      }
+      else if(WrappedID3D12Device::IsAlloc(*ppDevice))
+      {
+        // pAdapter == NULL means D3D12 picked the adapter itself. Recover it from the real
+        // device so engines that never pass an adapter still get the native factory bridge.
+        // Without this a swapchain created from adapter->GetParent() stays native and is never
+        // wrapped - the M4 factory-bridge gap recorded on the Naraka tree.
+        ID3D12Device *realDevice = ((WrappedID3D12Device *)*ppDevice)->GetReal();
+        IDXGIDevice *dxgiDevice = NULL;
+
+        if(realDevice &&
+           SUCCEEDED(realDevice->QueryInterface(__uuidof(IDXGIDevice), (void **)&dxgiDevice)) &&
+           dxgiDevice)
+        {
+          IDXGIAdapter *adapter = NULL;
+
+          if(SUCCEEDED(dxgiDevice->GetAdapter(&adapter)) && adapter)
+          {
+            RDCLOG("Graphics adapter recovered from device for native factory bridge: device=%p "
+                   "adapter=%p",
+                   realDevice, adapter);
+            HookNativeDXGIFactoriesForAdapter(adapter);
+            adapter->Release();
+          }
+
+          dxgiDevice->Release();
+        }
+      }
+    }
+
     RDCLOG(
         "Graphics device returned: api=D3D12CreateDevice result=0x%08x device=%p "
         "adapter=%p featureLevel=0x%x",
