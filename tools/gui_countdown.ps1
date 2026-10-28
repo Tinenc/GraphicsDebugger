@@ -3,7 +3,8 @@
     [string]$SteamDir = "",
     [string]$ToolDll = "",
     [string]$ProxyDll = "",
-    [string]$DesktopDir = ""
+    [string]$DesktopDir = "",
+    [string]$OutputFile = ""
 )
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -16,7 +17,7 @@ if ([string]::IsNullOrWhiteSpace($DesktopDir)) {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "TinecmaTool - 准备就绪 (按回车继续启动游戏)"
-$form.Size = New-Object System.Drawing.Size(720, 585)
+$form.Size = New-Object System.Drawing.Size(720, 595)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
@@ -202,27 +203,38 @@ $btnCancel.Cursor = [System.Windows.Forms.Cursors]::Hand
 $form.Controls.Add($btnLaunch)
 $form.Controls.Add($btnCancel)
 
-# Set Enter and Esc shortcuts
+# Set button DialogResults and keyboard shortcuts
+$btnLaunch.DialogResult = [System.Windows.Forms.DialogResult]::OK
+$btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+
 $form.AcceptButton = $btnLaunch
 $form.CancelButton = $btnCancel
 
-# Script state
+# Bring form to front and focus launch button on shown
+$form.Add_Shown({
+    $form.Activate()
+    $form.BringToFront()
+    $btnLaunch.Focus()
+})
+
 $script:Action = "LAUNCH"
 
 $btnLaunch.Add_Click({
     $script:Action = "LAUNCH"
-    $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $form.Close()
 })
 
 $btnCancel.Add_Click({
     $script:Action = "CANCEL"
-    $form.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $form.Close()
 })
 
 # Display Dialog (Blocks until user hits Enter or Esc or clicks buttons)
 $res = $form.ShowDialog()
+
+if ($res -eq [System.Windows.Forms.DialogResult]::OK) {
+    $script:Action = "LAUNCH"
+} else {
+    $script:Action = "CANCEL"
+}
 
 # Determine selected mode
 $selectedMode = if ($rbPix.Checked) { "pix" } else { "renderdoc" }
@@ -235,6 +247,16 @@ mode=$selectedMode
 rdoc_dll=$ToolDll
 "@
 [System.IO.File]::WriteAllText($iniPath, $iniContent, [System.Text.Encoding]::UTF8)
+
+# Write results to output file if provided
+if (![string]::IsNullOrWhiteSpace($OutputFile)) {
+    $outLines = @(
+        "ACTION=$($script:Action)",
+        "GAMEDIR=$($txtGame.Text)",
+        "MODE=$selectedMode"
+    )
+    [System.IO.File]::WriteAllLines($OutputFile, $outLines, [System.Text.Encoding]::UTF8)
+}
 
 # Output results for batch to capture
 Write-Output "ACTION=$($script:Action)"

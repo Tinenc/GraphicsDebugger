@@ -2,6 +2,9 @@
 setlocal EnableExtensions EnableDelayedExpansion
 title TinecmaTool - Steam and COD D3D12 Capture Launcher
 
+rem Change working directory to script location immediately
+cd /d "%~dp0"
+
 rem ===========================================================================
 rem  TinecmaTool (Stealth RenderDoc) - Portable One-Click Steam and COD Launcher
 rem  Compatible with any PC running Windows 10/11 and Steam
@@ -11,9 +14,12 @@ rem Ensure Administrator privileges for driver management and proxy deployment
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo [INFO] Requesting Administrator privileges...
-    powershell -NoProfile -Command "Start-Process cmd -ArgumentList '/c \"\"%~f0\" %*\"' -Verb RunAs"
+    powershell -NoProfile -Command "Start-Process cmd -ArgumentList '/c \"\"%~f0\" %*\"' -WorkingDirectory '%~dp0' -Verb RunAs"
     exit /b
 )
+
+rem Re-verify working directory after elevation
+cd /d "%~dp0"
 
 set "HERE=%~dp0"
 rem Check if run from tools\ or repo root
@@ -192,33 +198,51 @@ echo.
 echo [INFO] Opening configuration guide window...
 echo        (Press Enter in window to launch immediately, or close to cancel)
 set "ACTION=LAUNCH"
-if exist "%ROOT%tools\gui_countdown.ps1" (
-    for /f "tokens=1* delims==" %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\gui_countdown.ps1" -GameDir "%GAMEDIR%" -SteamDir "%STEAM_DIR%" -ToolDll "%TOOL_DLL%" -ProxyDll "%PROXY_DLL%" -DesktopDir "%DESKTOP%"') do (
+
+if not exist "%ROOT%tools\gui_countdown.ps1" goto :fallback_console
+
+set "GUI_RES_FILE=%TEMP%\tinecma_gui_res_%RANDOM%.txt"
+if exist "!GUI_RES_FILE!" del /f /q "!GUI_RES_FILE!" >nul 2>&1
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\gui_countdown.ps1" -GameDir "%GAMEDIR%" -SteamDir "%STEAM_DIR%" -ToolDll "%TOOL_DLL%" -ProxyDll "%PROXY_DLL%" -DesktopDir "%DESKTOP%" -OutputFile "!GUI_RES_FILE!"
+set "PS_EXIT=!ERRORLEVEL!"
+
+if exist "!GUI_RES_FILE!" (
+    for /f "usebackq tokens=1* delims==" %%A in ("!GUI_RES_FILE!") do (
         if "%%A"=="ACTION" set "ACTION=%%B"
         if "%%A"=="GAMEDIR" (
             if exist "%%B\cod.exe" set "GAMEDIR=%%B"
         )
         if "%%A"=="MODE" set "CAPTURE_MODE=%%B"
     )
-) else (
-    echo.
-    echo ========================================================================
-    echo   [选项配置与说明提示]
-    echo   - 选项 1 [游戏路径]: %GAMEDIR%
-    echo     提示: 包含 cod.exe 的主目录，代理 DLL 将自动同步部署至该目录及 sp26\
-    echo   - 选项 2 [捕获核心]: %TOOL_DLL%
-    echo     提示: TinecmaTool (RenderDoc v1.44) 1.33s 同步直写 + SEH 容错保护
-    echo   - 选项 3 [操作提示]: 游戏中按 [F12] 或控制台按 [C] 触发极速抓帧
-    echo   - 选项 4 [防护状态]: PEB 模块链表已隐匿，已屏蔽端口并隔离看门狗 0x00001337
-    echo ========================================================================
-    echo   [已取消时间限制] 请确认上述配置。
-    echo   按 [Enter 回车键] 直接继续启动游戏...
-    echo   (或输入 Q 并按回车退出)
-    echo ========================================================================
-    set "CONFIRM="
-    set /p "CONFIRM=直接按 [Enter] 继续启动，或输入 [Q] 退出: "
-    if /i "!CONFIRM!"=="Q" set "ACTION=CANCEL"
+    del /f /q "!GUI_RES_FILE!" >nul 2>&1
+    goto :guide_done
 )
+
+if !PS_EXIT! neq 0 (
+    set "ACTION=CANCEL"
+    goto :guide_done
+)
+
+:fallback_console
+echo.
+echo ========================================================================
+echo   [Options and Configuration Guide]
+echo   - Option 1 [Game Directory]: %GAMEDIR%
+echo     Tip: Main directory containing cod.exe. Proxy DLL is deployed here and sp26\
+echo   - Option 2 [Capture Backend]: %TOOL_DLL%
+echo     Tip: TinecmaTool [RenderDoc v1.44] 1.33s sync write + SEH protection
+echo   - Option 3 [Usage]: Press [F12] in-game or [C] in console to capture frame
+echo   - Option 4 [Stealth]: PEB unlinked, port-free, watchdog 0x00001337 isolated
+echo ========================================================================
+echo   [No Time Limit] Press [Enter] to continue launching the game...
+echo   (Or enter Q and press Enter to cancel and exit)
+echo ========================================================================
+set "CONFIRM="
+set /p "CONFIRM=Press [Enter] to launch or [Q] to quit: "
+if /i "!CONFIRM!"=="Q" set "ACTION=CANCEL"
+
+:guide_done
 
 if /i "!ACTION!"=="CANCEL" (
     echo.
