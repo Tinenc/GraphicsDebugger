@@ -187,6 +187,10 @@ if exist "%GAMEDIR%\sp26" (
 
 rem Write Desktop\dxgi_proxy.ini
 (
+    echo [proxy]
+    echo mode=renderdoc
+    echo rdoc_dll=%TOOL_DLL%
+    echo.
     echo [Capture]
     echo mode=renderdoc
     echo rdoc_dll=%TOOL_DLL%
@@ -251,7 +255,21 @@ if /i "!ACTION!"=="CANCEL" (
     exit /b 0
 )
 
-rem Re-deploy in case game directory was changed in GUI
+rem Update dxgi_proxy.ini if capture mode was selected in GUI
+if defined CAPTURE_MODE (
+    (
+        echo [proxy]
+        echo mode=!CAPTURE_MODE!
+        echo rdoc_dll=%TOOL_DLL%
+        echo.
+        echo [Capture]
+        echo mode=!CAPTURE_MODE!
+        echo rdoc_dll=%TOOL_DLL%
+    ) > "%DESKTOP%\dxgi_proxy.ini"
+    echo [OK] Updated %DESKTOP%\dxgi_proxy.ini (mode=!CAPTURE_MODE!)
+)
+
+rem Re-deploy proxy to game directories
 copy /y "%PROXY_DLL%" "%GAMEDIR%\dxgi.dll" >nul 2>&1
 if exist "%GAMEDIR%\sp26" copy /y "%PROXY_DLL%" "%GAMEDIR%\sp26\dxgi.dll" >nul 2>&1
 

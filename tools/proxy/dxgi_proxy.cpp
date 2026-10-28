@@ -180,9 +180,21 @@ static void ReadConfig() {
 
 
 
-    char modeBuf[64] = "pix";
+    char modeBuf[64] = "";
 
-    GetPrivateProfileStringA("proxy", "mode", "pix", modeBuf, sizeof(modeBuf), iniPath);
+    GetPrivateProfileStringA("proxy", "mode", "", modeBuf, sizeof(modeBuf), iniPath);
+
+    if (modeBuf[0] == '\0') {
+
+        GetPrivateProfileStringA("Capture", "mode", "", modeBuf, sizeof(modeBuf), iniPath);
+
+    }
+
+    if (modeBuf[0] == '\0') {
+
+        strcpy_s(modeBuf, "renderdoc");
+
+    }
 
 
 
@@ -198,9 +210,13 @@ static void ReadConfig() {
 
         g_captureMode = CaptureMode::Both;
 
-    } else {
+    } else if (strcmp(modeBuf, "pix") == 0) {
 
         g_captureMode = CaptureMode::PIX;
+
+    } else {
+
+        g_captureMode = CaptureMode::RenderDoc;
 
     }
 
@@ -506,17 +522,37 @@ static void LoadRenderDocCapturer() {
 
 
 
-    const char* rdocPaths[] = {
+    char iniPath[MAX_PATH];
 
-        "C:\\Program Files\\GraphicsDebugger-Steam-Cod\\x64\\Development\\TinecmaTool.dll",
+    sprintf_s(iniPath, "%s\\dxgi_proxy.ini", g_desktopDir);
 
-        "C:\\Program Files\\RenderDoc\\renderdoc.dll",
+    char customRdoc[MAX_PATH] = "";
 
-    };
+    GetPrivateProfileStringA("proxy", "rdoc_dll", "", customRdoc, sizeof(customRdoc), iniPath);
 
+    if (customRdoc[0] == '\0') {
 
+        GetPrivateProfileStringA("Capture", "rdoc_dll", "", customRdoc, sizeof(customRdoc), iniPath);
 
-    for (auto& path : rdocPaths) {
+    }
+
+    const char* rdocPaths[4];
+
+    int pathCount = 0;
+
+    if (customRdoc[0] != '\0') {
+
+        rdocPaths[pathCount++] = customRdoc;
+
+    }
+
+    rdocPaths[pathCount++] = "C:\\Program Files\\GraphicsDebugger-Steam-Cod\\x64\\Development\\TinecmaTool.dll";
+
+    rdocPaths[pathCount++] = "C:\\Program Files\\RenderDoc\\renderdoc.dll";
+
+    for (int pIdx = 0; pIdx < pathCount; ++pIdx) {
+
+        const char* path = rdocPaths[pIdx];
 
         g_rdocCapturer = LoadLibraryA(path);
 
