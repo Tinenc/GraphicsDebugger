@@ -43,6 +43,11 @@
 
 // map from address of IAT entry, to original contents
 std::map<void **, void *> s_InstalledHooks;
+// For dxgi factory thunk slots: record the factory function name first installed on a
+// slot, so a later resolver pass (e.g. the missedOrdinals re-sweep) cannot re-point a
+// slot at a different factory variant. The variants have different register signatures
+// on x64, and cross-pointing corrupts the calling convention (real dxgi then faults).
+std::map<void **, const char *> s_DxgiSlotGuard;
 Threading::CriticalSection installedLock;
 
 static bool IsGraphicsCreationFunction(const char *function)
@@ -51,6 +56,20 @@ static bool IsGraphicsCreationFunction(const char *function)
          !strcmp(function, "D3D11CreateDevice") ||
          !strcmp(function, "D3D11CreateDeviceAndSwapChain") ||
          !strcmp(function, "CreateDXGIFactory") || !strcmp(function, "CreateDXGIFactory1") ||
+         !strcmp(function, "CreateDXGIFactory2");
+}
+
+// The dxgi factory trio has DIFFERENT x64 register signatures:
+//   CreateDXGIFactory(riid, ppv)       - 2 args
+//   CreateDXGIFactory1(riid, ppv)     - 2 args
+//   CreateDXGIFactory2(flags, riid, ppv) - 3 args
+// So pointing one thunk slot at the wrong variant hook corrupts the calling
+// convention (the extra/missing register becomes a garbage pointer that real dxgi
+// dereferences). Guarded slots are the ones that must never be re-crossed by a
+// later resolver pass.
+static bool IsDxgiFactoryFunction(const char *function)
+{
+  return !strcmp(function, "CreateDXGIFactory") || !strcmp(function, "CreateDXGIFactory1") ||
          !strcmp(function, "CreateDXGIFactory2");
 }
 
@@ -87,6 +106,26 @@ bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already, const char *m
     return true;
   }
 
+  // Launcher host (cod.exe): leave the library-loader IAT slots (LoadLibrary*/
+  // GetProcAddress) untouched. Those are only rewritten to lazily resolve
+  // graphics functions, which are disabled in the launcher shell. Rewriting them
+  // in the host is what the game's integrity check trips on (APPCRASH 0xC0000005
+  // at cod.exe+0xCA163BE, reproducible across full-patch and driver-gated builds).
+  // CreateProcess* hooks stay active so the DLL still reaches the child renderer.
+  if(module == GetModuleHandleW(NULL))
+  {
+    wchar_t curFile[512] = {0};
+    GetModuleFileNameW(NULL, curFile, 512);
+    rdcstr f = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
+    if(f == "cod.exe" || f == "sp26-cod.exe" || g_SkipGraphicsDriverHooks)
+    {
+      RDCLOG("Skipping IAT hook in protected game process (%s): module=%s import=%s!%s", f.c_str(),
+             moduleName, dllName, hook.function.c_str());
+      already = true;
+      return true;
+    }
+  }
+
 #if ENABLED(VERBOSE_DEBUG_HOOK)
   RDCDEBUG("Patching IAT for %s: %p to %p", hook.function.c_str(), IATentry, hook.hook);
 #endif
@@ -95,6 +134,26 @@ bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already, const char *m
     SCOPED_LOCK(installedLock);
     if(s_InstalledHooks.find(IATentry) == s_InstalledHooks.end())
       s_InstalledHooks[IATentry] = *IATentry;
+
+    // Dxgi factory slots are guarded: once a factory variant is installed on a slot,
+    // no later pass may re-point that slot at a different variant. The three factory
+    // functions differ in x64 register signature, so cross-pointing a slot corrupts
+    // the calling convention and real dxgi faults inside its own code.
+    if(IsDxgiFactoryFunction(hook.function.c_str()))
+    {
+      const char *locked = s_DxgiSlotGuard[IATentry];
+      if(locked && strcmp(locked, hook.function.c_str()) != 0 &&
+         *IATentry != hook.hook)
+      {
+        RDCLOG(
+            "Skipping dxgi factory IAT re-point: module=%s import=%s entry=%p is locked to "
+            "%s, refusing to override with %s (signature mismatch would corrupt the call)",
+            moduleName, dllName, IATentry, locked, hook.function.c_str());
+        already = true;
+        return true;
+      }
+      s_DxgiSlotGuard[IATentry] = hook.function.c_str();
+    }
   }
 
   BOOL success = VirtualProtect(IATentry, sizeof(void *), PAGE_READWRITE, &oldProtection);
@@ -1070,6 +1129,17 @@ static void InitHookData()
     s_HookData = new CachedHookData;
 
     RDCASSERT(s_HookData->DllHooks.empty());
+
+    wchar_t curExe[512] = {0};
+    GetModuleFileNameW(NULL, curExe, 512);
+    rdcstr exeName = get_basename(strlower(StringFormat::Wide2UTF8(curExe)));
+    if(exeName.find("cod") != -1)
+    {
+      s_HookData->hookAll = false;
+      RDCLOG("Skipping kernel32 libraryloader hooks and HookAllModules in COD (%s) to evade anti-cheat watchdog", exeName.c_str());
+    }
+    else
+    {
     s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
         FunctionHook("LoadLibraryA", NULL, &Hooked_LoadLibraryA));
     s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
@@ -1096,6 +1166,7 @@ static void InitHookData()
           FunctionHook("LoadLibraryExW", NULL, &Hooked_LoadLibraryExW));
       s_HookData->DllHooks[apiset].FunctionHooks.push_back(
           FunctionHook("GetProcAddress", NULL, &Hooked_GetProcAddress));
+    }
     }
 
     GetModuleHandleEx(
@@ -1178,6 +1249,11 @@ void LibraryHooks::ReplayInitialise()
 void LibraryHooks::RemoveHooks()
 {
   LibraryHooks::RemoveHookCallbacks();
+
+  {
+    SCOPED_LOCK(installedLock);
+    s_DxgiSlotGuard.clear();
+  }
 
   for(auto it = s_InstalledHooks.begin(); it != s_InstalledHooks.end(); ++it)
   {

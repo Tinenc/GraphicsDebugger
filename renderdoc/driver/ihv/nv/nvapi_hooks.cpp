@@ -142,6 +142,11 @@ class NVHook : LibraryHook
 public:
   void RegisterHooks()
   {
+    if(g_SkipGraphicsDriverHooks)
+    {
+      RDCLOG("Skipping nvidia hooks (graphics IAT disabled in launcher host)");
+      return;
+    }
     RDCLOG("Registering nvidia hooks");
 
     LibraryHooks::RegisterLibraryHook(BIT_SPECIFIC_DLL("nvapi.dll", "nvapi64.dll"), NULL);

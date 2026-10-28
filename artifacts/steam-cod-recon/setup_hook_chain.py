@@ -128,7 +128,8 @@ def main():
         txt = ((r.stdout or b"") + (r.stderr or b"")).decode("mbcs", "replace").strip()
         if txt:
             print("      " + txt.replace("\n", "\n      "))
-        if r.returncode != 0:
+        # InjectIntoProcess returns the target-control ident on success, not zero.
+        if r.returncode != 0 and "Launched as ID " not in txt:
             print("      [fail] inject did not report success")
             return 3
 

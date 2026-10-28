@@ -26,6 +26,10 @@
 #include "hooks.h"
 #include "common/common.h"
 
+// See hooks.h. Set by the platform libentry (win32_libentry.cpp) for launcher hosts
+// that must not have their graphics IAT rewritten.
+bool g_SkipGraphicsDriverHooks = false;
+
 static rdcarray<LibraryHook *> &LibList()
 {
   static rdcarray<LibraryHook *> libs;

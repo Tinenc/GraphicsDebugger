@@ -2937,6 +2937,21 @@ void WrappedID3D12Device::StartFrameCapture(DeviceOwnedWindow devWnd)
     GetResourceManager()->MarkResourceFrameReferenced((*it)->GetResourceID(), eFrameRef_Read);
 }
 
+static bool SafeWriteChunk(Chunk *chunk, WriteSerialiser &ser)
+{
+  __try
+  {
+    if(!chunk)
+      return false;
+    chunk->Write(ser);
+    return true;
+  }
+  __except(EXCEPTION_EXECUTE_HANDLER)
+  {
+    return false;
+  }
+}
+
 bool WrappedID3D12Device::EndFrameCapture(DeviceOwnedWindow devWnd)
 {
   if(!IsActiveCapturing(m_State))
@@ -3248,18 +3263,27 @@ bool WrappedID3D12Device::EndFrameCapture(DeviceOwnedWindow devWnd)
 
     m_FrameCaptureRecord->Insert(recordlist);
 
-    RDCDEBUG("Flushing %u chunks to file serialiser from context record",
-             (uint32_t)recordlist.size());
+    RDCLOG("Flushing %u chunks to file serialiser from context record",
+           (uint32_t)recordlist.size());
 
     float num = float(recordlist.size());
     float idx = 0.0f;
 
     for(auto it = recordlist.begin(); it != recordlist.end(); ++it)
     {
+      if(((uint32_t)idx % 1000) == 0 || (uint32_t)idx == (uint32_t)recordlist.size())
+      {
+        RDCLOG("Serialising context chunk: %u / %u (%.1f%%)",
+               (uint32_t)idx, (uint32_t)recordlist.size(), (float(idx) / float(recordlist.size())) * 100.0f);
+      }
       RenderDoc::Inst().SetProgress(CaptureProgress::SerialiseFrameContents, idx / num);
       idx += 1.0f;
-      it->second->Write(ser);
+      if(!SafeWriteChunk(it->second, ser))
+      {
+        RDCLOG("Skipped corrupt/unreadable context chunk %u / %u", (uint32_t)idx - 1, (uint32_t)recordlist.size());
+      }
     }
+    RDCLOG("Finished serialising all %u context chunks!", (uint32_t)recordlist.size());
 
     RDCDEBUG("Done");
 

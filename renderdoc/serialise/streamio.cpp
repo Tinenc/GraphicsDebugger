@@ -504,15 +504,8 @@ FileWriter *FileWriter::MakeDefault(FILE *file, Ownership own)
 
 FileWriter *FileWriter::MakeThreaded(FILE *file, Ownership own)
 {
-  if(file == NULL)
-    return NULL;
-  FileWriter *ret = new FileWriter(file, own);
-  for(size_t i = 0; i < NumBlocks; i++)
-    ret->m_AllocBlocks[i] = {AllocAlignedBuffer(BlockSize), 0};
-  ret->m_ProducerOwned.append(ret->m_AllocBlocks, NumBlocks);
-  ret->m_ThreadRunning = 1;
-  ret->m_Thread = Threading::CreateThread([ret]() { ret->ThreadEntry(); });
-  return ret;
+  // Anti-cheat environments & high load games: avoid thread contention and deadlock
+  return MakeDefault(file, own);
 }
 
 RDResult FileWriter::Write(const void *data, uint64_t length)

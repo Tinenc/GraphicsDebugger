@@ -558,9 +558,20 @@ class D3D12Hook : LibraryHook
 public:
   void RegisterHooks()
   {
-    RDCLOG("Registering D3D12 hooks");
-
     WrappedIDXGISwapChain4::RegisterD3DDeviceCallback(GetD3D12DeviceIfAlloc);
+
+    if(m_RecurseSlot == 0)
+    {
+      m_RecurseSlot = Threading::AllocateTLSSlot();
+      Threading::SetTLSValue(m_RecurseSlot, NULL);
+    }
+
+    if(g_SkipGraphicsDriverHooks)
+    {
+      RDCLOG("Skipping D3D12 IAT hooks (graphics IAT disabled in launcher host)");
+      return;
+    }
+    RDCLOG("Registering D3D12 hooks");
 
     // also require d3dcompiler_??.dll
     if(GetD3DCompiler() == NULL)
@@ -699,9 +710,18 @@ private:
   // re-entrancy detection (can happen in rare cases with e.g. fraps)
   uint64_t m_RecurseSlot = 0;
 
-  void EndRecurse() { Threading::SetTLSValue(m_RecurseSlot, NULL); }
+  void EndRecurse() {
+    if(m_RecurseSlot != 0)
+      Threading::SetTLSValue(m_RecurseSlot, NULL);
+  }
   bool CheckRecurse()
   {
+    if(m_RecurseSlot == 0)
+    {
+      m_RecurseSlot = Threading::AllocateTLSSlot();
+      Threading::SetTLSValue(m_RecurseSlot, NULL);
+    }
+
     if(Threading::GetTLSValue(m_RecurseSlot) == NULL)
     {
       Threading::SetTLSValue(m_RecurseSlot, (void *)1);
@@ -891,6 +911,7 @@ private:
     return ret;
   }
 
+public:
   static HRESULT WINAPI D3D12CreateDevice_hook(IUnknown *pAdapter,
                                                D3D_FEATURE_LEVEL MinimumFeatureLevel, REFIID riid,
                                                void **ppDevice)
@@ -900,10 +921,19 @@ private:
 
     if(!createFunc)
     {
-      HMODULE d3d12 = GetModuleHandleA("d3d12.dll");
+      char sysPath[MAX_PATH];
+      GetSystemDirectoryA(sysPath, MAX_PATH);
+      strcat_s(sysPath, "\\d3d12.dll");
+      HMODULE sysD3D12 = LoadLibraryA(sysPath);
+      if(sysD3D12)
+        createFunc = (PFN_D3D12_CREATE_DEVICE)GetProcAddress(sysD3D12, "D3D12CreateDevice");
 
-      if(d3d12)
-        createFunc = (PFN_D3D12_CREATE_DEVICE)GetProcAddress(d3d12, "D3D12CreateDevice");
+      if(!createFunc)
+      {
+        HMODULE d3d12 = GetModuleHandleA("d3d12.dll");
+        if(d3d12)
+          createFunc = (PFN_D3D12_CREATE_DEVICE)GetProcAddress(d3d12, "D3D12CreateDevice");
+      }
 
       if(!createFunc)
       {
@@ -997,11 +1027,27 @@ private:
 
     HRESULT hr = GetWrappedInterface(realUnk, riid, ppvDebug);
 
+    if(SUCCEEDED(hr))
+    {
+      if(realUnk)
+        realUnk->Release();
+      return hr;
+    }
+
+    // The real call may hand back an interface we don't wrap (e.g. ID3D12SDKConfiguration1
+    // used by the Agility SDK). Swallowing a successful real result and returning
+    // E_NOINTERFACE makes the application think the interface doesn't exist, so pass the
+    // real pointer through and keep the reference that the real call already produced.
+    if(SUCCEEDED(real) && realUnk)
+    {
+      RDCWARN("Passing through unwrapped D3D12GetInterface result: %s (clsid %s)",
+              ToStr(riid).c_str(), ToStr(rclsid).c_str());
+      *ppvDebug = realUnk;
+      return real;
+    }
+
     if(realUnk)
       realUnk->Release();
-
-    if(SUCCEEDED(hr))
-      return hr;
 
     RDCWARN("Unknown UUID passed to D3D12GetInterface: %s (clsid %s). Real call %s succeed (%x).",
             ToStr(riid).c_str(), ToStr(rclsid).c_str(), SUCCEEDED(real) ? "did" : "did not", real);
@@ -1038,4 +1084,12 @@ HRESULT STDMETHODCALLTYPE WrappedID3D12DeviceFactory::GetConfigurationInterface(
           ToStr(iid).c_str(), SUCCEEDED(real) ? "did" : "did not", real);
 
   return E_NOINTERFACE;
+}
+
+
+extern "C" __declspec(dllexport) HRESULT WINAPI
+TINECMATOOL_D3D12CreateDevice(IUnknown *pAdapter, D3D_FEATURE_LEVEL MinimumFeatureLevel,
+                              REFIID riid, void **ppDevice)
+{
+  return D3D12Hook::D3D12CreateDevice_hook(pAdapter, MinimumFeatureLevel, riid, ppDevice);
 }

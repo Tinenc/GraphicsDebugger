@@ -52,12 +52,20 @@ if not exist "%CAPTURES%" mkdir "%CAPTURES%" >nul 2>&1
 
 echo.
 echo [inject] injecting with --opt-hook-children ...
-"%TOOL%" inject --PID=!PID! --opt-hook-children -c "%CAPTURES%\steam-cod"
+set "INJECTLOG=%CAPTURES%\inject-steam-last.log"
+"%TOOL%" inject --PID=!PID! --opt-hook-children -c "%CAPTURES%\steam-cod" > "%INJECTLOG%" 2>&1
 set "RC=%errorlevel%"
-echo [inject] rc=%RC%
+type "%INJECTLOG%"
 
-if not "%RC%"=="0" goto :fail2
+rem InjectIntoProcess returns the target-control ident on success, not zero.
+if "%RC%"=="0" goto :injectok
+findstr /C:"Launched as ID " "%INJECTLOG%" >nul 2>&1
+if not errorlevel 1 goto :injectok
+echo [inject] rc=%RC% and no success marker was found.
+goto :fail2
 
+:injectok
+echo [inject] success (target control id=%RC%)
 echo.
 echo [ready] Start the game from Steam now.
 echo         cod.exe and sp26-cod.exe are injected the moment they are created.
@@ -66,7 +74,7 @@ goto :done
 
 :fail2
 echo.
-echo [hint] rc^!=0 means the inject did not complete. Check the newest log in:
+echo [hint] no success marker means the inject did not complete. Check the newest log in:
 echo        %TEMP%\TinecmaTool\
 echo [hint] a log line "Loading into ...\steam.exe" plus "Registering D3D12 hooks"
 echo        is what success looks like.

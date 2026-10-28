@@ -37,6 +37,11 @@ class D3D9Hook : LibraryHook
 public:
   void RegisterHooks()
   {
+    if(g_SkipGraphicsDriverHooks)
+    {
+      RDCLOG("Skipping D3D9 hooks (graphics IAT disabled in launcher host)");
+      return;
+    }
     RDCLOG("Registering D3D9 hooks");
 
     LibraryHooks::RegisterLibraryHook("d3d9.dll", NULL);

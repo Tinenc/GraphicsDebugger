@@ -1082,6 +1082,9 @@ bool ShouldHookEGL()
 
 void EGLHook::RegisterHooks()
 {
+  if(g_SkipGraphicsDriverHooks)
+    return;
+
   if(!ShouldHookEGL())
     return;
 

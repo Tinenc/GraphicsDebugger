@@ -41,6 +41,17 @@ class D3D11Hook : LibraryHook
 public:
   void RegisterHooks()
   {
+    if(m_RecurseSlot == 0)
+    {
+      m_RecurseSlot = Threading::AllocateTLSSlot();
+      Threading::SetTLSValue(m_RecurseSlot, NULL);
+    }
+
+    if(g_SkipGraphicsDriverHooks)
+    {
+      RDCLOG("Skipping D3D11 hooks (graphics IAT disabled in launcher host)");
+      return;
+    }
     RDCLOG("Registering D3D11 hooks");
 
     WrappedIDXGISwapChain4::RegisterD3DDeviceCallback(GetD3D11DeviceIfAlloc);
@@ -71,9 +82,18 @@ private:
   // re-entrancy detection (can happen in rare cases with e.g. fraps)
   uint64_t m_RecurseSlot = 0;
 
-  void EndRecurse() { Threading::SetTLSValue(m_RecurseSlot, NULL); }
+  void EndRecurse() {
+    if(m_RecurseSlot != 0)
+      Threading::SetTLSValue(m_RecurseSlot, NULL);
+  }
   bool CheckRecurse()
   {
+    if(m_RecurseSlot == 0)
+    {
+      m_RecurseSlot = Threading::AllocateTLSSlot();
+      Threading::SetTLSValue(m_RecurseSlot, NULL);
+    }
+
     if(Threading::GetTLSValue(m_RecurseSlot) == NULL)
     {
       Threading::SetTLSValue(m_RecurseSlot, (void *)1);

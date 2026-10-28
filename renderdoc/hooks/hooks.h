@@ -29,6 +29,14 @@
 
 typedef std::function<void(void *, const char *)> FunctionLoadCallback;
 
+// When true (set by the platform libentry before RegisterHooks()), graphics-driver
+// hook registration is skipped for this process. Used when we are inside a game
+// launcher shell (e.g. COD's "cod.exe") that does no real rendering: the DLL only
+// needs to survive long enough to propagate into its child renderer (sp26-cod.exe)
+// via the CreateProcess hook. Rewriting the launcher's own dxgi/d3d12 IAT trips the
+// game's integrity checks, so we stay inert on the graphics side in the launcher.
+extern bool g_SkipGraphicsDriverHooks;
+
 struct FunctionHook
 {
   FunctionHook() : orig(NULL), hook(NULL) {}

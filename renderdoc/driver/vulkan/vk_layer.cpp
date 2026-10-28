@@ -107,6 +107,11 @@ class VulkanHook : LibraryHook
   VulkanHook() {}
   void RegisterHooks()
   {
+    if(g_SkipGraphicsDriverHooks)
+    {
+      RDCLOG("Skipping Vulkan hooks (graphics IAT disabled in launcher host)");
+      return;
+    }
     RDCLOG("Registering Vulkan hooks");
 
     // we don't register any library or function hooks because we use the layer system

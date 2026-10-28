@@ -27,6 +27,20 @@
 #include "hooks/hooks.h"
 #include "os/win32/graphics_diagnostics.h"
 #include "dxgi_wrapped.h"
+#include "api/replay/apidefs.h"
+
+static HMODULE GetSystemDXGIModule()
+{
+  static HMODULE s_hSystemDXGI = NULL;
+  if(!s_hSystemDXGI)
+  {
+    wchar_t sysDir[MAX_PATH];
+    GetSystemDirectoryW(sysDir, MAX_PATH);
+    wcscat_s(sysDir, L"\\dxgi.dll");
+    s_hSystemDXGI = LoadLibraryW(sysDir);
+  }
+  return s_hSystemDXGI;
+}
 
 typedef HRESULT(WINAPI *PFN_CREATE_DXGI_FACTORY)(REFIID, void **);
 typedef HRESULT(WINAPI *PFN_CREATE_DXGI_FACTORY2)(UINT, REFIID, void **);
@@ -248,6 +262,11 @@ class DXGIHook : LibraryHook
 public:
   void RegisterHooks()
   {
+    if(g_SkipGraphicsDriverHooks)
+    {
+      RDCLOG("Skipping DXGI hooks (graphics IAT disabled in launcher host)");
+      return;
+    }
     RDCLOG("Registering DXGI hooks");
 
     LibraryHooks::RegisterLibraryHook("dxgi.dll", NULL);
@@ -273,12 +292,25 @@ private:
   HookedFunction<PFN_GET_DEBUG_INTERFACE> GetDebugInterface;
   HookedFunction<PFN_GET_DEBUG_INTERFACE1> GetDebugInterface1;
 
+public:
   static HRESULT WINAPI CreateDXGIFactory_hook(__in REFIID riid, __out void **ppFactory)
   {
     LogGraphicsCreationCaller("CreateDXGIFactory", GRAPHICS_DIAGNOSTICS_CALLER());
-    if(ppFactory)
-      *ppFactory = NULL;
-    HRESULT ret = dxgihooks.CreateDXGIFactory()(riid, ppFactory);
+
+    PFN_CREATE_DXGI_FACTORY realCreate = dxgihooks.CreateDXGIFactory();
+    if(!realCreate)
+    {
+      HMODULE sysDxgi = GetSystemDXGIModule();
+      if(sysDxgi)
+        realCreate = (PFN_CREATE_DXGI_FACTORY)GetProcAddress(sysDxgi, "CreateDXGIFactory");
+    }
+    RDCLOG("CreateDXGIFactory_hook: real=%p ppFactory=%p (entering real call)",
+           (void *)realCreate, ppFactory);
+
+    HRESULT ret = realCreate ? realCreate(riid, ppFactory) : E_FAIL;
+
+    RDCLOG("CreateDXGIFactory_hook: real returned 0x%08x factory=%p wrapping=%d", ret,
+           ppFactory ? (void *)*ppFactory : nullptr, SUCCEEDED(ret) ? 1 : 0);
 
     if(SUCCEEDED(ret))
       RefCountDXGIObject::HandleWrap("CreateDXGIFactory", riid, ppFactory);
@@ -289,9 +321,21 @@ private:
   static HRESULT WINAPI CreateDXGIFactory1_hook(__in REFIID riid, __out void **ppFactory)
   {
     LogGraphicsCreationCaller("CreateDXGIFactory1", GRAPHICS_DIAGNOSTICS_CALLER());
-    if(ppFactory)
-      *ppFactory = NULL;
-    HRESULT ret = dxgihooks.CreateDXGIFactory1()(riid, ppFactory);
+
+    PFN_CREATE_DXGI_FACTORY realCreate = dxgihooks.CreateDXGIFactory1();
+    if(!realCreate)
+    {
+      HMODULE sysDxgi = GetSystemDXGIModule();
+      if(sysDxgi)
+        realCreate = (PFN_CREATE_DXGI_FACTORY)GetProcAddress(sysDxgi, "CreateDXGIFactory1");
+    }
+    RDCLOG("CreateDXGIFactory1_hook: real=%p ppFactory=%p (entering real call)",
+           (void *)realCreate, ppFactory);
+
+    HRESULT ret = realCreate ? realCreate(riid, ppFactory) : E_FAIL;
+
+    RDCLOG("CreateDXGIFactory1_hook: real returned 0x%08x factory=%p wrapping=%d", ret,
+           ppFactory ? (void *)*ppFactory : nullptr, SUCCEEDED(ret) ? 1 : 0);
 
     if(SUCCEEDED(ret))
       RefCountDXGIObject::HandleWrap("CreateDXGIFactory1", riid, ppFactory);
@@ -302,15 +346,28 @@ private:
   static HRESULT WINAPI CreateDXGIFactory2_hook(UINT Flags, REFIID riid, void **ppFactory)
   {
     LogGraphicsCreationCaller("CreateDXGIFactory2", GRAPHICS_DIAGNOSTICS_CALLER());
-    if(ppFactory)
-      *ppFactory = NULL;
-    HRESULT ret = dxgihooks.CreateDXGIFactory2()(Flags, riid, ppFactory);
+
+    PFN_CREATE_DXGI_FACTORY2 realCreate = dxgihooks.CreateDXGIFactory2();
+    if(!realCreate)
+    {
+      HMODULE sysDxgi = GetSystemDXGIModule();
+      if(sysDxgi)
+        realCreate = (PFN_CREATE_DXGI_FACTORY2)GetProcAddress(sysDxgi, "CreateDXGIFactory2");
+    }
+    RDCLOG("CreateDXGIFactory2_hook: real=%p Flags=0x%x ppFactory=%p (entering real call)",
+           (void *)realCreate, Flags, ppFactory);
+
+    HRESULT ret = realCreate ? realCreate(Flags, riid, ppFactory) : E_FAIL;
+
+    RDCLOG("CreateDXGIFactory2_hook: real returned 0x%08x factory=%p wrapping=%d", ret,
+           ppFactory ? (void *)*ppFactory : nullptr, SUCCEEDED(ret) ? 1 : 0);
 
     if(SUCCEEDED(ret))
       RefCountDXGIObject::HandleWrap("CreateDXGIFactory2", riid, ppFactory);
 
     return ret;
   }
+private:
 
   static HRESULT WINAPI DXGIGetDebugInterface_hook(REFIID riid, void **ppDebug)
   {
@@ -376,3 +433,22 @@ private:
 };
 
 DXGIHook DXGIHook::dxgihooks;
+
+extern "C" {
+
+RENDERDOC_EXPORT_API HRESULT WINAPI TINECMATOOL_CreateDXGIFactory(REFIID riid, void **ppFactory)
+{
+  return DXGIHook::CreateDXGIFactory_hook(riid, ppFactory);
+}
+
+RENDERDOC_EXPORT_API HRESULT WINAPI TINECMATOOL_CreateDXGIFactory1(REFIID riid, void **ppFactory)
+{
+  return DXGIHook::CreateDXGIFactory1_hook(riid, ppFactory);
+}
+
+RENDERDOC_EXPORT_API HRESULT WINAPI TINECMATOOL_CreateDXGIFactory2(UINT Flags, REFIID riid, void **ppFactory)
+{
+  return DXGIHook::CreateDXGIFactory2_hook(Flags, riid, ppFactory);
+}
+
+} // extern "C"

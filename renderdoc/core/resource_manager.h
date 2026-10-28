@@ -1549,9 +1549,17 @@ void ResourceManager<Configuration>::InsertInitialContentsChunks(WriteSerialiser
   End_PrepareInitialBatch();
 
   rdcarray<ResourceId> resources = InitialContentResources();
+  RDCLOG("Beginning serialization of %u initial content resources against %u referenced...",
+         (uint32_t)resources.size(), (uint32_t)m_FrameReferencedResources.size());
   for(auto it = resources.begin(); it != resources.end(); ++it)
   {
     ResourceId id = *it;
+
+    if(((uint32_t)idx % 500) == 0 || (uint32_t)idx == (uint32_t)resources.size())
+    {
+      RDCLOG("Serialising initial states: %u / %u (%.1f%%) - dirty: %u, skipped: %u",
+             (uint32_t)idx, (uint32_t)resources.size(), (float(idx) / float(resources.size())) * 100.0f, dirty, skipped);
+    }
 
     RenderDoc::Inst().SetProgress(CaptureProgress::SerialiseInitialStates, idx / num);
     idx += 1.0f;

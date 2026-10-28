@@ -655,6 +655,12 @@ static void WGLHooked(void *handle, const char *libName)
 
 void WGLHook::RegisterHooks()
 {
+  if(g_SkipGraphicsDriverHooks)
+  {
+    RDCLOG("Skipping WGL hooks (graphics IAT disabled in launcher host)");
+    return;
+  }
+
   RDCLOG("Registering WGL hooks");
 
   // we load GL here to ensure that it is loaded by the time that we end hook registration and apply

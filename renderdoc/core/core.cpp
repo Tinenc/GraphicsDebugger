@@ -654,34 +654,47 @@ void RenderDoc::Initialise()
 
     Process::ApplyEnvironmentModification();
 
-    uint32_t port = RenderDoc_FirstTargetControlPort;
+    wchar_t curFile[512] = {0};
+    GetModuleFileNameW(NULL, curFile, 512);
+    rdcstr f = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
+    bool isCod = (f.find("cod") != -1);
 
-    Network::Socket *sock = Network::CreateServerSocket("0.0.0.0", port & 0xffff, 4);
-
-    while(sock == NULL)
+    if(!isCod)
     {
-      port++;
-      if(port > RenderDoc_LastTargetControlPort)
+      uint32_t port = RenderDoc_FirstTargetControlPort;
+
+      Network::Socket *sock = Network::CreateServerSocket("0.0.0.0", port & 0xffff, 4);
+
+      while(sock == NULL)
       {
-        m_RemoteIdent = 0;
-        break;
+        port++;
+        if(port > RenderDoc_LastTargetControlPort)
+        {
+          m_RemoteIdent = 0;
+          break;
+        }
+
+        sock = Network::CreateServerSocket("0.0.0.0", port & 0xffff, 4);
       }
 
-      sock = Network::CreateServerSocket("0.0.0.0", port & 0xffff, 4);
-    }
+      if(sock)
+      {
+        m_RemoteIdent = port;
 
-    if(sock)
-    {
-      m_RemoteIdent = port;
+        m_TargetControlThreadShutdown = false;
+        m_RemoteThread = Threading::CreateThread([sock]() { TargetControlServerThread(sock); });
 
-      m_TargetControlThreadShutdown = false;
-      m_RemoteThread = Threading::CreateThread([sock]() { TargetControlServerThread(sock); });
-
-      RDCLOG("Listening for target control on %u", port);
+        RDCLOG("Listening for target control on %u", port);
+      }
+      else
+      {
+        RDCWARN("Couldn't open socket for target control");
+      }
     }
     else
     {
-      RDCWARN("Couldn't open socket for target control");
+      m_RemoteIdent = 0;
+      RDCLOG("Skipping remote target control server socket in COD (%s)", f.c_str());
     }
   }
 

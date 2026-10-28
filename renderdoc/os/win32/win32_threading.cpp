@@ -230,6 +230,9 @@ uint64_t AllocateTLSSlot()
 // look up our per-thread vector.
 void *GetTLSValue(uint64_t slot)
 {
+  if(slot == 0)
+    return NULL;
+
   TLSData *slots = (TLSData *)TlsGetValue(OSTLSHandle);
   if(slots == NULL || slot - 1 >= slots->data.size())
     return NULL;
@@ -238,6 +241,9 @@ void *GetTLSValue(uint64_t slot)
 
 void SetTLSValue(uint64_t slot, void *value)
 {
+  if(slot == 0)
+    return;
+
   TLSData *slots = (TLSData *)TlsGetValue(OSTLSHandle);
 
   // resize or allocate slot data if needed.
@@ -253,9 +259,13 @@ void SetTLSValue(uint64_t slot, void *value)
       // in the case where this thread is entirely new, we globally lock so we can
       // store its data for shutdown (as we might not get notified of every thread
       // that exits). This only happens once, so we take the hit of the lock.
-      m_TLSListLock->Lock();
-      m_TLSList->push_back(slots);
-      m_TLSListLock->Unlock();
+      if(m_TLSListLock)
+      {
+        m_TLSListLock->Lock();
+        if(m_TLSList)
+          m_TLSList->push_back(slots);
+        m_TLSListLock->Unlock();
+      }
     }
 
     if(slot - 1 >= slots->data.size())

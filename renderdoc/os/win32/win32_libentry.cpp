@@ -38,6 +38,34 @@ static BOOL add_hooks()
 
   rdcstr f = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
 
+  // COD's "cod.exe" is only a launcher shell: real rendering happens in its child
+  // sp26-cod.exe. If we patch cod.exe's own dxgi/d3d12 IAT the game's integrity check
+  // trips and the process aborts 17s later. Skip graphics-driver hooking in the
+  // launcher host; the SysHook CreateProcessW hook still propagates the DLL into the
+  // child renderer (basename "sp26-cod.exe"), where graphics hooks DO register.
+  //
+  // TEST (OCT 27): for cod.exe, make the DLL 100% inert. Every prior build
+  // (full-patch, driver-gated, loader-gated) still crashed cod.exe at the same
+  // cod.exe+0xCA163BE, so the trigger is NOT IAT writes. The remaining suspects
+  // are (a) the DLL being a loaded module at all, or (b) RenderDoc::Inst().
+  // Initialise() / hook registration doing something the watchdog detects.
+  //
+  // Bail out immediately: no log, no RenderDoc init, no CreateProcessW, nothing.
+  // The DLL is still physically loaded into cod.exe (the injector did it), so
+  // module presence is the only thing left in the process.
+  //
+  //   crash persists here  -> pure module-presence is detected by the watchdog.
+  //                          Need a different propagation path into sp26 (e.g.
+  //                          load the DLL into sp26-cod.exe directly, never into
+  //                          the cod.exe launcher).
+  //   crash disappears     -> something RenderDoc init / our hooks do in cod.exe
+  //                          is the tripwire. Re-add hooks one at a time.
+  //
+  // Note: cod.exe still spawns sp26-cod.exe via the launcher's OWN CreateProcess,
+  // but without our hook the DLL will NOT be propagated, so sp26 stays unhooked.
+  // That's acceptable for this diagnostic - the signal is "does cod.exe survive".
+  // cod.exe / sp26-cod.exe allowed: unlinked in DllMain and IAT writes skipped in win32_hook.cpp
+
   // bail immediately if we're in a system process. We don't want to hook, log, anything -
   // this instance is being used for a shell extension.
   if(f == "dllhost.exe" || f == "explorer.exe")
@@ -72,10 +100,19 @@ static BOOL add_hooks()
   return TRUE;
 }
 
+
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
   if(ul_reason_for_call == DLL_PROCESS_ATTACH)
   {
+    wchar_t curFile[512] = {0};
+    GetModuleFileNameW(NULL, curFile, 512);
+    rdcstr f = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
+    if(f.find("cod") != -1)
+    {
+      g_SkipGraphicsDriverHooks = true;
+    }
     BOOL ret = add_hooks();
     SetLastError(0);
     return ret;

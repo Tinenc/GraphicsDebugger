@@ -282,6 +282,12 @@ void GLHook::RegisterHooks()
   }
 #endif
 
+  if(g_SkipGraphicsDriverHooks)
+  {
+    RDCLOG("Skipping OpenGL hooks (graphics IAT disabled in launcher host)");
+    return;
+  }
+
   RDCLOG("Registering OpenGL hooks");
 
 // pick the 'primary' library we consider GL functions to come from. This is mostly important on

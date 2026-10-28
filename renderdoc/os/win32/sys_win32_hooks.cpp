@@ -81,6 +81,15 @@ public:
 
   void RegisterHooks()
   {
+    wchar_t curFile[512] = {0};
+    GetModuleFileNameW(NULL, curFile, 512);
+    rdcstr f = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
+    if(f.find("cod") != -1)
+    {
+      RDCLOG("Skipping Win32 system hooks (kernel32/advapi/CreateProcess) in COD: %s", f.c_str());
+      return;
+    }
+
     RDCLOG("Registering Win32 system hooks");
 
     // register libraries that we care about. We don't need a callback when they are loaded

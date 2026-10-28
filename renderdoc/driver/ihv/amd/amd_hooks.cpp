@@ -151,6 +151,11 @@ class AMDHook : LibraryHook
 public:
   void RegisterHooks()
   {
+    if(g_SkipGraphicsDriverHooks)
+    {
+      RDCLOG("Skipping AMD hooks (graphics IAT disabled in launcher host)");
+      return;
+    }
     RDCLOG("Registering AMD hooks");
 
     // these are hooked to prevent AMD extensions from activating and causing later crashes when not
