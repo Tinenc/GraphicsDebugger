@@ -36,6 +36,18 @@
 * **突破点**：游戏在冷启动着色器初始预编译期（Frame 0）极其敏感，若此时触发 GPU 回读会超时触发看门狗错误码 `0x00001337`。
 * **对策**：代理层在初始化时快照记录桌面已有 `trigger_capture` 的时间戳，忽略历史残留文件；仅在游戏平稳进入主菜单呈现循环（120 FPS 稳态）后下发的全新触发信号才放行，并在命中后立即 `DeleteFileA` 销毁。
 
+### 5. DXGI + D3D12 双代理协同架构 (Dual-Proxy Cooperation)
+* **突破点**：为规避 Ricochet 反作弊检测，TinecmaTool 主动禁用了 IAT Hook。如果同级目录仅代理 DXGI，游戏会直接调用系统 `d3d12.dll` 创建裸设备，导致在创建交换链时触发 `Creating swap chain with non-hooked device!` 挂载失败。
+* **对策**：将自研 `d3d12.dll` 代理（导出全部 19 个标准 Ordinal，桥接 `TINECMATOOL_D3D12CreateDevice`）与 `dxgi.dll` 代理协同部署，双向拦截设备与交换链，并在启动脚本中彻底根除误将 `d3d12.dll` 改名为 `.bak` 的逻辑，实现 HUD 浮层在游戏内 114 FPS 稳定渲染。
+
+### 6. 生产级一键启动向导 GUI 与环境鲁棒性保障
+* **突破点**：解决任意电脑双击一键启动的核心工程化问题。
+* **对策**：
+  1. **语法与提权鲁棒性**：彻底消除批处理 `if (...)` 复合块未转义括号导致的闪退崩溃；在 UAC 提权参数中显式锚定 `-WorkingDirectory '%~dp0'` 避免目录漂移到 System32；
+  2. **消除豆腐块歧义**：WinForms 统一清理中文字体无法解析的高位 Unicode Emoji，杜绝“空心方框 `▯`”被误认为无法勾选的复选框；
+  3. **交互无倒计时压迫**：取消 15 秒倒计时强迫启动，改为纯键盘 Enter 确认/Esc 退出决策模型；
+  4. **配置强一致双写**：`dxgi_proxy.ini` 实行 `[proxy]` 与 `[Capture]` 双段名兼容读写，彻底根除 UI 选择 TinecmaTool 进游戏回退到 PIX 的缺陷。
+
 ---
 
 

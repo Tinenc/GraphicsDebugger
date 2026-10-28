@@ -312,3 +312,169 @@ call build.bat
      --format=jpg `
      "C:\Users\Administrator\Desktop\COD_RDC_cod_frame*.rdc"
    ```
+
+---
+
+## 7. 启动向导 GUI 设计与启动故障排查手册 (Launcher & GUI Troubleshooting Guide)
+
+为了让任何未经环境配置的逆向工程师或测试人员在任意装有 Steam 与 Windows 10/11 的机器上一键上手，项目研发了包含图形配置向导的极速启动器（[`launch_tinecmatool_steam.bat`](file:///C:/Program%20Files/GraphicsDebugger-Steam-Cod/launch_tinecmatool_steam.bat) 与 [`tools/gui_countdown.ps1`](file:///C:/Program%20Files/GraphicsDebugger-Steam-Cod/tools/gui_countdown.ps1)）。在实际工程落地与多轮测试中，团队攻克并解决了多项棘手的系统级陷阱与交互缺陷，具体总结如下：
+
+### 7.1 启动器与 GUI 向导架构设计 (Launcher Architecture)
+
+```mermaid
+flowchart TD
+    User["用户双击 launch_tinecmatool_steam.bat"] --> UAC{"检测管理员权限 (net session)"}
+    UAC -- "无权限" --> Elevate["PowerShell 提权 (继承工作目录 -WorkingDirectory)"]
+    UAC -- "已有权限" --> CoreCheck["校验核心组件 (TinecmaTool.dll / dxgi.dll / d3d12.dll)"]
+    
+    CoreCheck --> EnvDetect["自动侦测 Steam 与 Call of Duty HQ 路径 (注册表 + 磁盘巡检)"]
+    EnvDetect --> Cleanup["起跑前清理 (清除残留 trigger 文件与 COD 后台冲突服务)"]
+    Cleanup --> DeployProxies["双代理热部署 (同步复制 dxgi.dll + d3d12.dll 至主目录及 sp26\\)"]
+    
+    DeployProxies --> ShowGUI["弹出轻量向导窗体 (gui_countdown.ps1)"]
+    
+    subgraph GUI_Interaction["GUI 交互层设计 (WinForms)"]
+        FormInit["暗黑主题窗体初始化 ($form.TopMost / $form.Activate)"]
+        Ctrl1["选项 1: 游戏路径核验与浏览按钮"]
+        Ctrl2["选项 2: 抓帧后端互斥单选 (TinecmaTool 推荐 vs PIX)"]
+        Ctrl3["使用说明与防封提示区 (纯说明文案，标明非交互控件)"]
+        Ctrl4["操作按钮: [立即启动] (绑定 Enter 键) / [取消退出] (绑定 Esc)"]
+    end
+    
+    ShowGUI --> GUI_Interaction
+    GUI_Interaction --> ResultCheck{"用户动作决策"}
+    ResultCheck -- "取消 / 关闭" --> Cancel["安全退出脚本"]
+    ResultCheck -- "回车确认 / 点击启动" --> WriteConfig["强一致双写 Desktop\\dxgi_proxy.ini ([proxy] 与 [Capture])"]
+    
+    WriteConfig --> ReDeploy["根据模式二次校验并复写主目录及 sp26\\ 代理 DLL"]
+    ReDeploy --> LaunchSteam["拉起 Steam 客户端与游戏 (steam://rungameid/1938090)"]
+    LaunchSteam --> ConsoleLoop["进入交互式控制台常驻循环 [C 抓帧 / T 提取缩略图 / R 打开 GUI / L 查日志]"]
+```
+
+---
+
+### 7.2 批处理与提权运行环境陷阱 (Batch & Elevation Pitfalls)
+
+#### 陷阱 1：`cmd.exe` 复合块语法括号提前截断引发闪退 (`1.33s 不是内部或外部命令`)
+* **现象**：用户在文件资源管理器双击批处理时窗口一闪而过，或者在 CMD 手动执行时抛出语法错误：
+  ```cmd
+  '1.33s' 不是内部或外部命令，也不是可运行的程序或批处理文件。
+  ```
+* **根本原因**：
+  `cmd.exe` 词法解析器在解析复合语句块 `if (...) else (...)` 时具有严格的语法缺陷：若括号块内部的注释、`echo` 文案或变量展开中包含未经转义的半角右括号 `)`（例如 `echo (TinecmaTool v1.44 1.33s sync write)`），`cmd.exe` 会将第一个遇到的 `)` 视作整个复合块的提前终结符。紧随其后的文本（如 `1.33s sync write...`）被直接推入命令解释管线，从而引发非法命令异常并导致脚本整体崩溃。
+* **工程对策**：
+  1. 彻底弃用深层嵌套的 `if (...) else (...)` 代码块，改用扁平的标签跳转（如 `goto :fallback_console`）；
+  2. 控制台回显文案中避免使用未经转义的半角括号，统一采用全角括号 `（...）` 或方括号 `[...]`；
+  3. 批处理脚本强制开启 `setlocal EnableExtensions EnableDelayedExpansion` 确保变量延迟展开安全。
+
+#### 陷阱 2：PowerShell UAC 提权丢失工作目录导致相对路径全线失效
+* **现象**：以普通用户身份双击运行脚本弹出 UAC 提权窗，点击“是”之后，新弹出的管理员终端报错：`TinecmaTool.dll not found` 或 `无法找到 tools\gui_countdown.ps1`。
+* **根本原因**：
+  使用标准的提权语法 `powershell Start-Process cmd -ArgumentList '/c ...' -Verb RunAs` 时，Windows 内核在派生提权进程时，默认将其工作目录重置为系统的全局受保护路径 `C:\Windows\System32`。原本脚本中基于相对路径 `%~dp0` 或当前目录寻址的工程组件全部指向了不存在的 System32 路径。
+* **工程对策**：
+  1. 在提权命令中显式附加工作目录参数：`-WorkingDirectory '%~dp0'`；
+  2. 脚本第一行（以及提权后的二次入口）显式执行 `cd /d "%~dp0"`，强制将工作目录锚定在脚本所在物理路径；
+  3. 对仓库根目录 `%ROOT%` 实行向上一级与当前目录的双重探测与绝对路径归一化解析。
+
+#### 陷阱 3：PowerShell 匿名管道阻塞导致 WinForms 窗体卡死与焦点退至后台
+* **现象**：双击启动脚本后控制台卡住，没有出现配置窗口，或者窗口缩在其他全屏应用背后无法接收按键。
+* **根本原因**：
+  批处理原采用 `for /f ('powershell -File ...')` 模式执行 PowerShell 并试图通过标准输出管道接收用户在 UI 上的配置。在 Windows 11 环境下，控制台匿名管道缓冲区与 WinForms 的 GUI 消息泵（Message Loop）存在同步死锁隐患；且派生的子进程窗体默认无法取得全局前台输入焦点。
+* **工程对策**：
+  1. **文件式状态传递（IPC File Passing）**：批处理通过生成带有随机后缀的 `%TEMP%\tinecma_gui_res_%RANDOM%.txt`，PowerShell 运行结束前将结果写入该文件，批处理读取文件解析配置，彻底断开标准输出管道耦合；
+  2. **强制置顶与激活聚焦**：在 WinForms 窗体中挂接 `Shown` 事件，显式调用窗体激活与控件聚焦，并绑定 `AcceptButton`：
+     ```powershell
+     $form.Add_Shown({
+         $form.Activate()
+         $form.BringToFront()
+         $btnLaunch.Focus()
+     })
+     $form.AcceptButton = $btnLaunch
+     $form.CancelButton = $btnCancel
+     ```
+
+---
+
+### 7.3 GUI 视觉设计与交互歧义陷阱 (UI & UX Pitfalls)
+
+#### 陷阱 4：高位 Unicode Emoji 缺失退化为“豆腐块 `▯`”（伪复选框歧义）
+* **现象**：用户在向导界面反馈：“选项三没法勾选，前面的方框是有用的吗？”
+* **根本原因**：
+  开发者在 PowerShell WinForms 窗体文案中添加了 Emoji 字符（如 `☑️`、`🔲`、`🔘`）用于美化列表。然而窗体统一配置的字体为中文字体“Microsoft YaHei UI（微软雅黑）”，微软雅黑默认字体映射表内并不包含高位 Unicode Emoji 字形。Windows GDI+ 文本渲染引擎在遇到无法解析的字形时，自动降级绘制为默认的缺失字形占位符——**空心小方框（`▯`）**。在视觉心理学上，用户会极其直观地将该方框误认为是网页或客户端中的“CheckBox 复选框”，进而产生“为什么无法点击勾选”的严重困惑与误解。
+* **工程对策**：
+  1. **彻底肃清伪装饰符**：移除所有可能在不同 Windows 语言包中退化为方块的 Unicode 符号；
+  2. **控件语义与视觉职责分离**：
+     - **可交互选择项**：使用标准的 Windows 原生单选控件 `RadioButton`（如 TinecmaTool vs PIX），辅以颜色加亮与状态选中指示；
+     - **纯阅读信息区**：使用带有边框的 `GroupBox` 分组，内部采用标准 ASCII 实心圆点 `●` 作为列表引导符，并在 GroupBox 标题与正文中显式加注 `(说明信息区，非可勾选控件)`。
+
+#### 陷阱 5：倒计时自动化与用户决策冲突（从自动倒计时到回车确认）
+* **现象**：早期版本设置了 15 秒倒计时自动启动游戏，导致用户在阅读复杂的抓帧与防封提示时产生严重的时间焦虑，尚未完成模式确认游戏已被拉起。
+* **工程对策**：
+  彻底移除时间倒计时限制，改为 **“按回车键继续启动”** 的明确决策模型。窗体设置显眼的黄色高亮提示横幅，将确认按钮的 DialogResult 绑定为 Enter 键，用户可以从容核对路径与说明，按下键盘 Enter 即可秒级启动游戏。
+
+---
+
+### 7.4 运行时配置与捕获管线集成陷阱 (Pipeline & Proxy Pitfalls)
+
+#### 陷阱 6：INI 节点段名不匹配导致选择回退（UI 选 TinecmaTool 进去变 PIX）
+* **现象**：用户在向导 UI 中明确点击选中了 `TinecmaTool (RenderDoc v1.44)`，但进入游戏后，代理层生成的日志却显示：
+  ```text
+  [CONFIG] Active capture mode: pix (ini=C:\Users\Administrator\Desktop\dxgi_proxy.ini)
+  ```
+  调试核心被错误地加载为了微软官方的 `WinPixGpuCapturer.dll`。
+* **根本原因**：
+  1. 脚本与 UI 在写入桌面配置文件 `dxgi_proxy.ini` 时，使用的 INI 段名为 `[Capture]`：
+     ```ini
+     [Capture]
+     mode=renderdoc
+     ```
+  2. 代理层动态库源码 `dxgi_proxy.cpp` 中的 `ReadConfig()` 调用的 Windows API 为：
+     ```cpp
+     GetPrivateProfileStringA("proxy", "mode", "pix", modeBuf, sizeof(modeBuf), iniPath);
+     ```
+     其硬编码查找的段名为 `[proxy]`；
+  3. 由于 API 未在 INI 文件中匹配到 `[proxy]` 段，自动触发了缺省默认参数 `"pix"`，导致代理层无视 UI 传递的选择，始终回退到 PIX 模式。
+* **工程对策**：
+  1. **代理层双向兼容读取**：重构 `dxgi_proxy.cpp` 与 `d3d12_proxy.cpp`，优先读取 `[proxy]`，未命中时无缝回退读取 `[Capture]`，并支持从 INI 读取自定义 `rdoc_dll` 路径；
+  2. **脚本端双写对齐**：`gui_countdown.ps1` 与 `launch_tinecmatool_steam.bat` 写入 `dxgi_proxy.ini` 时同时写入 `[proxy]` 与 `[Capture]` 双段名，实现强一致闭环。
+
+#### 陷阱 7：误杀 `d3d12.dll` 设备代理导致交换链拒挂裸设备 (`Creating swap chain with non-hooked device!`)
+* **现象**：启动游戏后，游戏左上角完全不出现 RenderDoc HUD，按 F12 毫无反应。查验 `Desktop\rdoc_debug_cod.log` 发现致命报错：
+  ```text
+  RDOC: dxgi_wrapped.cpp(1421) - Log   - Graphics swapchain requested: wrappedDevice=0000000000000000
+  RDOC: dxgi_wrapped.cpp(1450) - Error - Creating swap chain with non-hooked device!
+  ```
+* **根本原因**：
+  1. TinecmaTool 为了规避 Ricochet 内核反作弊的 IAT 扫描，在源码级关闭了 Detours 与 IAT Hook。
+  2. 游戏渲染器在调用 `D3D12CreateDevice` 时，必须由同级目录下的自研 `d3d12.dll` 代理将其桥接给 `TINECMATOOL_D3D12CreateDevice` 以生成 `WrappedID3D12Device`；
+  3. 早期批处理中残留了一段旧逻辑：
+     ```bat
+     rem 误把自身的 d3d12 代理当成 Win7 兼容库改名了！
+     if exist "%GAMEDIR%\d3d12.dll" (
+         ren "%GAMEDIR%\d3d12.dll" d3d12.dll.bak
+     )
+     ```
+     启动脚本在起跑阶段**主动把根目录的 `d3d12.dll` 重命名成了 `d3d12.dll.bak`**！
+  4. 游戏主进程 `cod.exe` 在缺少同级 `d3d12.dll` 时，直接加载了微软原生 `C:\Windows\System32\d3d12.dll` 并生成了未托管的裸设备；
+  5. 后续交换链由被劫持的 `dxgi.dll` 创建时，RenderDoc 校验传入的 `device` 发现不是 `WrappedID3D12Device`（`wrappedDevice == 0`），直接报错拒接初始化，导致抓帧管线彻底瘫痪。
+* **工程对策**：
+  1. 彻底删除批处理中将 `d3d12.dll` 重命名为 `.bak` 的误杀代码；
+  2. 确立 **DXGI + D3D12 双代理协同架构**（Dual-Proxy Architecture）：
+     - `dxgi.dll`：拦截 DXGI 工厂创建并负责热键与触发文件监控；
+     - `d3d12.dll`：导出全部 19 个标准 Ordinal，将 `D3D12CreateDevice` 桥接给 `TINECMATOOL_D3D12CreateDevice`；
+  3. 将 `tools/proxy/d3d12_proxy.cpp`、`d3d12.def` 正式纳入版本库管理，更新 `build.bat` 同时编译输出两款 64 位 DLL，并在启动时由脚本自动同步部署至游戏主目录及战役子目录 `sp26\`。
+
+#### 陷阱 8：启动早期高并发 GPU Readback 引发反作弊看门狗超时自毁 (`0x00001337`)
+* **现象**：游戏在黑屏 Splash 或 Logo 阶段弹窗报错 `错误代码: 0x00001337 ntdll.dll` 并崩溃。
+* **根本原因**：
+  自动化抓帧脚本过早下发了抓帧信号（例如启动后 10 秒即写入 `trigger_capture`）。此时游戏尚未进入 3D 渲染主循环，正在多线程编译海量管线着色器（Frame 0）。此时强制执行 `TriggerCapture()` 会促使 RenderDoc 立即对当前所有映射内存执行 GPU 全量 Readback，瞬间卡顿超过反作弊看门狗的心跳阈值，诱发看门狗主动自爆。
+* **工程对策**：
+  严禁在启动前 20 秒内自动化盲发抓帧信号。标准操作流程应保持由用户观察屏幕：**待游戏进入 3D 菜单或战役场景、左上角浮现稳定的 `Capturing D3D12 (120 FPS)` 绿字 HUD 后，再按下 F12 抓帧**。
+
+#### 陷阱 9：大型 3D 引擎并发竞争导致 GPU 显存耗尽 (`Out of video memory`)
+* **现象**：COD 启动中途或抓帧过程中后台大型 3D 软件（如 Unreal Engine 5.8 编辑器）弹窗崩溃报 `Out of video memory trying to allocate a rendering resource`，COD 随后闪退。
+* **根本原因**：
+  Call of Duty HQ 在现代高画质与全着色器加载状态下，会独占分配 **30GB+ 内存与海量显存**。若开发测试机后台同时运行了加载 Nanite/Lumen 大型场景的虚幻引擎编辑器，即便在 24GB 显存的 RTX 4090 D 上，全局显存仍会被瞬间耗尽，触发 Direct3D 12 驱动层分配失败。
+* **工程对策**：
+  在运行 COD 抓帧前，应提前保存并关闭虚幻引擎等高显存消耗的大型三维软件，为游戏渲染管道与 RenderDoc 序列化留出充裕的物理显存空间。
+
