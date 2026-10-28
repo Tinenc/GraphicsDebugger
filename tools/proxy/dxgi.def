@@ -1,0 +1,10 @@
+; DXGI Proxy DLL 导出定义
+; 确保导出函数名与系统 dxgi.dll 完全一致
+LIBRARY dxgi
+EXPORTS
+    CreateDXGIFactory
+    CreateDXGIFactory1
+    CreateDXGIFactory2
+    DXGIDeclareAdapterRemovalSupport
+    DXGIGetDebugInterface1
+    DXGIDisableVBlankVirtualization
