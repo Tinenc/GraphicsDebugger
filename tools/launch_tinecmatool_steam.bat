@@ -187,6 +187,39 @@ rem Write Desktop\dxgi_proxy.ini
 ) > "%DESKTOP%\dxgi_proxy.ini"
 echo [OK] Configured %DESKTOP%\dxgi_proxy.ini (mode=renderdoc)
 
+rem 6.5 Interactive Confirmation and 15s Countdown (GUI Window + Console Fallback)
+echo.
+echo [INFO] Opening configuration and 15s countdown window...
+echo        (Press Enter in window to launch immediately, or wait 15s)
+set "ACTION=LAUNCH"
+if exist "%ROOT%tools\gui_countdown.ps1" (
+    for /f "tokens=1* delims==" %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\gui_countdown.ps1" -GameDir "%GAMEDIR%" -SteamDir "%STEAM_DIR%" -ToolDll "%TOOL_DLL%" -ProxyDll "%PROXY_DLL%" -TimeoutSeconds 15') do (
+        if "%%A"=="ACTION" set "ACTION=%%B"
+        if "%%A"=="GAMEDIR" (
+            if exist "%%B\cod.exe" set "GAMEDIR=%%B"
+        )
+    )
+) else (
+    echo.
+    echo ========================================================================
+    echo   Auto-launching in 15 seconds. Press [Enter] to launch immediately,
+    echo   or press [C] then [Enter] to Cancel.
+    echo ========================================================================
+    choice /t 15 /d Y /n /m "Launching game in 15s... [Y=Launch / C=Cancel]: "
+    if errorlevel 2 set "ACTION=CANCEL"
+)
+
+if /i "!ACTION!"=="CANCEL" (
+    echo.
+    echo [CANCEL] Launch cancelled by user. Exiting.
+    pause
+    exit /b 0
+)
+
+rem Re-deploy in case game directory was changed in GUI
+copy /y "%PROXY_DLL%" "%GAMEDIR%\dxgi.dll" >nul 2>&1
+if exist "%GAMEDIR%\sp26" copy /y "%PROXY_DLL%" "%GAMEDIR%\sp26\dxgi.dll" >nul 2>&1
+
 rem 7. Launch Steam and Game
 echo.
 echo [5/5] Launching Steam and Call of Duty HQ...
