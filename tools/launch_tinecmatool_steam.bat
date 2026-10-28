@@ -187,26 +187,37 @@ rem Write Desktop\dxgi_proxy.ini
 ) > "%DESKTOP%\dxgi_proxy.ini"
 echo [OK] Configured %DESKTOP%\dxgi_proxy.ini (mode=renderdoc)
 
-rem 6.5 Interactive Confirmation and 15s Countdown (GUI Window + Console Fallback)
+rem 6.5 Interactive Confirmation and Options Guide (GUI Window + Console Fallback)
 echo.
-echo [INFO] Opening configuration and 15s countdown window...
-echo        (Press Enter in window to launch immediately, or wait 15s)
+echo [INFO] Opening configuration guide window...
+echo        (Press Enter in window to launch immediately, or close to cancel)
 set "ACTION=LAUNCH"
 if exist "%ROOT%tools\gui_countdown.ps1" (
-    for /f "tokens=1* delims==" %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\gui_countdown.ps1" -GameDir "%GAMEDIR%" -SteamDir "%STEAM_DIR%" -ToolDll "%TOOL_DLL%" -ProxyDll "%PROXY_DLL%" -TimeoutSeconds 15') do (
+    for /f "tokens=1* delims==" %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\gui_countdown.ps1" -GameDir "%GAMEDIR%" -SteamDir "%STEAM_DIR%" -ToolDll "%TOOL_DLL%" -ProxyDll "%PROXY_DLL%" -DesktopDir "%DESKTOP%"') do (
         if "%%A"=="ACTION" set "ACTION=%%B"
         if "%%A"=="GAMEDIR" (
             if exist "%%B\cod.exe" set "GAMEDIR=%%B"
         )
+        if "%%A"=="MODE" set "CAPTURE_MODE=%%B"
     )
 ) else (
     echo.
     echo ========================================================================
-    echo   Auto-launching in 15 seconds. Press [Enter] to launch immediately,
-    echo   or press [C] then [Enter] to Cancel.
+    echo   [选项配置与说明提示]
+    echo   - 选项 1 [游戏路径]: %GAMEDIR%
+    echo     提示: 包含 cod.exe 的主目录，代理 DLL 将自动同步部署至该目录及 sp26\
+    echo   - 选项 2 [捕获核心]: %TOOL_DLL%
+    echo     提示: TinecmaTool (RenderDoc v1.44) 1.33s 同步直写 + SEH 容错保护
+    echo   - 选项 3 [操作提示]: 游戏中按 [F12] 或控制台按 [C] 触发极速抓帧
+    echo   - 选项 4 [防护状态]: PEB 模块链表已隐匿，已屏蔽端口并隔离看门狗 0x00001337
     echo ========================================================================
-    choice /t 15 /d Y /n /m "Launching game in 15s... [Y=Launch / C=Cancel]: "
-    if errorlevel 2 set "ACTION=CANCEL"
+    echo   [已取消时间限制] 请确认上述配置。
+    echo   按 [Enter 回车键] 直接继续启动游戏...
+    echo   (或输入 Q 并按回车退出)
+    echo ========================================================================
+    set "CONFIRM="
+    set /p "CONFIRM=直接按 [Enter] 继续启动，或输入 [Q] 退出: "
+    if /i "!CONFIRM!"=="Q" set "ACTION=CANCEL"
 )
 
 if /i "!ACTION!"=="CANCEL" (
