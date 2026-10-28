@@ -35,6 +35,7 @@ set "TOOL_DLL=%ROOT%x64\Development\TinecmaTool.dll"
 set "TOOL_CMD=%ROOT%x64\Development\TinecmaToolcmd.exe"
 set "TOOL_GUI=%ROOT%x64\Development\qTinecmaTool.exe"
 set "PROXY_DLL=%ROOT%tools\proxy\dxgi.dll"
+set "D3D12_PROXY_DLL=%ROOT%tools\proxy\d3d12.dll"
 set "DESKTOP=%USERPROFILE%\Desktop"
 
 echo ========================================================================
@@ -54,10 +55,14 @@ if not exist "%TOOL_DLL%" (
 )
 echo [OK] Located TinecmaTool core: %TOOL_DLL%
 
-rem 2. Check Proxy DLL
-if not exist "%PROXY_DLL%" (
-    echo [WARN] Pre-compiled proxy not found at %PROXY_DLL%.
-    echo        Attempting to compile proxy via tools\proxy\build.bat...
+rem 2. Check Proxy DLLs (DXGI and D3D12)
+set "NEED_BUILD_PROXY="
+if not exist "%PROXY_DLL%" set "NEED_BUILD_PROXY=1"
+if not exist "%D3D12_PROXY_DLL%" set "NEED_BUILD_PROXY=1"
+
+if defined NEED_BUILD_PROXY (
+    echo [WARN] Pre-compiled proxies not found at %PROXY_DLL% or %D3D12_PROXY_DLL%.
+    echo        Attempting to compile proxies via tools\proxy\build.bat...
     if exist "%ROOT%tools\proxy\build.bat" (
         pushd "%ROOT%tools\proxy"
         call build.bat
@@ -68,8 +73,14 @@ if not exist "%PROXY_DLL%" (
         pause
         exit /b 1
     )
+    if not exist "%D3D12_PROXY_DLL%" (
+        echo [ERROR] Failed to locate or build %D3D12_PROXY_DLL%!
+        pause
+        exit /b 1
+    )
 )
 echo [OK] Located DXGI proxy DLL: %PROXY_DLL%
+echo [OK] Located D3D12 proxy DLL: %D3D12_PROXY_DLL%
 
 rem 3. Detect Steam installation
 echo.
@@ -152,11 +163,8 @@ rem 5. Pre-flight cleanup and conflict resolution
 echo.
 echo [3/5] Performing pre-flight checks and cleanup...
 
-rem Check legacy Win7 d3d12.dll
-if exist "%GAMEDIR%\d3d12.dll" (
-    echo [INFO] Detected legacy d3d12.dll in game root, renaming to d3d12.dll.bak...
-    ren "%GAMEDIR%\d3d12.dll" d3d12.dll.bak >nul 2>&1
-)
+rem Clean up any stale backup files in game root
+if exist "%GAMEDIR%\d3d12.dll.bak" del /f /q "%GAMEDIR%\d3d12.dll.bak" >nul 2>&1
 
 rem Clean up any stale desktop trigger files to prevent early watchdog trips (0x00001337)
 del /f /q "%DESKTOP%\trigger_capture*" >nul 2>&1
@@ -168,9 +176,9 @@ net stop "COD.Broker.Service" >nul 2>&1
 
 echo [OK] Pre-flight cleanup completed.
 
-rem 6. Deploy Proxy and Configuration
+rem 6. Deploy Proxies and Configuration
 echo.
-echo [4/5] Deploying DXGI proxy and capture configuration...
+echo [4/5] Deploying DXGI and D3D12 proxies and capture configuration...
 
 copy /y "%PROXY_DLL%" "%GAMEDIR%\dxgi.dll" >nul
 if %errorlevel% neq 0 (
@@ -180,9 +188,19 @@ if %errorlevel% neq 0 (
 )
 echo [OK] Deployed %GAMEDIR%\dxgi.dll
 
+copy /y "%D3D12_PROXY_DLL%" "%GAMEDIR%\d3d12.dll" >nul
+if %errorlevel% neq 0 (
+    echo [ERROR] Failed to copy d3d12.dll to %GAMEDIR%!
+    pause
+    exit /b 1
+)
+echo [OK] Deployed %GAMEDIR%\d3d12.dll
+
 if exist "%GAMEDIR%\sp26" (
     copy /y "%PROXY_DLL%" "%GAMEDIR%\sp26\dxgi.dll" >nul
     echo [OK] Deployed %GAMEDIR%\sp26\dxgi.dll [Campaign Subdirectory]
+    copy /y "%D3D12_PROXY_DLL%" "%GAMEDIR%\sp26\d3d12.dll" >nul
+    echo [OK] Deployed %GAMEDIR%\sp26\d3d12.dll [Campaign Subdirectory]
 )
 
 rem Write Desktop\dxgi_proxy.ini
@@ -269,9 +287,13 @@ if defined CAPTURE_MODE (
     echo [OK] Updated %DESKTOP%\dxgi_proxy.ini (mode=!CAPTURE_MODE!)
 )
 
-rem Re-deploy proxy to game directories
+rem Re-deploy proxies to game directories
 copy /y "%PROXY_DLL%" "%GAMEDIR%\dxgi.dll" >nul 2>&1
-if exist "%GAMEDIR%\sp26" copy /y "%PROXY_DLL%" "%GAMEDIR%\sp26\dxgi.dll" >nul 2>&1
+copy /y "%D3D12_PROXY_DLL%" "%GAMEDIR%\d3d12.dll" >nul 2>&1
+if exist "%GAMEDIR%\sp26" (
+    copy /y "%PROXY_DLL%" "%GAMEDIR%\sp26\dxgi.dll" >nul 2>&1
+    copy /y "%D3D12_PROXY_DLL%" "%GAMEDIR%\sp26\d3d12.dll" >nul 2>&1
+)
 
 rem 7. Launch Steam and Game
 echo.

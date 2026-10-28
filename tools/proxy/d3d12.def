@@ -1,0 +1,21 @@
+LIBRARY d3d12.dll
+EXPORTS
+  Ordinal99                                  = Ordinal99 @99 NONAME
+  SetAppCompatStringPointer                  = Ordinal100 @100
+  D3D12CreateDevice                          @101
+  D3D12GetDebugInterface                     @102
+  D3D12CoreCreateLayeredDevice               = Ordinal103 @103
+  D3D12CoreGetLayeredDeviceSize              = Ordinal104 @104
+  D3D12CoreRegisterLayers                    = Ordinal105 @105
+  D3D12CreateRootSignatureDeserializer       = Ordinal106 @106
+  D3D12CreateVersionedRootSignatureDeserializer = Ordinal107 @107
+  D3D12DeviceRemovedExtendedData             = Ordinal108 @108
+  D3D12EnableExperimentalFeatures            @109
+  D3D12GetInterface                          @110
+  D3D12PIXEventsReplaceBlock                 = Ordinal111 @111
+  D3D12PIXGetThreadInfo                      = Ordinal112 @112
+  D3D12PIXNotifyWakeFromFenceSignal          = Ordinal113 @113
+  D3D12PIXReportCounter                      = Ordinal114 @114
+  D3D12SerializeRootSignature                @115
+  D3D12SerializeVersionedRootSignature       @116
+  GetBehaviorValue                           = Ordinal117 @117

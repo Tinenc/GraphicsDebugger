@@ -33,14 +33,14 @@ flowchart TD
         COD -.-> SP26["sp26\\sp26-cod.exe (战役子进程 - PID 43976)"]
     end
 
-    subgraph Proxy_Layer["自研同级 DXGI 代理层 (dxgi.dll)"]
+    subgraph Proxy_Layer["自研同级双代理层 (dxgi.dll + d3d12.dll)"]
         NaturalLoad["Windows Loader 自然同级加载"] --> ProcessFilter{"进程白名单网关"}
-        ProcessFilter -- "非目标引导进程" --> SysPass["直通 C:\\Windows\\System32\\dxgi.dll"]
+        ProcessFilter -- "非目标引导进程" --> SysPass["直通 System32\\dxgi.dll & d3d12.dll"]
         ProcessFilter -- "目标渲染器 (cod / sp26)" --> InitCapture["装载调试核心"]
         
         InitCapture --> LoadTinecma["LoadLibrary(TinecmaTool.dll)"]
         LoadTinecma --> PEBUnlink["PEB 链表断链隐匿 (UnlinkModuleFromPEB)"]
-        PEBUnlink --> ExportBridge["DXGI & D3D12 导出函数显式桥接"]
+        PEBUnlink --> ExportBridge["DXGI & D3D12 导出函数双向桥接"]
         ExportBridge --> MonitorThread["后台安全双通道监听线程"]
     end
 
@@ -200,6 +200,21 @@ static bool UnlinkModuleFromPEB(HMODULE hMod) {
 
 ---
 
+### 3.5 DXGI 与 D3D12 双代理协同架构 (Dual-Proxy Cooperation Architecture)
+
+- **核心矛盾**：为了规避 Ricochet 内核级检测，TinecmaTool 在源码中关闭了 IAT Hook（`win32_hook.cpp` 与 `d3d12_hooks.cpp` 的 `HookAllModules` 被跳过）。这意味着 RenderDoc 自身不再修改任何二进制导入表来拦截 D3D12 接口。
+- **架构断裂风险**：当游戏（如 Streamline 的 `sl.interposer.dll`）创建交换链时，`WrappedIDXGIFactory::CreateSwapChain` 会调用 `WrappedID3D12Device::IsAlloc(pDevice)` 严格校验传入的设备指针。如果同级目录仅劫持了 DXGI 而未劫持 D3D12，游戏传入的将是微软原生 `ID3D12Device`，导致 RenderDoc 判定 `wrappedDevice == NULL` 并抛出致命错误：
+  ```text
+  dxgi_wrapped.cpp(1450) - Error - Creating swap chain with non-hooked device!
+  ```
+  RenderDoc 将直接拒接挂载交换链，导致游戏内不显示 HUD，抓帧核心彻底失效。
+- **双代理协同机制**：
+  1. **`dxgi.dll`**：导出 `CreateDXGIFactory`, `CreateDXGIFactory1`, `CreateDXGIFactory2`，导向 `TinecmaTool.dll` 生成 `WrappedIDXGIFactory`；同时负责后台 F12 与桌面触发文件监控。
+  2. **`d3d12.dll`**：完整导出 Windows 11 `d3d12.dll` 的 19 个标准导出（Ordinal 99-117），将 `D3D12CreateDevice`（Ordinal 101）重定向至 `TINECMATOOL_D3D12CreateDevice` 生成 `WrappedID3D12Device`；其余 Ordinals 直通系统底层。
+  3. **双向受控绑定**：在 `CreateSwapChain` 触发时，`WrappedIDXGIFactory` 识别到对应的 `WrappedID3D12Device`，双向受控成功闭环，注入 HUD 浮层并激活 D3D12 帧捕获管线。
+
+---
+
 ## 4. 全链路执行时序设计 (End-to-End Sequence Diagram)
 
 ```mermaid
@@ -273,14 +288,14 @@ msbuild renderdoc.sln /m /p:Configuration=Development /p:Platform=x64
 ```
 * 构建产物：`x64\Development\TinecmaTool.dll`、`TinecmaToolcmd.exe`、`qTinecmaTool.exe`。
 
-### 6.2 编译与部署 DXGI 代理层
+### 6.2 编译与部署双代理层 (DXGI + D3D12)
 ```cmd
-cd /d "C:\Users\Administrator\Documents\antigravity\delightful-mendeleev\dxgi_proxy"
+cd /d "C:\Program Files\GraphicsDebugger-Steam-Cod\tools\proxy"
 call build.bat
 ```
-* `build.bat` 自动将生成的 `dxgi.dll` 复制至：
-  - `F:\SteamLibrary\steamapps\common\Call of Duty HQ\dxgi.dll`
-  - `F:\SteamLibrary\steamapps\common\Call of Duty HQ\sp26\dxgi.dll`
+* `build.bat` 同时生成 `dxgi.dll` 与 `d3d12.dll`。启动脚本 `launch_tinecmatool_steam.bat` 运行时会自动将两者部署至：
+  - `Call of Duty HQ\dxgi.dll` 与 `Call of Duty HQ\d3d12.dll`
+  - `Call of Duty HQ\sp26\dxgi.dll` 与 `Call of Duty HQ\sp26\d3d12.dll`
 
 ### 6.3 捕获操作标准化流程
 1. **启动游戏**：通过 Steam 正常点击运行，启动引导器与 HQ 主进程自然加载代理层并完成 PEB 隐匿。
