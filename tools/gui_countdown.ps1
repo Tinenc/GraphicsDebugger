@@ -15,6 +15,19 @@ if ([string]::IsNullOrWhiteSpace($DesktopDir)) {
     $DesktopDir = [System.IO.Path]::Combine($env:USERPROFILE, "Desktop")
 }
 
+$toolsDir = if (Test-Path (Join-Path $PSScriptRoot "proxy")) { $PSScriptRoot } else { "C:\Program Files\GraphicsDebugger-Steam-Cod\tools" }
+$repoRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($toolsDir, ".."))
+if ([string]::IsNullOrWhiteSpace($ToolDll)) {
+    $ToolDll = [System.IO.Path]::Combine($repoRoot, "x64", "Development", "TinecmaTool.dll")
+}
+$ToolGui = [System.IO.Path]::Combine($repoRoot, "x64", "Development", "qTinecmaTool.exe")
+$ToolCmd = [System.IO.Path]::Combine($repoRoot, "x64", "Development", "TinecmaToolcmd.exe")
+if (![System.IO.File]::Exists($ToolCmd) -and [System.IO.File]::Exists($ToolGui)) {
+    $ToolCmd = $ToolGui
+}
+$ProxyDxgi = Join-Path $toolsDir "proxy\dxgi.dll"
+$ProxyD3D12 = Join-Path $toolsDir "proxy\d3d12.dll"
+
 # ---------------------------------------------------------------------------
 # Auto-detect game paths
 # ---------------------------------------------------------------------------
@@ -56,84 +69,93 @@ foreach ($m in $mwCandidates) {
     }
 }
 
+if ([string]::IsNullOrWhiteSpace($SteamDir)) {
+    try {
+        $sReg = Get-ItemProperty -Path "HKCU:\Software\Valve\Steam" -ErrorAction SilentlyContinue
+        if ($sReg -and $sReg.SteamPath) {
+            $SteamDir = $sReg.SteamPath.Replace("/", "\")
+        }
+    } catch {}
+}
+
 # ---------------------------------------------------------------------------
 # Form Setup
 # ---------------------------------------------------------------------------
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "TinecmaTool - 准备就绪 (按回车继续启动游戏)"
-$form.Size = New-Object System.Drawing.Size(730, 650)
+$form.Text = "TinecmaTool (Stealth RenderDoc) - 图形抓帧控制中心"
+$form.Size = New-Object System.Drawing.Size(740, 710)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
 $form.MinimizeBox = $true
-$form.TopMost = $true
+$form.TopMost = $false
 $form.BackColor = [System.Drawing.Color]::FromArgb(32, 33, 36)
 $form.ForeColor = [System.Drawing.Color]::White
 $form.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5)
 
 # 1. Title Banner
 $lblTitle = New-Object System.Windows.Forms.Label
-$lblTitle.Location = New-Object System.Drawing.Point(24, 18)
-$lblTitle.Size = New-Object System.Drawing.Size(670, 30)
+$lblTitle.Location = New-Object System.Drawing.Point(24, 14)
+$lblTitle.Size = New-Object System.Drawing.Size(680, 28)
 $lblTitle.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 13, [System.Drawing.FontStyle]::Bold)
 $lblTitle.ForeColor = [System.Drawing.Color]::FromArgb(0, 215, 160)
-$lblTitle.Text = "TinecmaTool (Stealth RenderDoc) - 启动配置向导"
+$lblTitle.Text = "TinecmaTool (Stealth RenderDoc) - 图形抓帧控制中心"
 $form.Controls.Add($lblTitle)
 
 $lblSub = New-Object System.Windows.Forms.Label
-$lblSub.Location = New-Object System.Drawing.Point(26, 48)
-$lblSub.Size = New-Object System.Drawing.Size(670, 22)
+$lblSub.Location = New-Object System.Drawing.Point(26, 42)
+$lblSub.Size = New-Object System.Drawing.Size(680, 20)
 $lblSub.ForeColor = [System.Drawing.Color]::FromArgb(180, 180, 180)
-$lblSub.Text = "DirectX 12 商业游戏静默抓帧代理层已就绪，请核对启动配置与目标游戏："
+$lblSub.Text = "支持《使命召唤：现代战争 (2019)》与《Call of Duty HQ》(BO6/MW3/MW2) 静默双代理抓帧"
 $form.Controls.Add($lblSub)
 
-# 2. GroupBox: 目标游戏选择与路径设置 (Target Game & Directory)
+# 2. GroupBox: 目标游戏选择与路径 (Target Game & Directory)
 $grpGame = New-Object System.Windows.Forms.GroupBox
-$grpGame.Location = New-Object System.Drawing.Point(24, 76)
-$grpGame.Size = New-Object System.Drawing.Size(665, 150)
+$grpGame.Location = New-Object System.Drawing.Point(24, 68)
+$grpGame.Size = New-Object System.Drawing.Size(675, 144)
 $grpGame.Text = " 选项 1：目标游戏选择与路径 (Target Game & Directory) "
 $grpGame.ForeColor = [System.Drawing.Color]::FromArgb(210, 210, 210)
 $grpGame.BackColor = [System.Drawing.Color]::FromArgb(40, 42, 48)
 
-$rbGameCod = New-Object System.Windows.Forms.RadioButton
-$rbGameCod.Location = New-Object System.Drawing.Point(16, 22)
-$rbGameCod.Size = New-Object System.Drawing.Size(260, 24)
-$rbGameCod.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5, [System.Drawing.FontStyle]::Bold)
-$rbGameCod.ForeColor = [System.Drawing.Color]::FromArgb(255, 205, 90)
-$rbGameCod.Text = "Call of Duty HQ (Steam: cod.exe)"
-$grpGame.Controls.Add($rbGameCod)
-
 $rbGameMW = New-Object System.Windows.Forms.RadioButton
-$rbGameMW.Location = New-Object System.Drawing.Point(282, 22)
+$rbGameMW.Location = New-Object System.Drawing.Point(16, 22)
 $rbGameMW.Size = New-Object System.Drawing.Size(265, 24)
 $rbGameMW.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5, [System.Drawing.FontStyle]::Bold)
 $rbGameMW.ForeColor = [System.Drawing.Color]::FromArgb(100, 215, 255)
 $rbGameMW.Text = "现代战争 2019 (战网: MW2019)"
 $grpGame.Controls.Add($rbGameMW)
 
+$rbGameCod = New-Object System.Windows.Forms.RadioButton
+$rbGameCod.Location = New-Object System.Drawing.Point(286, 22)
+$rbGameCod.Size = New-Object System.Drawing.Size(265, 24)
+$rbGameCod.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5, [System.Drawing.FontStyle]::Bold)
+$rbGameCod.ForeColor = [System.Drawing.Color]::FromArgb(255, 205, 90)
+$rbGameCod.Text = "Call of Duty HQ (Steam: cod.exe)"
+$grpGame.Controls.Add($rbGameCod)
+
 $rbGameCustom = New-Object System.Windows.Forms.RadioButton
-$rbGameCustom.Location = New-Object System.Drawing.Point(555, 22)
-$rbGameCustom.Size = New-Object System.Drawing.Size(95, 24)
+$rbGameCustom.Location = New-Object System.Drawing.Point(560, 22)
+$rbGameCustom.Size = New-Object System.Drawing.Size(100, 24)
 $rbGameCustom.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5)
 $rbGameCustom.ForeColor = [System.Drawing.Color]::FromArgb(190, 190, 190)
 $rbGameCustom.Text = "自定义..."
 $grpGame.Controls.Add($rbGameCustom)
 
 $lblGame = New-Object System.Windows.Forms.Label
-$lblGame.Location = New-Object System.Drawing.Point(16, 56)
+$lblGame.Location = New-Object System.Drawing.Point(16, 54)
 $lblGame.Size = New-Object System.Drawing.Size(85, 22)
 $lblGame.Text = "游戏根目录:"
 $grpGame.Controls.Add($lblGame)
 
 $txtGame = New-Object System.Windows.Forms.TextBox
-$txtGame.Location = New-Object System.Drawing.Point(105, 54)
-$txtGame.Size = New-Object System.Drawing.Size(455, 24)
+$txtGame.Location = New-Object System.Drawing.Point(105, 52)
+$txtGame.Size = New-Object System.Drawing.Size(465, 24)
 $txtGame.BackColor = [System.Drawing.Color]::FromArgb(24, 25, 28)
 $txtGame.ForeColor = [System.Drawing.Color]::White
 $grpGame.Controls.Add($txtGame)
 
 $btnBrowse = New-Object System.Windows.Forms.Button
-$btnBrowse.Location = New-Object System.Drawing.Point(570, 52)
+$btnBrowse.Location = New-Object System.Drawing.Point(580, 50)
 $btnBrowse.Size = New-Object System.Drawing.Size(80, 28)
 $btnBrowse.Text = "浏览..."
 $btnBrowse.BackColor = [System.Drawing.Color]::FromArgb(55, 58, 66)
@@ -152,24 +174,24 @@ $btnBrowse.Add_Click({
 $grpGame.Controls.Add($btnBrowse)
 
 $lblGameTip = New-Object System.Windows.Forms.Label
-$lblGameTip.Location = New-Object System.Drawing.Point(16, 88)
-$lblGameTip.Size = New-Object System.Drawing.Size(635, 52)
+$lblGameTip.Location = New-Object System.Drawing.Point(16, 84)
+$lblGameTip.Size = New-Object System.Drawing.Size(645, 52)
 $lblGameTip.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8.8)
 $lblGameTip.ForeColor = [System.Drawing.Color]::FromArgb(255, 205, 90)
 $grpGame.Controls.Add($lblGameTip)
 
 $form.Controls.Add($grpGame)
 
-# 3. GroupBox: 抓帧后端选择 (Capture Backend)
+# 3. GroupBox: 抓帧后端配置 (Capture Backend)
 $grpBackend = New-Object System.Windows.Forms.GroupBox
-$grpBackend.Location = New-Object System.Drawing.Point(24, 236)
-$grpBackend.Size = New-Object System.Drawing.Size(665, 142)
+$grpBackend.Location = New-Object System.Drawing.Point(24, 218)
+$grpBackend.Size = New-Object System.Drawing.Size(675, 108)
 $grpBackend.Text = " 选项 2：抓帧后端选择 (Capture Backend) "
 $grpBackend.ForeColor = [System.Drawing.Color]::FromArgb(210, 210, 210)
 $grpBackend.BackColor = [System.Drawing.Color]::FromArgb(40, 42, 48)
 
 $rbRdoc = New-Object System.Windows.Forms.RadioButton
-$rbRdoc.Location = New-Object System.Drawing.Point(16, 24)
+$rbRdoc.Location = New-Object System.Drawing.Point(16, 22)
 $rbRdoc.Size = New-Object System.Drawing.Size(320, 24)
 $rbRdoc.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5, [System.Drawing.FontStyle]::Bold)
 $rbRdoc.ForeColor = [System.Drawing.Color]::FromArgb(0, 230, 170)
@@ -178,15 +200,15 @@ $rbRdoc.Checked = $true
 $grpBackend.Controls.Add($rbRdoc)
 
 $lblRdocTip = New-Object System.Windows.Forms.Label
-$lblRdocTip.Location = New-Object System.Drawing.Point(36, 48)
-$lblRdocTip.Size = New-Object System.Drawing.Size(615, 30)
+$lblRdocTip.Location = New-Object System.Drawing.Point(36, 46)
+$lblRdocTip.Size = New-Object System.Drawing.Size(625, 20)
 $lblRdocTip.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8.8)
 $lblRdocTip.ForeColor = [System.Drawing.Color]::FromArgb(190, 190, 190)
 $lblRdocTip.Text = "提示：深度逆向调试首选。基于 1.33s 同步直写与 SEH 容错，完整抓取所有 DrawCall、PSO 与着色器字节码。"
 $grpBackend.Controls.Add($lblRdocTip)
 
 $rbPix = New-Object System.Windows.Forms.RadioButton
-$rbPix.Location = New-Object System.Drawing.Point(16, 80)
+$rbPix.Location = New-Object System.Drawing.Point(16, 70)
 $rbPix.Size = New-Object System.Drawing.Size(320, 24)
 $rbPix.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5, [System.Drawing.FontStyle]::Bold)
 $rbPix.ForeColor = [System.Drawing.Color]::FromArgb(120, 180, 255)
@@ -194,60 +216,155 @@ $rbPix.Text = "Microsoft PIX (WinPixGpuCapturer)"
 $grpBackend.Controls.Add($rbPix)
 
 $lblPixTip = New-Object System.Windows.Forms.Label
-$lblPixTip.Location = New-Object System.Drawing.Point(36, 104)
-$lblPixTip.Size = New-Object System.Drawing.Size(615, 30)
+$lblPixTip.Location = New-Object System.Drawing.Point(36, 92)
+$lblPixTip.Size = New-Object System.Drawing.Size(625, 14)
 $lblPixTip.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8.8)
 $lblPixTip.ForeColor = [System.Drawing.Color]::FromArgb(190, 190, 190)
-$lblPixTip.Text = "提示：微软官方性能剖析首选。支持 GPU 时间线、GPU 时钟周期、绘制阶段耗时分析，生成 .wpix 帧文件。"
+$lblPixTip.Text = "提示：微软官方性能剖析首选。支持 GPU 时间线分析，生成 .wpix 帧文件。"
+$lblPixTip.Visible = $false
 $grpBackend.Controls.Add($lblPixTip)
 
 $form.Controls.Add($grpBackend)
 
-# 4. GroupBox: 使用说明与防封提示 (说明信息区，非勾选选项)
+# 4. GroupBox: 抓帧与调试工具箱 (Capture & Inspection Tools) - 合并进面板的核心工具区
+$grpTools = New-Object System.Windows.Forms.GroupBox
+$grpTools.Location = New-Object System.Drawing.Point(24, 332)
+$grpTools.Size = New-Object System.Drawing.Size(675, 150)
+$grpTools.Text = " 抓帧与调试工具箱 (Capture & Inspection Tools) "
+$grpTools.ForeColor = [System.Drawing.Color]::FromArgb(210, 210, 210)
+$grpTools.BackColor = [System.Drawing.Color]::FromArgb(40, 42, 48)
+
+# Row 1 of Tool Buttons
+$btnTrigger = New-Object System.Windows.Forms.Button
+$btnTrigger.Location = New-Object System.Drawing.Point(16, 26)
+$btnTrigger.Size = New-Object System.Drawing.Size(205, 36)
+$btnTrigger.Text = "📸 立即触发抓帧 (F12)"
+$btnTrigger.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5, [System.Drawing.FontStyle]::Bold)
+$btnTrigger.BackColor = [System.Drawing.Color]::FromArgb(0, 130, 85)
+$btnTrigger.ForeColor = [System.Drawing.Color]::White
+$btnTrigger.FlatStyle = "Flat"
+$btnTrigger.FlatAppearance.BorderSize = 0
+$btnTrigger.Cursor = [System.Windows.Forms.Cursors]::Hand
+$grpTools.Controls.Add($btnTrigger)
+
+$btnThumb = New-Object System.Windows.Forms.Button
+$btnThumb.Location = New-Object System.Drawing.Point(235, 26)
+$btnThumb.Size = New-Object System.Drawing.Size(205, 36)
+$btnThumb.Text = "🖼️ 预览最新截帧缩略图"
+$btnThumb.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5)
+$btnThumb.BackColor = [System.Drawing.Color]::FromArgb(45, 95, 145)
+$btnThumb.ForeColor = [System.Drawing.Color]::White
+$btnThumb.FlatStyle = "Flat"
+$btnThumb.FlatAppearance.BorderSize = 0
+$btnThumb.Cursor = [System.Windows.Forms.Cursors]::Hand
+$grpTools.Controls.Add($btnThumb)
+
+$btnOpenRdoc = New-Object System.Windows.Forms.Button
+$btnOpenRdoc.Location = New-Object System.Drawing.Point(454, 26)
+$btnOpenRdoc.Size = New-Object System.Drawing.Size(205, 36)
+$btnOpenRdoc.Text = "🔍 在 qTinecmaTool 中打开"
+$btnOpenRdoc.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5)
+$btnOpenRdoc.BackColor = [System.Drawing.Color]::FromArgb(105, 65, 145)
+$btnOpenRdoc.ForeColor = [System.Drawing.Color]::White
+$btnOpenRdoc.FlatStyle = "Flat"
+$btnOpenRdoc.FlatAppearance.BorderSize = 0
+$btnOpenRdoc.Cursor = [System.Windows.Forms.Cursors]::Hand
+$grpTools.Controls.Add($btnOpenRdoc)
+
+# Row 2 of Tool Buttons
+$btnDeploy = New-Object System.Windows.Forms.Button
+$btnDeploy.Location = New-Object System.Drawing.Point(16, 70)
+$btnDeploy.Size = New-Object System.Drawing.Size(205, 34)
+$btnDeploy.Text = "📦 重新部署双代理 DLL"
+$btnDeploy.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$btnDeploy.BackColor = [System.Drawing.Color]::FromArgb(60, 64, 75)
+$btnDeploy.ForeColor = [System.Drawing.Color]::White
+$btnDeploy.FlatStyle = "Flat"
+$btnDeploy.FlatAppearance.BorderSize = 0
+$btnDeploy.Cursor = [System.Windows.Forms.Cursors]::Hand
+$grpTools.Controls.Add($btnDeploy)
+
+$btnViewLog = New-Object System.Windows.Forms.Button
+$btnViewLog.Location = New-Object System.Drawing.Point(235, 70)
+$btnViewLog.Size = New-Object System.Drawing.Size(205, 34)
+$btnViewLog.Text = "📋 查看代理运行日志"
+$btnViewLog.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$btnViewLog.BackColor = [System.Drawing.Color]::FromArgb(60, 64, 75)
+$btnViewLog.ForeColor = [System.Drawing.Color]::White
+$btnViewLog.FlatStyle = "Flat"
+$btnViewLog.FlatAppearance.BorderSize = 0
+$btnViewLog.Cursor = [System.Windows.Forms.Cursors]::Hand
+$grpTools.Controls.Add($btnViewLog)
+
+$btnClean = New-Object System.Windows.Forms.Button
+$btnClean.Location = New-Object System.Drawing.Point(454, 70)
+$btnClean.Size = New-Object System.Drawing.Size(205, 34)
+$btnClean.Text = "🧹 一键清理反作弊/环境"
+$btnClean.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$btnClean.BackColor = [System.Drawing.Color]::FromArgb(60, 64, 75)
+$btnClean.ForeColor = [System.Drawing.Color]::White
+$btnClean.FlatStyle = "Flat"
+$btnClean.FlatAppearance.BorderSize = 0
+$btnClean.Cursor = [System.Windows.Forms.Cursors]::Hand
+$grpTools.Controls.Add($btnClean)
+
+# Live status label inside Tools Box
+$lblToolStatus = New-Object System.Windows.Forms.Label
+$lblToolStatus.Location = New-Object System.Drawing.Point(16, 114)
+$lblToolStatus.Size = New-Object System.Drawing.Size(645, 26)
+$lblToolStatus.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8.8, [System.Drawing.FontStyle]::Bold)
+$lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
+$lblToolStatus.Text = "[就绪] 面板已就绪。点击下方【部署代理并启动游戏】拉起，游戏内可随时按 F12 或点击上方按钮抓帧。"
+$grpTools.Controls.Add($lblToolStatus)
+
+$form.Controls.Add($grpTools)
+
+# 5. GroupBox: 说明与防封保障 (Instructions & Safety)
 $grpTips = New-Object System.Windows.Forms.GroupBox
-$grpTips.Location = New-Object System.Drawing.Point(24, 388)
-$grpTips.Size = New-Object System.Drawing.Size(665, 106)
+$grpTips.Location = New-Object System.Drawing.Point(24, 488)
+$grpTips.Size = New-Object System.Drawing.Size(675, 78)
 $grpTips.Text = " 使用说明与防封提示 (抓帧说明，无需勾选) "
 $grpTips.ForeColor = [System.Drawing.Color]::FromArgb(210, 210, 210)
 $grpTips.BackColor = [System.Drawing.Color]::FromArgb(40, 42, 48)
 
 $lblTip1 = New-Object System.Windows.Forms.Label
-$lblTip1.Location = New-Object System.Drawing.Point(16, 24)
-$lblTip1.Size = New-Object System.Drawing.Size(635, 20)
+$lblTip1.Location = New-Object System.Drawing.Point(16, 22)
+$lblTip1.Size = New-Object System.Drawing.Size(645, 20)
 $lblTip1.ForeColor = [System.Drawing.Color]::FromArgb(230, 230, 230)
-$lblTip1.Text = "[抓帧按键] 进入游戏后左上角呈现 HUD 浮层，随时按下 [F12] 键即可极速无感抓帧。"
+$lblTip1.Text = "[抓帧方式] 进入游戏后左上角呈现 HUD 浮层，随时按下 [F12] 键或点击上方【立即触发抓帧】。"
 $grpTips.Controls.Add($lblTip1)
 
 $lblTip2 = New-Object System.Windows.Forms.Label
-$lblTip2.Location = New-Object System.Drawing.Point(16, 48)
-$lblTip2.Size = New-Object System.Drawing.Size(635, 20)
-$lblTip2.ForeColor = [System.Drawing.Color]::FromArgb(230, 230, 230)
-$lblTip2.Text = "[控制台触发] 在控制台输入 [C] 键，或向桌面写入 trigger_capture 文件亦可快速触发。"
+$lblTip2.Location = New-Object System.Drawing.Point(16, 46)
+$lblTip2.Size = New-Object System.Drawing.Size(645, 24)
+$lblTip2.ForeColor = [System.Drawing.Color]::FromArgb(100, 215, 255)
+$lblTip2.Text = "[安全免杀保障] PEB 双向链表已物理隐匿，已屏蔽端口并隔离看门狗 0x00001337，反作弊零报警。"
 $grpTips.Controls.Add($lblTip2)
-
-$lblTip3 = New-Object System.Windows.Forms.Label
-$lblTip3.Location = New-Object System.Drawing.Point(16, 74)
-$lblTip3.Size = New-Object System.Drawing.Size(635, 24)
-$lblTip3.ForeColor = [System.Drawing.Color]::FromArgb(100, 215, 255)
-$lblTip3.Text = "[安全免杀保障] PEB 双向链表已物理隐匿，已屏蔽端口并隔离看门狗 0x00001337，反作弊零报警。"
-$grpTips.Controls.Add($lblTip3)
 
 $form.Controls.Add($grpTips)
 
-# 5. Enter Key Instruction Banner
+# 6. Action Banner & Buttons
 $lblEnterNotice = New-Object System.Windows.Forms.Label
-$lblEnterNotice.Location = New-Object System.Drawing.Point(24, 502)
-$lblEnterNotice.Size = New-Object System.Drawing.Size(665, 26)
-$lblEnterNotice.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 10.5, [System.Drawing.FontStyle]::Bold)
+$lblEnterNotice.Location = New-Object System.Drawing.Point(24, 574)
+$lblEnterNotice.Size = New-Object System.Drawing.Size(380, 22)
+$lblEnterNotice.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5, [System.Drawing.FontStyle]::Bold)
 $lblEnterNotice.ForeColor = [System.Drawing.Color]::FromArgb(255, 215, 80)
-$lblEnterNotice.Text = "已取消时间限制：确认配置无误后，直接按下 [Enter 回车键] 即可启动游戏"
+$lblEnterNotice.Text = "确认配置后，按 Enter 键一键部署并启动"
 $form.Controls.Add($lblEnterNotice)
 
-# 6. Action Buttons
+$chkKeepOpen = New-Object System.Windows.Forms.CheckBox
+$chkKeepOpen.Location = New-Object System.Drawing.Point(420, 572)
+$chkKeepOpen.Size = New-Object System.Drawing.Size(275, 24)
+$chkKeepOpen.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$chkKeepOpen.ForeColor = [System.Drawing.Color]::FromArgb(200, 220, 255)
+$chkKeepOpen.Text = "启动后保持控制面板开启 (推荐)"
+$chkKeepOpen.Checked = $true
+$form.Controls.Add($chkKeepOpen)
+
 $btnLaunch = New-Object System.Windows.Forms.Button
-$btnLaunch.Location = New-Object System.Drawing.Point(24, 536)
-$btnLaunch.Size = New-Object System.Drawing.Size(375, 46)
-$btnLaunch.Text = "立即启动游戏 (按 Enter 继续)"
+$btnLaunch.Location = New-Object System.Drawing.Point(24, 604)
+$btnLaunch.Size = New-Object System.Drawing.Size(380, 46)
+$btnLaunch.Text = "🚀 部署代理并启动游戏 (Enter)"
 $btnLaunch.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 11, [System.Drawing.FontStyle]::Bold)
 $btnLaunch.BackColor = [System.Drawing.Color]::FromArgb(0, 150, 100)
 $btnLaunch.ForeColor = [System.Drawing.Color]::White
@@ -255,21 +372,214 @@ $btnLaunch.FlatStyle = "Flat"
 $btnLaunch.FlatAppearance.BorderSize = 0
 $btnLaunch.Cursor = [System.Windows.Forms.Cursors]::Hand
 
-$btnCancel = New-Object System.Windows.Forms.Button
-$btnCancel.Location = New-Object System.Drawing.Point(420, 536)
-$btnCancel.Size = New-Object System.Drawing.Size(269, 46)
-$btnCancel.Text = "取消退出 (Esc)"
-$btnCancel.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 10.5)
-$btnCancel.BackColor = [System.Drawing.Color]::FromArgb(70, 72, 80)
-$btnCancel.ForeColor = [System.Drawing.Color]::White
-$btnCancel.FlatStyle = "Flat"
-$btnCancel.FlatAppearance.BorderSize = 0
-$btnCancel.Cursor = [System.Windows.Forms.Cursors]::Hand
+$btnExit = New-Object System.Windows.Forms.Button
+$btnExit.Location = New-Object System.Drawing.Point(420, 604)
+$btnExit.Size = New-Object System.Drawing.Size(279, 46)
+$btnExit.Text = "✖ 退出面板 (Esc)"
+$btnExit.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 10.5)
+$btnExit.BackColor = [System.Drawing.Color]::FromArgb(70, 72, 80)
+$btnExit.ForeColor = [System.Drawing.Color]::White
+$btnExit.FlatStyle = "Flat"
+$btnExit.FlatAppearance.BorderSize = 0
+$btnExit.Cursor = [System.Windows.Forms.Cursors]::Hand
 
 $form.Controls.Add($btnLaunch)
-$form.Controls.Add($btnCancel)
+$form.Controls.Add($btnExit)
 
-# UI Update Events
+# ---------------------------------------------------------------------------
+# Functions for Panel Tools
+# ---------------------------------------------------------------------------
+
+function Deploy-ProxiesToGame {
+    param([string]$targetFolder)
+    if ([string]::IsNullOrWhiteSpace($targetFolder) -or !(Test-Path $targetFolder)) {
+        throw "目标游戏目录不存在: $targetFolder"
+    }
+
+    # Backup Win7 d3d12.dll if MW2019
+    $d12Path = Join-Path $targetFolder "d3d12.dll"
+    if (Test-Path $d12Path) {
+        $info = (Get-Item $d12Path).VersionInfo
+        if ($info.FileDescription -match "Windows 7") {
+            Copy-Item $d12Path (Join-Path $targetFolder "d3d12_win7.dll.bak") -Force
+        }
+    }
+
+    # Copy dxgi.dll and d3d12.dll
+    Copy-Item $ProxyDxgi (Join-Path $targetFolder "dxgi.dll") -Force
+    Copy-Item $ProxyD3D12 (Join-Path $targetFolder "d3d12.dll") -Force
+
+    # If COD HQ with sp26
+    $sp26Path = Join-Path $targetFolder "sp26"
+    if (Test-Path $sp26Path) {
+        Copy-Item $ProxyDxgi (Join-Path $sp26Path "dxgi.dll") -Force
+        Copy-Item $ProxyD3D12 (Join-Path $sp26Path "d3d12.dll") -Force
+    }
+
+    # Write Desktop and game dir dxgi_proxy.ini
+    $mode = if ($rbPix.Checked) { "pix" } else { "renderdoc" }
+    $iniContent = @"
+[proxy]
+mode=$mode
+rdoc_dll=$ToolDll
+
+[Capture]
+mode=$mode
+rdoc_dll=$ToolDll
+"@
+    $desktopIni = Join-Path $DesktopDir "dxgi_proxy.ini"
+    [System.IO.File]::WriteAllText($desktopIni, $iniContent, [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText((Join-Path $targetFolder "dxgi_proxy.ini"), $iniContent, [System.Text.Encoding]::UTF8)
+}
+
+function Find-NewestRdc {
+    $files = Get-ChildItem -Path $DesktopDir -Filter "COD_RDC_*.rdc" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+    if ($files -and $files.Count -gt 0) {
+        return $files[0].FullName
+    }
+    return $null
+}
+
+# ---------------------------------------------------------------------------
+# Tool Button Handlers
+# ---------------------------------------------------------------------------
+
+# 1. Trigger Capture
+$btnTrigger.Add_Click({
+    try {
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 205, 90)
+        $lblToolStatus.Text = "[抓帧中] 正在向游戏发送捕获信号 (trigger_capture)..."
+        $form.Refresh()
+
+        $doneFile = Join-Path $DesktopDir "capture_completed.txt"
+        if (Test-Path $doneFile) { Remove-Item $doneFile -Force -ErrorAction SilentlyContinue }
+
+        # Broadcast triggers
+        [System.IO.File]::WriteAllText((Join-Path $DesktopDir "trigger_capture"), "TRIGGER`n", [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllText((Join-Path $DesktopDir "trigger_capture_cod"), "TRIGGER`n", [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllText((Join-Path $DesktopDir "trigger_capture_modernwarfare_exe"), "TRIGGER`n", [System.Text.Encoding]::UTF8)
+
+        # Wait up to 10 seconds for completion
+        $captured = $false
+        for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Seconds 1
+            if (Test-Path $doneFile) {
+                $capPath = (Get-Content $doneFile -Raw).Trim()
+                $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
+                $lblToolStatus.Text = "[抓帧完成] 成功截获帧文件: " + [System.IO.Path]::GetFileName($capPath)
+                $captured = $true
+                break
+            }
+        }
+        if (!$captured) {
+            $latest = Find-NewestRdc
+            if ($latest) {
+                $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
+                $lblToolStatus.Text = "[抓帧信号已发送] 发现截帧文件: " + [System.IO.Path]::GetFileName($latest)
+            } else {
+                $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 140, 100)
+                $lblToolStatus.Text = "[提示] 信号已发送。请确认游戏已进入 3D 渲染画面，或直接在游戏内按 F12 抓帧。"
+            }
+        }
+    } catch {
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+        $lblToolStatus.Text = "[错误] 触发抓帧失败: " + $_.Exception.Message
+    }
+})
+
+# 2. Preview Thumbnail
+$btnThumb.Add_Click({
+    try {
+        $latest = Find-NewestRdc
+        if (!$latest) {
+            [System.Windows.Forms.MessageBox]::Show("桌面暂未发现 COD_RDC_*.rdc 截帧文件，请先进入游戏按 F12 抓帧！", "提示", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+            return
+        }
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 205, 90)
+        $lblToolStatus.Text = "[提取中] 正在从截帧文件提取缩略图: " + [System.IO.Path]::GetFileName($latest)
+        $form.Refresh()
+
+        $thumbJpg = Join-Path $DesktopDir "COD_latest_thumb.jpg"
+        if (Test-Path $thumbJpg) { Remove-Item $thumbJpg -Force -ErrorAction SilentlyContinue }
+
+        # Run extraction
+        $proc = Start-Process -FilePath $ToolCmd -ArgumentList "thumb", "--out=`"$thumbJpg`"", "--format=jpg", "`"$latest`"" -Wait -PassThru -NoNewWindow
+        if (Test-Path $thumbJpg) {
+            $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
+            $lblToolStatus.Text = "[缩略图就绪] 已打开最新截帧预览: " + [System.IO.Path]::GetFileName($latest)
+            Start-Process $thumbJpg
+        } else {
+            $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 140, 100)
+            $lblToolStatus.Text = "[提示] 缩略图提取失败，请直接点击【在 qTinecmaTool 中打开】查看完整帧。"
+        }
+    } catch {
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+        $lblToolStatus.Text = "[错误] 提取缩略图异常: " + $_.Exception.Message
+    }
+})
+
+# 3. Open in qTinecmaTool
+$btnOpenRdoc.Add_Click({
+    try {
+        $latest = Find-NewestRdc
+        if ($latest) {
+            $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
+            $lblToolStatus.Text = "[已调起] 正在 qTinecmaTool 中加载: " + [System.IO.Path]::GetFileName($latest)
+            Start-Process -FilePath $ToolGui -ArgumentList "`"$latest`""
+        } else {
+            $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
+            $lblToolStatus.Text = "[已调起] 正在启动 qTinecmaTool 查看器..."
+            Start-Process -FilePath $ToolGui
+        }
+    } catch {
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+        $lblToolStatus.Text = "[错误] 调起 qTinecmaTool 失败: " + $_.Exception.Message
+    }
+})
+
+# 4. Deploy Proxies
+$btnDeploy.Add_Click({
+    try {
+        Deploy-ProxiesToGame -targetFolder $txtGame.Text
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
+        $lblToolStatus.Text = "[部署成功] 双代理 DLL (dxgi.dll / d3d12.dll) 及配置文件已同步至: " + $txtGame.Text
+    } catch {
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+        $lblToolStatus.Text = "[部署失败] " + $_.Exception.Message
+    }
+})
+
+# 5. View Log
+$btnViewLog.Add_Click({
+    $logPath = Join-Path $DesktopDir "dxgi_proxy.log"
+    if (Test-Path $logPath) {
+        Start-Process notepad.exe -ArgumentList "`"$logPath`""
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
+        $lblToolStatus.Text = "[日志就绪] 已在记事本中打开 dxgi_proxy.log"
+    } else {
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 140, 100)
+        $lblToolStatus.Text = "[提示] 桌面暂未生成 dxgi_proxy.log，请先启动游戏并完成一次加载。"
+    }
+})
+
+# 6. Clean Environment
+$btnClean.Add_Click({
+    try {
+        & sc.exe stop atvi-randgrid_sr 2>$null | Out-Null
+        & net.exe stop "COD.Broker.Service" 2>$null | Out-Null
+        Remove-Item (Join-Path $DesktopDir "trigger_capture*") -Force -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $DesktopDir "capture_completed.txt") -Force -ErrorAction SilentlyContinue
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
+        $lblToolStatus.Text = "[环境清理完成] 已停止反作弊服务并清除残留的抓帧触发信号。"
+    } catch {
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+        $lblToolStatus.Text = "[清理异常] " + $_.Exception.Message
+    }
+})
+
+# ---------------------------------------------------------------------------
+# UI Dynamic Updates
+# ---------------------------------------------------------------------------
 $script:isUpdatingUI = $false
 
 $updateGameInfo = {
@@ -285,7 +595,7 @@ $updateGameInfo = {
             $isFound = (Test-Path $txtGame.Text) -and (Test-Path (Join-Path $txtGame.Text "ModernWarfare.exe"))
             if ($isFound) {
                 $lblGameTip.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
-                $lblGameTip.Text = "状态：已检测到 ModernWarfare.exe！`n适配：Win7 遗留库避坑完成，双代理已部署。点击启动将直接拉起游戏（战网客户端亦可直接进入）。"
+                $lblGameTip.Text = "状态：已检测到 ModernWarfare.exe！`n适配：Win7 遗留库避坑完成，双代理已就绪。点击启动将拉起游戏，战网客户端亦可直接进入。"
             } else {
                 $lblGameTip.ForeColor = [System.Drawing.Color]::FromArgb(255, 140, 100)
                 $lblGameTip.Text = "提示：未在当前目录找到 ModernWarfare.exe，请点击 [浏览...] 选择《使命召唤：现代战争》安装目录。"
@@ -338,12 +648,74 @@ if ((Test-Path (Join-Path $GameDir "ModernWarfare.exe")) -or ($GameDir -match "M
 
 & $updateGameInfo
 
-# Dialog buttons
-$btnLaunch.DialogResult = [System.Windows.Forms.DialogResult]::OK
-$btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+# ---------------------------------------------------------------------------
+# Launch Game Handler
+# ---------------------------------------------------------------------------
+$script:Action = "LAUNCH"
+
+$btnLaunch.Add_Click({
+    try {
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 205, 90)
+        $lblToolStatus.Text = "[部署中] 正在同步代理 DLL 与配置文件..."
+        $form.Refresh()
+
+        Deploy-ProxiesToGame -targetFolder $txtGame.Text
+
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
+
+        if ($rbGameMW.Checked) {
+            $mwExe = Join-Path $txtGame.Text "ModernWarfare.exe"
+            if (Test-Path $mwExe) {
+                Start-Process -FilePath $mwExe -WorkingDirectory $txtGame.Text
+                $lblToolStatus.Text = "[游戏已拉起] ModernWarfare.exe 启动成功！(战网客户端亦可直接点击进入游戏)"
+            } else {
+                $lblToolStatus.Text = "[代理已就绪] 请直接在战网 (Battle.net) 客户端点击【进入游戏】。"
+            }
+        } elseif ($rbGameCod.Checked) {
+            # Start Steam if needed
+            $steamProc = Get-Process steam -ErrorAction SilentlyContinue
+            if (!$steamProc -and (![string]::IsNullOrWhiteSpace($SteamDir)) -and (Test-Path (Join-Path $SteamDir "steam.exe"))) {
+                Start-Process (Join-Path $SteamDir "steam.exe")
+                Start-Sleep -Seconds 3
+            }
+            Start-Process "steam://rungameid/1938090"
+            $lblToolStatus.Text = "[游戏已拉起] 已通过 Steam 唤醒拉起 Call of Duty HQ。"
+        } else {
+            $lblToolStatus.Text = "[代理已部署] 双代理已同步至自定义目录，请启动游戏。"
+        }
+
+        # Write output file if provided
+        $targetGameType = if ($rbGameMW.Checked) { "MW2019" } elseif ($rbGameCod.Checked) { "COD_HQ" } else { "CUSTOM" }
+        $targetExe = if ($rbGameMW.Checked) { "ModernWarfare.exe" } elseif ($rbGameCod.Checked) { "cod.exe" } else { "" }
+        $selectedMode = if ($rbPix.Checked) { "pix" } else { "renderdoc" }
+        if (![string]::IsNullOrWhiteSpace($OutputFile)) {
+            $outLines = @(
+                "ACTION=LAUNCH",
+                "GAMEDIR=$($txtGame.Text)",
+                "GAME_TYPE=$targetGameType",
+                "TARGET_EXE=$targetExe",
+                "MODE=$selectedMode"
+            )
+            [System.IO.File]::WriteAllLines($OutputFile, $outLines, [System.Text.Encoding]::UTF8)
+        }
+
+        if (!$chkKeepOpen.Checked) {
+            $form.Close()
+        }
+
+    } catch {
+        $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+        $lblToolStatus.Text = "[启动失败] " + $_.Exception.Message
+    }
+})
+
+$btnExit.Add_Click({
+    $script:Action = "CANCEL"
+    $form.Close()
+})
 
 $form.AcceptButton = $btnLaunch
-$form.CancelButton = $btnCancel
+$form.CancelButton = $btnExit
 
 $form.Add_Shown({
     $form.Activate()
@@ -351,59 +723,8 @@ $form.Add_Shown({
     $btnLaunch.Focus()
 })
 
-$script:Action = "LAUNCH"
-$btnLaunch.Add_Click({ $script:Action = "LAUNCH" })
-$btnCancel.Add_Click({ $script:Action = "CANCEL" })
-
+# Show Dialog
 $res = $form.ShowDialog()
-
-if ($res -eq [System.Windows.Forms.DialogResult]::OK) {
-    $script:Action = "LAUNCH"
-} else {
-    $script:Action = "CANCEL"
-}
-
-# Determine selected mode and game type
-$selectedMode = if ($rbPix.Checked) { "pix" } else { "renderdoc" }
-$targetGameType = if ($rbGameMW.Checked) { "MW2019" } elseif ($rbGameCod.Checked) { "COD_HQ" } else { "CUSTOM" }
-$targetExe = if ($rbGameMW.Checked) {
-    "ModernWarfare.exe"
-} elseif ($rbGameCod.Checked) {
-    "cod.exe"
-} else {
-    ""
-}
-
-# Write Desktop\dxgi_proxy.ini
-$iniPath = [System.IO.Path]::Combine($DesktopDir, "dxgi_proxy.ini")
-$iniContent = @"
-[proxy]
-mode=$selectedMode
-rdoc_dll=$ToolDll
-
-[Capture]
-mode=$selectedMode
-rdoc_dll=$ToolDll
-"@
-[System.IO.File]::WriteAllText($iniPath, $iniContent, [System.Text.Encoding]::UTF8)
-
-# Write results to output file if provided
-if (![string]::IsNullOrWhiteSpace($OutputFile)) {
-    $outLines = @(
-        "ACTION=$($script:Action)",
-        "GAMEDIR=$($txtGame.Text)",
-        "GAME_TYPE=$targetGameType",
-        "TARGET_EXE=$targetExe",
-        "MODE=$selectedMode"
-    )
-    [System.IO.File]::WriteAllLines($OutputFile, $outLines, [System.Text.Encoding]::UTF8)
-}
-
-Write-Output "ACTION=$($script:Action)"
-Write-Output "GAMEDIR=$($txtGame.Text)"
-Write-Output "GAME_TYPE=$targetGameType"
-Write-Output "TARGET_EXE=$targetExe"
-Write-Output "MODE=$selectedMode"
 
 if ($script:Action -eq "LAUNCH") {
     exit 0
