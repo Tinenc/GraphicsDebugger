@@ -4,7 +4,7 @@
       "command": "C:/path/to/GraphicsDebugger/integrations/renderdoc-mcp/.venv/Scripts/renderdoc-mcp.exe",
       "args": [],
       "env": {
-        "RENDERDOC_PATH": "C:/path/to/GraphicsDebugger/artifacts/graphics-factory-fix/x64/qTinecmaTool.exe",
+        "RENDERDOC_PATH": "C:/path/to/GraphicsDebugger/x64/Development/qTinecmaTool.exe",
         "DISABLE_VULKAN_TINECMATOOL_CAPTURE_1_44": "1"
       }
     }

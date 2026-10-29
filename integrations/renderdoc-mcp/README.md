@@ -27,6 +27,8 @@ py -3 -m venv .\integrations\renderdoc-mcp\.venv
 .\integrations\renderdoc-mcp\.venv\Scripts\python.exe -m pip install -e .\integrations\renderdoc-mcp\server
 ```
 
+GUI 必须启用 PySide2：编译前按照 [qrenderdoc 构建说明](../../qrenderdoc/README.md) 安装官方第三方依赖包并重新编译。未启用 PySide2 的 GUI 无法启动此桥接。
+
 随后将 `bridge/renderdoc_mcp` 目录安装到当前 GUI 的用户扩展目录，并在 GUI 扩展管理中启用 RenderDoc MCP。自定义 qTinecmaTool 的本机配置目录为 `%APPDATA%\qTinecmaTool\extensions`；官方 qrenderdoc 通常使用 `%APPDATA%\qrenderdoc\extensions`。请以所运行 GUI 的实际配置目录为准。
 
 客户端 command 指向新环境中的 `renderdoc-mcp.exe`，RENDERDOC_PATH 指向当前可运行的 GUI EXE。无需上传或复用本机 `.venv`，也不要把整个个人 MCP 配置复制进仓库。
