@@ -1,4 +1,4 @@
-/******************************************************************************
+﻿/******************************************************************************
  * The MIT License (MIT)
  *
  * Copyright (c) 2015-2026 Baldur Karlsson
@@ -657,7 +657,7 @@ void RenderDoc::Initialise()
     wchar_t curFile[512] = {0};
     GetModuleFileNameW(NULL, curFile, 512);
     rdcstr f = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
-    bool isCod = (f.find("cod") != -1);
+    bool isCod = (f.find("cod") != -1 || f.find("modernwarfare") != -1);
 
     if(!isCod)
     {

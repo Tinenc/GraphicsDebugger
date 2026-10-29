@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // D3D12 Proxy DLL - D3D12 Device Creation Bridge
 // ============================================================================
 // Pairs with dxgi_proxy.dll:
@@ -96,7 +96,8 @@ static void ReadConfig() {
 
 static bool IsTargetRenderer() {
     return (_stricmp(g_processName, "sp26-cod.exe") == 0 ||
-            _stricmp(g_processName, "cod.exe") == 0);
+            _stricmp(g_processName, "cod.exe") == 0 ||
+            _stricmp(g_processName, "modernwarfare.exe") == 0);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 
 // DXGI Proxy DLL - D3D12 Frame Capture Proxy Layer
 
@@ -496,7 +496,8 @@ static bool IsTargetRenderer() {
 
     return (_stricmp(g_processName, "sp26-cod.exe") == 0 ||
 
-            _stricmp(g_processName, "cod.exe") == 0);
+            _stricmp(g_processName, "cod.exe") == 0 ||
+            _stricmp(g_processName, "modernwarfare.exe") == 0);
 
 }
 

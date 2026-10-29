@@ -1,4 +1,4 @@
-/******************************************************************************
+﻿/******************************************************************************
  * The MIT License (MIT)
  *
  * Copyright (c) 2015-2026 Baldur Karlsson
@@ -117,7 +117,7 @@ bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already, const char *m
     wchar_t curFile[512] = {0};
     GetModuleFileNameW(NULL, curFile, 512);
     rdcstr f = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
-    if(f == "cod.exe" || f == "sp26-cod.exe" || g_SkipGraphicsDriverHooks)
+    if(f == "cod.exe" || f == "sp26-cod.exe" || f.find("modernwarfare") != -1 || g_SkipGraphicsDriverHooks)
     {
       RDCLOG("Skipping IAT hook in protected game process (%s): module=%s import=%s!%s", f.c_str(),
              moduleName, dllName, hook.function.c_str());
