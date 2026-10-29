@@ -1,13 +1,13 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title TinecmaTool - Steam and COD D3D12 Capture Launcher
+title TinecmaTool - Call of Duty / D3D12 Capture Launcher
 
 rem Change working directory to script location immediately
 cd /d "%~dp0"
 
 rem ===========================================================================
-rem  TinecmaTool (Stealth RenderDoc) - Portable One-Click Steam and COD Launcher
-rem  Compatible with any PC running Windows 10/11 and Steam
+rem  TinecmaTool (Stealth RenderDoc) - Portable One-Click COD & D3D12 Launcher
+rem  Compatible with Call of Duty HQ (Steam), Modern Warfare 2019 (Battle.net)
 rem ===========================================================================
 
 rem Ensure Administrator privileges for driver management and proxy deployment
@@ -39,7 +39,7 @@ set "D3D12_PROXY_DLL=%ROOT%tools\proxy\d3d12.dll"
 set "DESKTOP=%USERPROFILE%\Desktop"
 
 echo ========================================================================
-echo   TinecmaTool (Stealth RenderDoc) - Steam and COD D3D12 Launcher
+echo   TinecmaTool (Stealth RenderDoc) - COD and D3D12 Launcher
 echo   Repo Root: %ROOT%
 echo ========================================================================
 echo.
@@ -82,7 +82,7 @@ if defined NEED_BUILD_PROXY (
 echo [OK] Located DXGI proxy DLL: %PROXY_DLL%
 echo [OK] Located D3D12 proxy DLL: %D3D12_PROXY_DLL%
 
-rem 3. Detect Steam installation
+rem 3. Detect Steam installation (optional for MW2019)
 echo.
 echo [1/5] Detecting Steam installation...
 set "STEAM_DIR="
@@ -95,12 +95,10 @@ if not defined STEAM_DIR (
     for /f "tokens=2*" %%A in ('reg query "HKLM\SOFTWARE\Valve\Steam" /v InstallPath 2^>nul') do set "STEAM_DIR=%%B"
 )
 
-rem Normalize slashes if found
 if defined STEAM_DIR (
     set "STEAM_DIR=!STEAM_DIR:/=\!"
 )
 
-rem Fallback drives check
 if not defined STEAM_DIR (
     for %%D in (C D E F G H) do (
         if not defined STEAM_DIR (
@@ -110,76 +108,142 @@ if not defined STEAM_DIR (
     )
 )
 
-if not defined STEAM_DIR (
-    echo [ERROR] Steam directory could not be automatically detected.
-    set /p "STEAM_DIR=Please enter your Steam install directory: "
+if defined STEAM_DIR (
+    if exist "!STEAM_DIR!\steam.exe" (
+        echo [OK] Steam located at: !STEAM_DIR!
+    ) else (
+        echo [INFO] Steam client not found at !STEAM_DIR!.
+    )
+) else (
+    echo [INFO] Steam client not detected in default paths.
 )
 
-if not exist "!STEAM_DIR!\steam.exe" (
-    echo [ERROR] Invalid Steam directory: !STEAM_DIR!
-    pause
-    exit /b 1
-)
-echo [OK] Steam located at: !STEAM_DIR!
-
-rem 4. Detect Call of Duty HQ install path
+rem 4. Detect Call of Duty installations
 echo.
-echo [2/5] Detecting Call of Duty HQ directory...
+echo [2/5] Detecting Call of Duty installations...
 set "GAMEDIR="
+set "COD_HQ_DIR="
+set "MW2019_DIR="
 
-rem Method A: Registry query (Standard for Steam installations on any PC)
-for /f "tokens=2*" %%A in ('reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 1938090" /v InstallLocation 2^>nul') do (
-    if exist "%%B\cod.exe" set "GAMEDIR=%%B"
-)
-
-rem Method B: Search drives directly
-if not defined GAMEDIR (
+rem Check MW2019
+if exist "D:\Call of Duty Modern Warfare\ModernWarfare.exe" set "MW2019_DIR=D:\Call of Duty Modern Warfare"
+if not defined MW2019_DIR (
     for %%D in (C D E F G H X) do (
-        if not defined GAMEDIR (
-            if exist "%%D:\SteamLibrary\steamapps\common\Call of Duty HQ\cod.exe" set "GAMEDIR=%%D:\SteamLibrary\steamapps\common\Call of Duty HQ"
-            if exist "%%D:\Steam\steamapps\common\Call of Duty HQ\cod.exe" set "GAMEDIR=%%D:\Steam\steamapps\common\Call of Duty HQ"
-            if exist "%%D:\Program Files (x86)\Steam\steamapps\common\Call of Duty HQ\cod.exe" set "GAMEDIR=%%D:\Program Files (x86)\Steam\steamapps\common\Call of Duty HQ"
-            if exist "%%D:\Program Files\Steam\steamapps\common\Call of Duty HQ\cod.exe" set "GAMEDIR=%%D:\Program Files\Steam\steamapps\common\Call of Duty HQ"
+        if not defined MW2019_DIR (
+            if exist "%%D:\Call of Duty Modern Warfare\ModernWarfare.exe" set "MW2019_DIR=%%D:\Call of Duty Modern Warfare"
         )
     )
 )
 
-if not defined GAMEDIR (
-    echo [WARN] Call of Duty HQ could not be found automatically.
-    set /p "GAMEDIR=Please enter the path to 'Call of Duty HQ' directory: "
+rem Check COD HQ (AppID 1938090)
+for /f "tokens=2*" %%A in ('reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 1938090" /v InstallLocation 2^>nul') do (
+    if exist "%%B\cod.exe" set "COD_HQ_DIR=%%B"
+)
+if not defined COD_HQ_DIR (
+    for %%D in (F D C E G H X) do (
+        if not defined COD_HQ_DIR (
+            if exist "%%D:\SteamLibrary\steamapps\common\Call of Duty HQ\cod.exe" set "COD_HQ_DIR=%%D:\SteamLibrary\steamapps\common\Call of Duty HQ"
+            if exist "%%D:\Steam\steamapps\common\Call of Duty HQ\cod.exe" set "COD_HQ_DIR=%%D:\Steam\steamapps\common\Call of Duty HQ"
+            if exist "%%D:\Program Files (x86)\Steam\steamapps\common\Call of Duty HQ\cod.exe" set "COD_HQ_DIR=%%D:\Program Files (x86)\Steam\steamapps\common\Call of Duty HQ"
+            if exist "%%D:\Program Files\Steam\steamapps\common\Call of Duty HQ\cod.exe" set "COD_HQ_DIR=%%D:\Program Files\Steam\steamapps\common\Call of Duty HQ"
+        )
+    )
 )
 
-rem Strip surrounding quotes
-set "GAMEDIR=%GAMEDIR:"=%"
+if defined MW2019_DIR echo [OK] Found Modern Warfare (2019): !MW2019_DIR!
+if defined COD_HQ_DIR echo [OK] Found Call of Duty HQ: !COD_HQ_DIR!
 
-if not exist "%GAMEDIR%\cod.exe" (
-    echo [ERROR] cod.exe was not found in: %GAMEDIR%
+rem Default to MW2019 or COD HQ
+if defined MW2019_DIR (
+    set "GAMEDIR=!MW2019_DIR!"
+) else if defined COD_HQ_DIR (
+    set "GAMEDIR=!COD_HQ_DIR!"
+)
+
+rem 5. Pre-flight cleanup
+echo.
+echo [3/5] Performing pre-flight checks and cleanup...
+del /f /q "%DESKTOP%\trigger_capture*" >nul 2>&1
+del /f /q "%DESKTOP%\capture_completed.txt" >nul 2>&1
+sc.exe stop atvi-randgrid_sr >nul 2>&1
+net stop "COD.Broker.Service" >nul 2>&1
+echo [OK] Pre-flight cleanup completed.
+
+rem 6. Interactive Confirmation and Options Guide (GUI Window + Console Fallback)
+echo.
+echo [4/5] Opening configuration guide window...
+echo        (Press Enter in window to launch immediately, or close to cancel)
+set "ACTION=LAUNCH"
+set "GAME_TYPE=MW2019"
+set "TARGET_EXE=ModernWarfare.exe"
+set "CAPTURE_MODE=renderdoc"
+
+if not exist "%ROOT%tools\gui_countdown.ps1" goto :fallback_console
+
+set "GUI_RES_FILE=%TEMP%\tinecma_gui_res_%RANDOM%.txt"
+if exist "!GUI_RES_FILE!" del /f /q "!GUI_RES_FILE!" >nul 2>&1
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\gui_countdown.ps1" -GameDir "%GAMEDIR%" -SteamDir "%STEAM_DIR%" -ToolDll "%TOOL_DLL%" -ProxyDll "%PROXY_DLL%" -DesktopDir "%DESKTOP%" -OutputFile "!GUI_RES_FILE!"
+set "PS_EXIT=!ERRORLEVEL!"
+
+if exist "!GUI_RES_FILE!" (
+    for /f "usebackq tokens=1* delims==" %%A in ("!GUI_RES_FILE!") do (
+        if "%%A"=="ACTION" set "ACTION=%%B"
+        if "%%A"=="GAMEDIR" set "GAMEDIR=%%B"
+        if "%%A"=="GAME_TYPE" set "GAME_TYPE=%%B"
+        if "%%A"=="TARGET_EXE" set "TARGET_EXE=%%B"
+        if "%%A"=="MODE" set "CAPTURE_MODE=%%B"
+    )
+    del /f /q "!GUI_RES_FILE!" >nul 2>&1
+    goto :guide_done
+)
+
+if !PS_EXIT! neq 0 (
+    set "ACTION=CANCEL"
+    goto :guide_done
+)
+
+:fallback_console
+echo.
+echo ========================================================================
+echo   [Options and Configuration Guide]
+echo   - Selected Directory: %GAMEDIR%
+echo   - Capture Backend: %TOOL_DLL%
+echo     Tip: TinecmaTool [RenderDoc v1.44] 1.33s sync write + SEH protection
+echo   - Usage: Press [F12] in-game or [C] in console to capture frame
+echo   - Stealth: PEB unlinked, port-free, watchdog 0x00001337 isolated
+echo ========================================================================
+echo   [No Time Limit] Press [Enter] to continue launching the game...
+echo   (Or enter Q and press Enter to cancel and exit)
+echo ========================================================================
+set "CONFIRM="
+set /p "CONFIRM=Press [Enter] to launch or [Q] to quit: "
+if /i "!CONFIRM!"=="Q" set "ACTION=CANCEL"
+
+:guide_done
+if /i "!ACTION!"=="CANCEL" (
+    echo.
+    echo [CANCEL] Launch cancelled by user. Exiting.
+    pause
+    exit /b 0
+)
+
+rem 7. Deploy Proxies and Configuration to selected game
+echo.
+echo [5/5] Deploying DXGI and D3D12 proxies to %GAMEDIR%...
+
+if not exist "%GAMEDIR%" (
+    echo [ERROR] Game directory does not exist: %GAMEDIR%
     pause
     exit /b 1
 )
-echo [OK] Call of Duty HQ found at: %GAMEDIR%
 
-rem 5. Pre-flight cleanup and conflict resolution
-echo.
-echo [3/5] Performing pre-flight checks and cleanup...
+rem If Modern Warfare 2019, backup Win7 d3d12.dll safely
+if exist "%GAMEDIR%\d3d12.dll" (
+    powershell -NoProfile -Command "$info = (Get-Item '%GAMEDIR%\d3d12.dll').VersionInfo; if ($info.FileDescription -match 'Windows 7') { Copy-Item '%GAMEDIR%\d3d12.dll' '%GAMEDIR%\d3d12_win7.dll.bak' -Force; Write-Host '[OK] Backed up original Win7 d3d12.dll' }"
+)
 
-rem Clean up any stale backup files in game root
-if exist "%GAMEDIR%\d3d12.dll.bak" del /f /q "%GAMEDIR%\d3d12.dll.bak" >nul 2>&1
-
-rem Clean up any stale desktop trigger files to prevent early watchdog trips (0x00001337)
-del /f /q "%DESKTOP%\trigger_capture*" >nul 2>&1
-del /f /q "%DESKTOP%\capture_completed.txt" >nul 2>&1
-
-rem Stop interfering background services if active
-sc.exe stop atvi-randgrid_sr >nul 2>&1
-net stop "COD.Broker.Service" >nul 2>&1
-
-echo [OK] Pre-flight cleanup completed.
-
-rem 6. Deploy Proxies and Configuration
-echo.
-echo [4/5] Deploying DXGI and D3D12 proxies and capture configuration...
-
+rem Deploy dxgi.dll and d3d12.dll
 copy /y "%PROXY_DLL%" "%GAMEDIR%\dxgi.dll" >nul
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to copy dxgi.dll to %GAMEDIR%!
@@ -196,122 +260,55 @@ if %errorlevel% neq 0 (
 )
 echo [OK] Deployed %GAMEDIR%\d3d12.dll
 
-if exist "%GAMEDIR%\sp26" (
-    copy /y "%PROXY_DLL%" "%GAMEDIR%\sp26\dxgi.dll" >nul
-    echo [OK] Deployed %GAMEDIR%\sp26\dxgi.dll [Campaign Subdirectory]
-    copy /y "%D3D12_PROXY_DLL%" "%GAMEDIR%\sp26\d3d12.dll" >nul
-    echo [OK] Deployed %GAMEDIR%\sp26\d3d12.dll [Campaign Subdirectory]
-)
-
-rem Write Desktop\dxgi_proxy.ini
-(
-    echo [proxy]
-    echo mode=renderdoc
-    echo rdoc_dll=%TOOL_DLL%
-    echo.
-    echo [Capture]
-    echo mode=renderdoc
-    echo rdoc_dll=%TOOL_DLL%
-) > "%DESKTOP%\dxgi_proxy.ini"
-echo [OK] Configured %DESKTOP%\dxgi_proxy.ini (mode=renderdoc)
-
-rem 6.5 Interactive Confirmation and Options Guide (GUI Window + Console Fallback)
-echo.
-echo [INFO] Opening configuration guide window...
-echo        (Press Enter in window to launch immediately, or close to cancel)
-set "ACTION=LAUNCH"
-
-if not exist "%ROOT%tools\gui_countdown.ps1" goto :fallback_console
-
-set "GUI_RES_FILE=%TEMP%\tinecma_gui_res_%RANDOM%.txt"
-if exist "!GUI_RES_FILE!" del /f /q "!GUI_RES_FILE!" >nul 2>&1
-
-powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\gui_countdown.ps1" -GameDir "%GAMEDIR%" -SteamDir "%STEAM_DIR%" -ToolDll "%TOOL_DLL%" -ProxyDll "%PROXY_DLL%" -DesktopDir "%DESKTOP%" -OutputFile "!GUI_RES_FILE!"
-set "PS_EXIT=!ERRORLEVEL!"
-
-if exist "!GUI_RES_FILE!" (
-    for /f "usebackq tokens=1* delims==" %%A in ("!GUI_RES_FILE!") do (
-        if "%%A"=="ACTION" set "ACTION=%%B"
-        if "%%A"=="GAMEDIR" (
-            if exist "%%B\cod.exe" set "GAMEDIR=%%B"
-        )
-        if "%%A"=="MODE" set "CAPTURE_MODE=%%B"
-    )
-    del /f /q "!GUI_RES_FILE!" >nul 2>&1
-    goto :guide_done
-)
-
-if !PS_EXIT! neq 0 (
-    set "ACTION=CANCEL"
-    goto :guide_done
-)
-
-:fallback_console
-echo.
-echo ========================================================================
-echo   [Options and Configuration Guide]
-echo   - Option 1 [Game Directory]: %GAMEDIR%
-echo     Tip: Main directory containing cod.exe. Proxy DLL is deployed here and sp26\
-echo   - Option 2 [Capture Backend]: %TOOL_DLL%
-echo     Tip: TinecmaTool [RenderDoc v1.44] 1.33s sync write + SEH protection
-echo   - Option 3 [Usage]: Press [F12] in-game or [C] in console to capture frame
-echo   - Option 4 [Stealth]: PEB unlinked, port-free, watchdog 0x00001337 isolated
-echo ========================================================================
-echo   [No Time Limit] Press [Enter] to continue launching the game...
-echo   (Or enter Q and press Enter to cancel and exit)
-echo ========================================================================
-set "CONFIRM="
-set /p "CONFIRM=Press [Enter] to launch or [Q] to quit: "
-if /i "!CONFIRM!"=="Q" set "ACTION=CANCEL"
-
-:guide_done
-
-if /i "!ACTION!"=="CANCEL" (
-    echo.
-    echo [CANCEL] Launch cancelled by user. Exiting.
-    pause
-    exit /b 0
-)
-
-rem Update dxgi_proxy.ini if capture mode was selected in GUI
-if defined CAPTURE_MODE (
-    (
-        echo [proxy]
-        echo mode=!CAPTURE_MODE!
-        echo rdoc_dll=%TOOL_DLL%
-        echo.
-        echo [Capture]
-        echo mode=!CAPTURE_MODE!
-        echo rdoc_dll=%TOOL_DLL%
-    ) > "%DESKTOP%\dxgi_proxy.ini"
-    echo [OK] Updated %DESKTOP%\dxgi_proxy.ini (mode=!CAPTURE_MODE!)
-)
-
-rem Re-deploy proxies to game directories
-copy /y "%PROXY_DLL%" "%GAMEDIR%\dxgi.dll" >nul 2>&1
-copy /y "%D3D12_PROXY_DLL%" "%GAMEDIR%\d3d12.dll" >nul 2>&1
+rem If COD HQ with sp26 campaign directory, deploy there too
 if exist "%GAMEDIR%\sp26" (
     copy /y "%PROXY_DLL%" "%GAMEDIR%\sp26\dxgi.dll" >nul 2>&1
     copy /y "%D3D12_PROXY_DLL%" "%GAMEDIR%\sp26\d3d12.dll" >nul 2>&1
+    echo [OK] Deployed proxies to sp26\ campaign directory
 )
 
-rem 7. Launch Steam and Game
+rem Update Desktop\dxgi_proxy.ini and copy to game dir
+(
+    echo [proxy]
+    echo mode=!CAPTURE_MODE!
+    echo rdoc_dll=%TOOL_DLL%
+    echo.
+    echo [Capture]
+    echo mode=!CAPTURE_MODE!
+    echo rdoc_dll=%TOOL_DLL%
+) > "%DESKTOP%\dxgi_proxy.ini"
+copy /y "%DESKTOP%\dxgi_proxy.ini" "%GAMEDIR%\dxgi_proxy.ini" >nul
+echo [OK] Configured dxgi_proxy.ini (mode=!CAPTURE_MODE!)
+
+rem 8. Launch Selected Game
 echo.
-echo [5/5] Launching Steam and Call of Duty HQ...
-
-rem Start Steam if not running
-tasklist /FI "IMAGENAME eq steam.exe" 2>nul | findstr /i "steam.exe" >nul
-if %errorlevel% neq 0 (
-    echo [INFO] Starting Steam client...
-    start "" "!STEAM_DIR!\steam.exe"
-    timeout /t 5 /nobreak >nul
+if /i "!GAME_TYPE!"=="MW2019" (
+    echo [INFO] Launching Modern Warfare (2019)...
+    start "" /d "%GAMEDIR%" "%GAMEDIR%\ModernWarfare.exe"
+    echo [OK] ModernWarfare.exe launch initiated.
+    echo      (Battle.net 战网客户端亦可直接点击【进入游戏】)
+) else if /i "!GAME_TYPE!"=="COD_HQ" (
+    echo [INFO] Launching Steam and Call of Duty HQ...
+    tasklist /FI "IMAGENAME eq steam.exe" 2>nul | findstr /i "steam.exe" >nul
+    if %errorlevel% neq 0 (
+        if exist "!STEAM_DIR!\steam.exe" (
+            echo [INFO] Starting Steam client...
+            start "" "!STEAM_DIR!\steam.exe"
+            timeout /t 5 /nobreak >nul
+        )
+    )
+    echo [INFO] Handing launch to Steam (AppID 1938090)...
+    start "" "steam://rungameid/1938090"
 ) else (
-    echo [OK] Steam is already running.
+    if defined TARGET_EXE (
+        if exist "%GAMEDIR%\!TARGET_EXE!" (
+            echo [INFO] Launching custom game: !TARGET_EXE!...
+            start "" /d "%GAMEDIR%" "%GAMEDIR%\!TARGET_EXE!"
+        )
+    ) else (
+        echo [INFO] Proxy deployed. Please launch your game now.
+    )
 )
-
-rem Launch Game via Steam URL (AppID 1938090)
-echo [INFO] Handing launch to Steam (AppID 1938090)...
-start "" "steam://rungameid/1938090"
 
 echo.
 echo ========================================================================
@@ -319,7 +316,7 @@ echo   GAME LAUNCH INITIATED
 echo ========================================================================
 echo   1. The game will start with TinecmaTool attached via DXGI Proxy.
 echo   2. Look for the RenderDoc HUD in the top-left corner:
-echo      'Capturing D3D12. Frame: ... (120 FPS)'
+echo      'Capturing D3D12. Frame: ... (XX FPS)'
 echo   3. To Capture a Frame:
 echo      - Method A: Press F12 in-game
 echo      - Method B: Press [C] in this console below
@@ -345,10 +342,27 @@ goto :loop
 
 :do_capture
 echo [CAPTURE] Sending trigger signal to game...
+echo TRIGGER > "%DESKTOP%\trigger_capture"
 echo TRIGGER > "%DESKTOP%\trigger_capture_cod"
-echo [CAPTURE] Trigger file created at %DESKTOP%\trigger_capture_cod.
-echo           Proxy will consume it and serialize frame directly to Desktop.
-timeout /t 3 /nobreak >nul
+echo TRIGGER > "%DESKTOP%\trigger_capture_modernwarfare_exe"
+echo [CAPTURE] Trigger signal sent. Waiting for capture to complete...
+set "CAP_DONE="
+for /l %%i in (1,1,15) do (
+    if not defined CAP_DONE (
+        if exist "%DESKTOP%\capture_completed.txt" (
+            set "CAP_DONE=1"
+        ) else (
+            timeout /t 1 /nobreak >nul
+        )
+    )
+)
+if defined CAP_DONE (
+    echo [OK] Capture completed successfully!
+    type "%DESKTOP%\capture_completed.txt"
+) else (
+    echo [INFO] Signal dispatched. Check Desktop for COD_RDC_*.rdc file.
+)
+echo.
 goto :loop
 
 :do_thumb
