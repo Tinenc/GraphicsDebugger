@@ -8,6 +8,7 @@
 
 ```text
 tools/
+├── TinecmaTool启动向导.bat       # [推荐] 双击直达启动入口 (自动调用 launch_tinecmatool.bat)
 ├── launch_tinecmatool.bat          # [核心] 一键管理员提权启动器 (支持 COD HQ / MW2019 / 自定义游戏)
 ├── gui_countdown.ps1               # [核心] 图形抓帧控制中心面板 (集成部署、启动、抓帧、预览、诊断)
 ├── launch_tinecmatool_steam.bat    # 向下兼容启动脚本 (自动重定向至 launch_tinecmatool.bat)
@@ -53,7 +54,7 @@ tools/
 ## 🚀 核心控制中心 (Control Center)
 
 ### 1. 启动方式
-双击桌面快捷方式 `TinecmaTool启动向导.bat`，或在命令行运行：
+双击 `tools\TinecmaTool启动向导.bat`（或 `tools\launch_tinecmatool.bat`），或在命令行运行：
 ```cmd
 "C:\Program Files\GraphicsDebugger-Steam-Cod\tools\launch_tinecmatool.bat"
 ```
