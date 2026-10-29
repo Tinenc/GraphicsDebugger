@@ -1,0 +1,64 @@
+{
+  "verifiedAt": "2026-10-29T20:34:30.719993+08:00",
+  "python": "3.14.2",
+  "mcpSdkVersion": "1.30.0",
+  "source": "server/src/server.py",
+  "syntaxFilesChecked": 5,
+  "bridgePython36Syntax": "passed (syntax only)",
+  "registeredToolCount": 37,
+  "registeredTools": [
+    "analyze_lighting",
+    "debug_pixel",
+    "debug_vertex",
+    "debug_vulkan_bindings",
+    "enumerate_counters",
+    "export_drawcall",
+    "export_to_unity",
+    "fetch_counters",
+    "find_draws_by_resource",
+    "find_draws_by_shader",
+    "find_draws_by_texture",
+    "get_action_timings",
+    "get_bound_textures",
+    "get_buffer_contents",
+    "get_buffers",
+    "get_capture_status",
+    "get_debug_messages",
+    "get_draw_call_details",
+    "get_draw_calls",
+    "get_frame_summary",
+    "get_pipeline_state",
+    "get_post_vs_data",
+    "get_resources",
+    "get_shader_info",
+    "get_texture_data",
+    "get_texture_info",
+    "get_texture_minmax",
+    "get_textures",
+    "identify_drawcalls",
+    "launch_renderdoc",
+    "list_captures",
+    "open_capture",
+    "pick_pixel",
+    "ping",
+    "pixel_history",
+    "reverse_shader",
+    "save_texture"
+  ],
+  "ping": {
+    "status": "ok",
+    "server": "renderdoc_mcp",
+    "ipc_dir": "<current-user TEMP>/renderdoc_mcp_ipc"
+  },
+  "captureStatus": {
+    "loaded": false
+  },
+  "mcpClient": {
+    "transport": "stdio",
+    "registeredToolCount": 37,
+    "ping": {
+      "status": "ok",
+      "server": "renderdoc_mcp"
+    }
+  }
+}

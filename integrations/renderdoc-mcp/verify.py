@@ -9,9 +9,32 @@ import pathlib
 import sys
 
 
+async def verify_stdio(root):
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "src.server"], cwd=str(root / "server")
+    )
+    async with stdio_client(params) as (reader, writer):
+        async with ClientSession(reader, writer) as session:
+            await session.initialize()
+            tools = await session.list_tools()
+            result = await session.call_tool("ping", {})
+            if result.isError:
+                raise RuntimeError("MCP ping returned a protocol error")
+            ping = json.loads(next(item.text for item in result.content if item.type == "text"))
+            if ping.get("status") != "ok":
+                raise RuntimeError("MCP ping failed: %s" % ping)
+            return {"transport": "stdio", "registeredToolCount": len(tools.tools), "ping": {
+                key: ping[key] for key in ("status", "server") if key in ping
+            }}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--stdio", action="store_true", help="Also initialize an MCP client and call ping through stdio")
     parser.add_argument("--output", type=pathlib.Path)
     args = parser.parse_args()
     root = pathlib.Path(__file__).resolve().parent
@@ -36,6 +59,8 @@ def main():
     }
     if args.live:
         report["ping"] = server.ipc.call("ping", {})
+        if report["ping"].get("status") != "ok":
+            raise RuntimeError("Bridge ping did not return status=ok")
         if "ipc_dir" in report["ping"]:
             report["ping"]["ipc_dir"] = "<current-user TEMP>/renderdoc_mcp_ipc"
         status = server.ipc.call("get_capture_status", {})
@@ -52,6 +77,8 @@ def main():
                 "dispatches": sum(bool(action["flags"] & 0x0004) for action in actions),
                 "presents": [action for action in actions if action["flags"] & 0x0100],
             }
+    if args.stdio:
+        report["mcpClient"] = asyncio.run(verify_stdio(root))
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.output:
         args.output.write_text(text + "\n", encoding="utf-8")
