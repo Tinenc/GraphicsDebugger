@@ -2,6 +2,24 @@
 
 本目录包含 TinecmaTools 的所有核心工具。
 
+## DF / WeGame 启动工具
+
+运行 `launch_df_capture.bat`。它调用同目录的 `launch_df_capture.ps1` 和 `launch_df_ui.py`，打开本仓库 `x64/Development/qTinecmaTool.exe`，在 Launch 页面设置：
+
+- Executable Path：`F:\WeGame\wegame.exe`
+- Working Directory：`F:\WeGame`
+- Capture Child Processes：开启；随后通过 GUI 的 Launch 启动 WeGame。
+
+登录后在 WeGame 中启动 DF。2026-10-29 用户报告已挂上；该反馈不等于已经验证生成可回放的 RDC。进入游戏画面后抓帧并在工具中打开 RDC，确认 API、绘制调用和画面，才能验收抓帧。
+
+### 构建和排查
+
+1. 干净检出需按 `qrenderdoc/README.md` 安装官方 `qrenderdoc_3rdparty.zip`，使 GUI 带 PySide2；然后分别运行 `.\build_windows.ps1` 和 `.\build_windows.ps1 -Platform Win32`。x64 和 Win32 使用同一提交、同一 Development 配置；x64 会在 `Win32/Development` 查找 32 位辅助程序。Win32 构建参数映射到解决方案的 `x86`。
+2. 双击 BAT 前完全退出已运行的 WeGame；脚本检测到 `wegame.exe` 已运行时会退出，不会强制关闭它。若路径不同，需要同时修改 PowerShell 和 Python 文件中的 WeGame 路径及工作目录。
+3. 文档中的成功流程通过 TinecmaTool 的 Launch 启动 WeGame，之后从 WeGame 启动 DF；直接启动 GUI 或直接打开游戏 EXE 并不等价。界面中的启动器连接也不代表游戏子进程已挂上，需查看游戏子进程的实时捕获页面。
+4. 构建可能出现 SWIG `MSB8065`，提示声明的 `qrenderdoc.py` 未生成；本次两种架构构建均成功，但仍需检查相应 `.pyd` 和 GUI。若链接提示文件被占用，先正常关闭使用该构建目录的程序。
+5. 文档中的正式客户端流程使用管理员权限运行 GUI；如遇权限不足，按该流程以管理员身份启动 BAT。不要混用其他目录的 DLL 和辅助程序。
+
 ## 🐍 Python 工具
 
 ### auto_bypass.py ⭐ (推荐)

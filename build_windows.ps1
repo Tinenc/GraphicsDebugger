@@ -11,7 +11,8 @@ $msbuild = & $vswhere -latest -products '*' -requires Microsoft.Component.MSBuil
 if (!$msbuild) { throw 'Visual Studio MSBuild was not found.' }
 Push-Location $PSScriptRoot
 try {
-    & $msbuild renderdoc.sln "/p:Configuration=$Configuration" "/p:Platform=$Platform" /m:4 /nr:false /nologo /v:minimal
+    $solutionPlatform = if ($Platform -eq 'Win32') { 'x86' } else { $Platform }
+    & $msbuild renderdoc.sln "/p:Configuration=$Configuration" "/p:Platform=$solutionPlatform" /m:4 /nr:false /nologo /v:minimal
     if ($LASTEXITCODE -ne 0) { throw "MSBuild failed ($LASTEXITCODE). Close the GUI if the linker reports a locked output." }
 }
 finally { Pop-Location }
