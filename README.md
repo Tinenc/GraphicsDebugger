@@ -1,213 +1,167 @@
-# TinecmaTools - RenderDoc 反作弊绕过工具集
+# TinecmaTool (Stealth RenderDoc v1.44)
 
-本工具集提供了多种方法来绕过游戏反作弊系统对 RenderDoc 的检测,适用于图形开发、性能分析等合法用途。
+> 🎮 **面向 DirectX 12 商业游戏与《使命召唤》全系列的高可靠性图形调试与抓帧控制中心**
 
-## ⚠️ 免责声明
+TinecmaTool 是基于 RenderDoc v1.44 深度重构的隐匿性图形调试系统（Stealth Graphics Debugger）。针对现代商业大型 3D 游戏（如《使命召唤：现代战争 2019》战网版、《使命召唤 HQ》Steam 版等）严苛的反作弊监测与 D3D12/DXGI 设备拆分架构，彻底抛弃了易被拦截崩溃的全局钩子（Global Hook）与外部注入模式，构建了 **自研 DXGI + D3D12 双代理劫持层（Dual-Proxy）**、**PEB 模块链物理摘除**、**免杀安全门控** 以及 **一键式图形控制中心面板**。
 
-本工具仅供学习研究和合法的图形开发用途。使用者需自行承担使用风险,作者不对任何非法使用承担责任。
+---
 
-## 📦 工具列表
+## 🌟 核心特性与技术优势
 
-> 📁 **项目结构**: 完整的文件和目录说明请查看 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)
+### 1. 🛡️ 深度反作弊免杀与隐匿架构 (Anti-Cheat Safe Chain)
+* **PEB 模块链物理摘除 (`UnlinkModuleFromPEB`)**：
+  代理 DLL 在 `LoadLibraryA` 装载调试核心后，毫秒级遍历进程环境块（`PEB->Ldr`），将 `TinecmaTool.dll` 从三大加载链表（`InLoadOrderModuleList`、`InMemoryOrderModuleList`、`InInitializationOrderModuleList`）中双向抹除，彻底隐蔽调试器模块的存在。
+* **屏蔽 TargetControl TCP 监听端口**：
+  在 `renderdoc/core/core.cpp` 识别到 COD 系列进程时，跳过打开 `38920+` 调试端口，杜绝反作弊看门狗的本地端口扫描警报。
+* **跳过 IAT 导入表内存改写 (`g_SkipGraphicsDriverHooks`)**：
+  在 COD 模式下禁用对系统驱动 DLL 导入表的原地补丁（Inline Hook），完全依托自研双代理桥接，规避反作弊内联内存完整性校验导致的 `0xC0000005`（访问违例）崩溃。
+* **Frame 0 黑屏保护机制**：
+  在游戏初始化与着色器预编译阶段阻止盲目抓帧，防止过早的 GPU Readback 触发反作弊线程看门狗超时（`0x00001337`）。
 
-### 📖 文档
+### 2. ⚡ 双代理协同劫持 (Dual-Proxy Architecture)
+现代 D3D12 游戏通常将设备创建与窗口呈现分离：使用 `d3d12.dll!D3D12CreateDevice` 初始化底层图形硬件，但通过 `dxgi.dll!CreateDXGIFactory` 构建交换链（SwapChain）。
+* 传统方案仅代理 `dxgi.dll` 会导致严重错误：`Creating swap chain with non-hooked device`，调试器因未能包装底层设备而拒绝抓帧；
+* **TinecmaTool 方案**：在游戏目录同时部署编译好的 `dxgi.dll` 与 `d3d12.dll`，分别拦截设备创建与交换链生成，实现双向设备透明包装与帧捕获无缝协同。
 
-1. **快速开始指南** - [QUICK_START.md](QUICK_START.md)
-   - 5分钟快速上手教程
-   - 详细的步骤：
-   
-   1）先global hook 
+### 3. 🎯 现代游戏多端原生适配
+* **《使命召唤：现代战争 (2019)》 (战网 Battle.net: `ModernWarfare.exe`)**：
+  - 自动识别并规避游戏根目录自带的 1.9MB 微软旧版 Win7 运行时（`d3d12.dll`），将其安全重命名备份为 `d3d12_win7.dll.bak`；
+  - 部署自研代理透明桥接至 Windows 11 原生图形栈，支持战网客户端直启与免杀抓帧。
+* **《使命召唤 HQ》 (Steam: `cod.exe` / `sp26-cod.exe`)**：
+  - 自动感知 Steam 库目录，同步部署双代理至主根目录及单人战役子目录（`sp26\`）；
+  - 支持通过 Steam 协议 (`steam://rungameid/1938090`) 唤醒拉起。
+* **自定义 D3D12 商业游戏**：
+  - 支持任意 64 位 DirectX 12 游戏路径浏览、一键部署与无感捕获。
 
-   2）然后勾选 capture child process 
+---
 
-   3）launch 启动器 
+## 🚀 快速上手 (Quick Start)
 
-   4）使用Inject到需要注入的进程 
-   
+### 步骤 1：启动控制中心
+双击运行：
+```cmd
+tools\TinecmaTool启动向导.bat
+```
+*(或直接运行 [`tools\launch_tinecmatool.bat`](tools/launch_tinecmatool.bat))*
 
-   ![快速开始步骤](Zmd截图.png)
+脚本会自动请求管理员权限（UAC 提权），并在几秒内呼出统一图形控制中心面板：
 
-   ![Inject 步骤](Inject截图_17707116436894.png)
-
-### 🛠️ 工具
-
-### 1. 自动化绕过工具 ⭐ (推荐)
-- **文件**: `tools/auto_bypass.py`
-- **用途**: 一键执行完整的绕过流程
-- **使用**:
-  ```bash
-  python tools/auto_bypass.py \
-    --renderdoc "C:\Program Files\RenderDoc" \
-    --game "C:\Games\YourGame\game.exe"
-  ```
-
-### 2. 文件重命名工具 (PowerShell)
-- **文件**: `tools/rename_tool.ps1`
-- **用途**: 批量重命名 RenderDoc 文件以伪装身份
-- **使用**:
-  ```powershell
-  .\tools\rename_tool.ps1 -RenderDocPath "C:\Program Files\RenderDoc" -NewName "TinecmaTools"
-  ```
-
-### 3. DLL 注入工具 (PowerShell)
-- **文件**: `tools/inject_dll.ps1`
-- **用途**: 手动注入 RenderDoc DLL 到目标进程
-- **使用**:
-  ```powershell
-  .\tools\inject_dll.ps1 -ProcessName "game.exe" -DllPath "C:\Path\To\renderdoc.dll" -Delay 5
-  ```
-
-### 4. 字符串替换工具 (Python)
-- **文件**: `tools/string_replacer.py`
-- **用途**: 修改二进制文件中的特征字符串
-- **使用**:
-  ```bash
-  python tools/string_replacer.py renderdoc.dll
-  ```
-
-### 5. 进程列表 Hook (C++)
-- **文件**: `tools/hook_process_list.cpp`
-- **用途**: Hook 系统 API 隐藏 RenderDoc 进程
-- **编译**:
-  ```bash
-  cl /LD tools/hook_process_list.cpp
-  ```
-
-
-## 🚀 快速开始
-
-> 💡 **新手推荐**: 
-> - 查看 [QUICK_START.md](QUICK_START.md) 获取详细的5分钟快速上手指南
-> - 运行 `example_usage.ps1` 或 `example_usage.bat` 使用交互式菜单
-
-### 方法一: 自动化流程(推荐)
-
-```powershell
-# 1. 确保已安装 Python 3.x
-python --version
-
-# 2. 运行自动化工具
-python tools/auto_bypass.py --renderdoc "C:\Program Files\RenderDoc" --game "C:\Games\YourGame\game.exe"
+```
++-------------------------------------------------------------+
+|    TinecmaTool - D3D12 游戏抓帧控制中心                     |
++-------------------------------------------------------------+
+| [1] 目标游戏选择与路径:                                     |
+|   (*) 现代战争 2019 (战网: MW2019 / ModernWarfare.exe)      |
+|   ( ) Call of Duty HQ (Steam: cod.exe / sp26-cod.exe)       |
+|   ( ) 自定义... (Custom D3D12 Game)                         |
+|   游戏目录: [ D:\Call of Duty Modern Warfare        ] [浏览]|
+|                                                             |
+| [2] 抓帧后端配置:                                           |
+|   (*) TinecmaTool (RenderDoc v1.44) [推荐]                  |
+|   ( ) Microsoft PIX (WinPixGpuCapturer)                     |
+|                                                             |
+| [3] 抓帧与调试工具箱:                                       |
+|   [📸 立即抓帧(F12)]  [🖼️ 预览缩略图]  [🔍 打开截帧]       |
+|   [📦 重新部署代理]   [📋 查看日志]    [🧹 清理反作弊]      |
+|                                                             |
+|   [x] 启动后保持控制面板开启 (推荐)                         |
+|   [ 🚀 部署代理并启动游戏 ]                  [ 退出 ]       |
++-------------------------------------------------------------+
 ```
 
-### 方法二: 手动步骤
+### 步骤 2：部署并启动游戏
+1. 选中目标游戏（面板会自动检测并填充游戏安装路径）；
+2. 确认抓帧后端为 **TinecmaTool**；
+3. 点击 **`🚀 部署代理并启动游戏`**（或按回车键）；
+4. 游戏自动拉起，控制面板常驻桌面，游戏左上角将呈现稳定的 TinecmaTool HUD 信息（如 `Capturing D3D12...`）。
 
-```powershell
-# 步骤 1: 重命名文件
-.\tools\rename_tool.ps1
+### 步骤 3：一键抓帧与逆向分析
+进入游戏 3D 渲染画面（如主菜单展示、单人战役或战斗对局）后：
+1. **触发抓帧**：在面板中点击 **`📸 立即触发抓帧 (F12)`**（或在游戏窗口中按下 F12）；
+2. **预览画面**：点击 **`🖼️ 预览最新截帧缩略图`**，控制中心自动调用 `qTinecmaTool thumb` 秒级提取渲染帧画面供即时确认；
+3. **深入调试**：点击 **`🔍 在 qTinecmaTool 中打开`**，调试器图形界面随即载入桌面最新的 `.rdc` 文件，即可进行完整 DrawCall 拓扑追踪、CBV/SRV/UAV 资源检查与 HLSL 反编译着色器逐行调试。
 
-# 步骤 2: 修改特征字符串
-python tools\string_replacer.py "C:\Program Files\RenderDoc\renderdoc.dll"
+---
 
-# 步骤 3: 启动游戏后注入
-.\tools\inject_dll.ps1 -ProcessName "game" -DllPath "C:\Program Files\RenderDoc\renderdoc.dll"
+## 💡 GUI 与启动排坑实战总结 (Pitfalls & Debugging Log)
+
+在研发与实机适配过程中，总结了以下关键坑点与解决方案：
+
+| 序号 | 坑点现象 | 根本原因 (Root Cause) | 解决方案 (Solution) |
+| :---: | :--- | :--- | :--- |
+| **1** | **PowerShell 界面解析报错 / 语法乱码** | Windows PowerShell 5.1 在中文环境下默认以 GBK (CP936) 解码无 BOM 的 UTF-8 脚本，导致中文注释和字符串切片解析错位，引发 `Token Expected` 异常。 | 必须使用带有 **UTF-8 BOM 头**（`EF BB BF`）的编码格式保存所有 `.ps1` 脚本文件，杜绝非 ASCII 字符解析崩溃。 |
+| **2** | **现代战争 2019 启动闪退 / Win7 兼容层冲突** | MW2019 游戏根目录自带 1.9MB 的过时微软运行时（`d3d12.dll`），在 Win10/Win11 上无法正确提供现代 D3D12 与 DXGI 接口。 | 启动器自动将原文件安全重命名备份为 `d3d12_win7.dll.bak`，并替换为我们自研编译的 16KB D3D12 代理库，透传系统原生图形驱动。 |
+| **3** | **HUD 未显示 / `Creating swap chain with non-hooked device`** | 仅部署 `dxgi.dll` 代理时，游戏动态调用的 `d3d12.dll!D3D12CreateDevice` 绕过了拦截，交换链接收到未受控的原生设备。 | 必须严格使用 **双代理（Dual Proxy）** 策略，确保 `dxgi.dll` 与 `d3d12.dll` 同时驻留游戏目录并完成桥接。 |
+| **4** | **Frame 0 黑屏阶段按 F12 闪退 (0x00001337)** | 在游戏刚拉起、着色器未完成预编译前盲目触发抓帧，瞬时同步 GPU Readback 会导致反作弊线程看门狗超时判定为作弊挂起。 | 严禁在黑屏和着色器加载阶段按键，必须待游戏进入 **3D 主菜单角色展示** 或战斗画面、左上角 HUD 稳定呈现后触发。 |
+| **5** | **UAC 管理员提权后找不到文件** | 批处理通过 `RunAs` 提权后，系统默认将当前工作目录（Working Directory）重置为 `C:\Windows\System32`。 | 启动脚本在提权前后均显式加入 `cd /d "%~dp0"`，确保工作目录严格锚定在 `tools\` 目录内。 |
+| **6** | **游戏内存校验崩溃 (APPCRASH 0xC0000005)** | 传统 RenderDoc 会改写系统驱动 DLL 的导入表（IAT Hook），触发 Ricochet / Arxan 反作弊内存完整性看门狗报警。 | 在识别到 COD 目标时，自动设置 `g_SkipGraphicsDriverHooks = true`，完全跳过 IAT 内存篡改，仅靠双代理转发。 |
+| **7** | **反作弊服务挂起导致游戏无法拉起** | 前序测试残留的 `atvi-randgrid_sr` 反作弊驱动状态异常。 | 控制中心集成了 **`🧹 一键清理反作弊/环境`** 功能，一键停止驱动并清除残留信号，恢复干净启动环境。 |
+
+---
+
+## 📂 项目结构概览
+
+```text
+GraphicsDebugger-Steam-Cod/
+├── renderdoc/                          # RenderDoc v1.44 核心源码 (C++)
+│   ├── core/core.cpp                   # 扩展 isCod 免杀门控，屏蔽 TargetControl 端口
+│   ├── os/win32/win32_libentry.cpp     # 跳过 IAT Hook 保护
+│   └── driver/d3d12/                   # D3D12 设备包装与捕获管线
+├── qrenderdoc/                         # Qt 图形界面前端源码
+│
+├── x64/Development/                    # 编译输出目录
+│   ├── TinecmaTool.dll                 # 调试核心动态库 (76.5 MB, 无作弊特征)
+│   ├── qTinecmaTool.exe                # 官方调试器 GUI (免安装版)
+│   └── TinecmaToolcmd.exe              # 命令行分析与缩略图导出工具
+│
+├── tools/                              # [核心] 控制中心与工具集
+│   ├── TinecmaTool启动向导.bat        # [推荐] 双击直达启动向导 (自动提权)
+│   ├── launch_tinecmatool.bat           # 核心提权启动器
+│   ├── gui_countdown.ps1                # 图形控制中心面板 (UTF-8 BOM)
+│   ├── README.md                        # 工具集详细技术手册与排坑指引
+│   │
+│   ├── proxy/                           # [双代理劫持层]
+│   │   ├── dxgi_proxy.cpp / dxgi.def    # DXGI 代理源码 (拦截 CreateDXGIFactory)
+│   │   ├── d3d12_proxy.cpp / d3d12.def  # D3D12 代理源码 (拦截 D3D12CreateDevice)
+│   │   ├── build.bat                    # 一键 MSVC x64 编译脚本
+│   │   ├── dxgi.dll                     # 预编译 DXGI 代理动态库 (25 KB)
+│   │   └── d3d12.dll                    # 预编译 D3D12 代理动态库 (16 KB)
+│   │
+│   └── diagnostics/                     # [诊断与测试工具集]
+│       ├── test_capture.py              # 自动化抓帧与 .rdc 校验脚本
+│       ├── run_live_capture.py          # 实机抓帧阶段断言监控
+│       ├── capture_screen.py            # GDI/DIB 窗口与渲染截屏诊断
+│       ├── check_desktop_windows.py     # 桌面所有窗口/错误弹窗枚举
+│       ├── inspect_crash_dialog.py      # 崩溃弹窗自动捕获与文本提取
+│       ├── measure_threads.ps1          # 目标进程线程采样与看门狗监控
+│       ├── resolve.exe / resolve.cpp    # 崩溃地址符号反解工具 (APPCRASH 偏移分析)
+│       └── read_rdc.ps1                 # RDC 捕获文件完整性校验
+│
+├── build_renderdoc.bat                  # 一键增量编译调试器核心
+└── renderdoc.sln                        # Visual Studio 2022 解决方案
 ```
 
-## 📋 检测绕过检查清单
+---
 
-使用前请确认:
+## 🔨 编译与构建 (Build from Source)
 
-- [ ] 已重命名所有 RenderDoc 相关文件
-- [ ] 已修改二进制文件中的特征字符串
-- [ ] 使用延迟注入避开启动检测
-- [ ] 测试环境下验证功能正常
-- [ ] 确认用途合法合规
+### 1. 编译调试器核心 (`TinecmaTool.dll`)
+使用内置增量构建脚本或 Visual Studio 2022：
+```cmd
+build_renderdoc.bat
+```
+*(或在 MSBuild 环境下指定工程：`msbuild renderdoc.sln /p:Configuration=Development /p:Platform=x64`)*
 
-## 🛠️ 技术原理
+### 2. 编译双代理动态库 (`dxgi.dll` & `d3d12.dll`)
+在 Visual Studio 开发者命令提示符（x64 Native Tools Command Prompt）下执行：
+```cmd
+cd /d "C:\Program Files\GraphicsDebugger-Steam-Cod\tools\proxy"
+build.bat
+```
+脚本将自动调用 `cl.exe` 和 `link.exe`，输出仅数十 KB 的纯 C 原生代理 DLL。
 
-### 常见检测方法
+---
 
-1. **进程名检测**
-   - 扫描进程列表
-   - 匹配黑名单进程名
+## ⚠️ 免责声明 (Disclaimer)
 
-2. **内存特征检测**
-   - 扫描已加载 DLL
-   - 检测特征字符串
-
-3. **驱动级检测**
-   - 内核回调监控
-   - 对象枚举
-
-### 对应绕过方法
-
-1. **文件伪装**
-   - 重命名可执行文件
-   - 修改内部字符串
-
-2. **延迟注入**
-   - 在初始化后注入
-   - 避开启动检测
-
-3. **API Hook**
-   - Hook 进程枚举函数
-   - 隐藏进程信息
-
-## 📊 兼容性
-
-| 反作弊系统 | 兼容性 | 备注 |
-|-----------|--------|------|
-| 基础进程检测 | ✅ 完全支持 | 重命名即可绕过 |
-| EasyAntiCheat | ⚠️ 部分支持 | 需要多种方法组合 |
-| BattlEye | ⚠️ 部分支持 | 需要内核级对抗 |
-| Vanguard | ❌ 不支持 | 内核级反作弊,难度极高 |
-
-## 🔧 故障排除
-
-### 问题: 从 Git 拉取后编译报错
-
-**解决方案**: 请查看 [编译故障排除文档](docs/BUILD_TROUBLESHOOTING.md)，涵盖：
-- 缺少 `wymsrv.dll` / `symsrv.dll` / `dbghelp.dll` 的解决方法
-- SWIG、Qt 自定义生成失败（退出码 9009、3）的解决方法
-- 前置环境与依赖说明
-
-### 问题: 注入失败
-
-**解决方案**:
-1. 确认游戏进程正在运行
-2. 以管理员身份运行工具
-3. 增加注入延迟时间
-
-### 问题: 仍被检测
-
-**解决方案**:
-1. 检查是否修改了所有特征字符串
-2. 尝试使用虚拟机隔离
-3. 考虑使用内核级 Hook
-
-### 问题: 游戏崩溃
-
-**解决方案**:
-1. 确认 RenderDoc 版本与游戏兼容
-2. 尝试不同的注入时机
-3. 检查是否有冲突的其他工具
-
-## 📚 参考资料
-
-- [RenderDoc 官方文档](https://renderdoc.org/docs/)
-- [Windows API Hook 技术](https://docs.microsoft.com/en-us/windows/win32/)
-- [反作弊系统分析](https://github.com/topics/anti-cheat)
-
-## 🔒 安全提示
-
-1. **仅用于合法目的**: 单机游戏优化、图形开发学习等
-2. **风险自负**: 可能违反游戏服务条款导致封禁
-3. **保护隐私**: 不要在公共平台分享具体绕过细节
-4. **持续更新**: 反作弊系统会不断升级,需要持续研究
-
-## 📝 版本历史
-
-- **v1.0** (2026-02-08): 初始版本
-  - 基础文件伪装
-  - 字符串替换
-  - DLL 注入
-  - 自动化流程
-  - 品牌名称: TinecmaTools
-
-## 🤝 贡献
-
-欢迎提交问题和改进建议!
-
-## 📄 许可证
-
-本工具集仅供学习研究使用。
+本项目仅供图形学学习、渲染架构研究、着色器逆向分析及正当的性能优化用途。严禁用于任何网络对战作弊或侵犯知识产权之非法行为。使用者需自行承担使用风险与遵守相关软件许可协议。
