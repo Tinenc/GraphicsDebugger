@@ -29,3 +29,9 @@ Windows / Visual Studio 2022 Professional / MSBuild v143，Development x64。在
 结果：5 个 Python 文件语法检查通过；注册 37 个工具；直接 IPC ping 返回 status=ok；MCP SDK 客户端通过 stdio 完成 initialize、list_tools、call_tool(ping)，返回 status=ok。Python 3.14.2 / mcp 1.30.0。详见 JSON 验收记录。
 
 本次未加载 RDC（loaded=false），验证范围为构建与 MCP 连通，不包含抓帧、回放和所有分析工具。GUI 首次启动会清理旧 IPC 请求，应在扩展初始化完成后执行验收。客户端配置示例已指向本次标准构建目录。
+
+## 最新分支复验（2026-10-29 20:44，UTC+8）
+
+针对分支提交 `18c3f7f70c8a60e0f7cfdc70d63a9c550dd7b3e9` 重新浅克隆并构建 Development x64。干净检出需按 `qrenderdoc/README.md` 安装官方 `qrenderdoc_3rdparty.zip`，再运行 `build_windows.ps1`，以启用 PySide2。构建成功；SWIG 仍报告 MSB8065（声明的 qrenderdoc.py 未生成），实际 qrenderdoc.pyd 和 GUI 已生成。
+
+启动新构建的 GUI，并使用独立 TEMP 目录避免与其他正在运行的实例共用 IPC。Python 3.12.14、MCP SDK 1.30.0：语法检查通过，注册 37 个工具，直接 IPC ping 和 MCP stdio 客户端 ping 均返回 `status: ok`。本次没有加载 RDC，因此未验证回放和分析工具。结果见 `integrations/renderdoc-mcp/verification-recheck-2026-10-29.json`。
