@@ -1,0 +1,10 @@
+{
+    "extension_api": 1,
+    "name": "Batch FBX Exporter (Auto Matrix + ExtraUV)",
+    "version": "2.1.0",
+    "minimum_renderdoc": "1.17",
+    "description": "Batch FBX export with per-EventID matrices, shader export, five UV sets, and selectable UV channels",
+    "author": "Maek",
+    "url": ""
+}
+
