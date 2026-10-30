@@ -954,81 +954,69 @@ static DWORD WINAPI TriggerMonitorThread(LPVOID) {
 
 // ---------------------------------------------------------------------------
 
+static thread_local bool t_inCreateFactory = false;
+
 extern "C" {
 
-
-
 __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory(REFIID riid, void** ppFactory) {
+    if (t_inCreateFactory) {
+        Log("[Bridge:DXGI] Callback from TinecmaTool detected -> Forwarding to real system CreateDXGIFactory");
+        return g_pfnCreateDXGIFactory ? g_pfnCreateDXGIFactory(riid, ppFactory) : E_FAIL;
+    }
 
     if ((g_captureMode == CaptureMode::RenderDoc || g_captureMode == CaptureMode::Both) && g_pfnRdocCreateDXGIFactory) {
-
         Log("[Bridge:RenderDoc] Routing CreateDXGIFactory to TinecmaTool...");
-
+        t_inCreateFactory = true;
         HRESULT hr = g_pfnRdocCreateDXGIFactory(riid, ppFactory);
-
+        t_inCreateFactory = false;
         Log("[Bridge:RenderDoc] CreateDXGIFactory returned hr=0x%08X (ppFactory=%p)", hr, ppFactory ? *ppFactory : nullptr);
-
         return hr;
-
     }
 
     HRESULT hr = g_pfnCreateDXGIFactory ? g_pfnCreateDXGIFactory(riid, ppFactory) : E_FAIL;
-
     Log("CreateDXGIFactory returned hr=0x%08X", hr);
-
     return hr;
-
 }
 
-
-
 __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory1(REFIID riid, void** ppFactory) {
+    if (t_inCreateFactory) {
+        Log("[Bridge:DXGI] Callback from TinecmaTool detected -> Forwarding to real system CreateDXGIFactory1");
+        return g_pfnCreateDXGIFactory1 ? g_pfnCreateDXGIFactory1(riid, ppFactory) : E_FAIL;
+    }
 
     if ((g_captureMode == CaptureMode::RenderDoc || g_captureMode == CaptureMode::Both) && g_pfnRdocCreateDXGIFactory1) {
-
         Log("[Bridge:RenderDoc] Routing CreateDXGIFactory1 to TinecmaTool...");
-
+        t_inCreateFactory = true;
         HRESULT hr = g_pfnRdocCreateDXGIFactory1(riid, ppFactory);
-
+        t_inCreateFactory = false;
         Log("[Bridge:RenderDoc] CreateDXGIFactory1 returned hr=0x%08X (ppFactory=%p)", hr, ppFactory ? *ppFactory : nullptr);
-
         return hr;
-
     }
 
     HRESULT hr = g_pfnCreateDXGIFactory1 ? g_pfnCreateDXGIFactory1(riid, ppFactory) : E_FAIL;
-
     Log("CreateDXGIFactory1 returned hr=0x%08X", hr);
-
     return hr;
-
 }
 
-
-
 __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory2(UINT flags, REFIID riid, void** ppFactory) {
+    if (t_inCreateFactory) {
+        Log("[Bridge:DXGI] Callback from TinecmaTool detected -> Forwarding to real system CreateDXGIFactory2");
+        return g_pfnCreateDXGIFactory2 ? g_pfnCreateDXGIFactory2(flags, riid, ppFactory) : E_FAIL;
+    }
 
     if ((g_captureMode == CaptureMode::RenderDoc || g_captureMode == CaptureMode::Both) && g_pfnRdocCreateDXGIFactory2) {
-
         Log("[Bridge:RenderDoc] Routing CreateDXGIFactory2(flags=0x%08X) to TinecmaTool...", flags);
-
+        t_inCreateFactory = true;
         HRESULT hr = g_pfnRdocCreateDXGIFactory2(flags, riid, ppFactory);
-
+        t_inCreateFactory = false;
         Log("[Bridge:RenderDoc] CreateDXGIFactory2 returned hr=0x%08X (ppFactory=%p)", hr, ppFactory ? *ppFactory : nullptr);
-
         return hr;
-
     }
 
     HRESULT hr = g_pfnCreateDXGIFactory2 ? g_pfnCreateDXGIFactory2(flags, riid, ppFactory) : E_FAIL;
-
     Log("CreateDXGIFactory2(flags=0x%08X) returned hr=0x%08X", flags, hr);
-
     return hr;
-
 }
-
-
 
 __declspec(dllexport) HRESULT WINAPI DXGIDeclareAdapterRemovalSupport() {
 

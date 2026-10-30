@@ -15,7 +15,7 @@ if ([string]::IsNullOrWhiteSpace($DesktopDir)) {
     $DesktopDir = [System.IO.Path]::Combine($env:USERPROFILE, "Desktop")
 }
 
-$toolsDir = if (Test-Path (Join-Path $PSScriptRoot "proxy")) { $PSScriptRoot } else { "C:\Program Files\GraphicsDebugger-Steam-Cod\tools" }
+$toolsDir = if (![string]::IsNullOrWhiteSpace($PSScriptRoot) -and (Test-Path (Join-Path $PSScriptRoot "proxy"))) { $PSScriptRoot } else { "C:\Program Files\GraphicsDebugger-Steam-Cod\tools" }
 $repoRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($toolsDir, ".."))
 if ([string]::IsNullOrWhiteSpace($ToolDll)) {
     $ToolDll = [System.IO.Path]::Combine($repoRoot, "x64", "Development", "TinecmaTool.dll")
@@ -74,6 +74,29 @@ if ([string]::IsNullOrWhiteSpace($SteamDir)) {
         $sReg = Get-ItemProperty -Path "HKCU:\Software\Valve\Steam" -ErrorAction SilentlyContinue
         if ($sReg -and $sReg.SteamPath) {
             $SteamDir = $sReg.SteamPath.Replace("/", "\")
+        }
+    } catch {}
+}
+
+$BattleNetLauncher = ""
+$bnetCandidates = @(
+    "C:\Program Files (x86)\Battle.net\Battle.net Launcher.exe",
+    "C:\Program Files\Battle.net\Battle.net Launcher.exe",
+    "C:\Program Files (x86)\Battle.net\Battle.net.exe",
+    "C:\Program Files\Battle.net\Battle.net.exe"
+)
+foreach ($b in $bnetCandidates) {
+    if (Test-Path $b) {
+        $BattleNetLauncher = $b
+        break
+    }
+}
+if ([string]::IsNullOrWhiteSpace($BattleNetLauncher)) {
+    try {
+        $bCmd = (Get-ItemProperty "Registry::HKEY_CLASSES_ROOT\battlenet\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
+        if ($bCmd -match '"([^"]+)"') {
+            $p = $matches[1]
+            if (Test-Path $p) { $BattleNetLauncher = $p }
         }
     } catch {}
 }
@@ -166,7 +189,7 @@ $btnBrowse.Cursor = [System.Windows.Forms.Cursors]::Hand
 $btnBrowse.Add_Click({
     $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
     $dlg.Description = "选择游戏安装根目录"
-    if (Test-Path $txtGame.Text) { $dlg.SelectedPath = $txtGame.Text }
+    if (![string]::IsNullOrWhiteSpace($txtGame.Text) -and (Test-Path $txtGame.Text)) { $dlg.SelectedPath = $txtGame.Text }
     if ($dlg.ShowDialog() -eq "OK") {
         $txtGame.Text = $dlg.SelectedPath
     }
@@ -238,7 +261,7 @@ $grpTools.BackColor = [System.Drawing.Color]::FromArgb(40, 42, 48)
 $btnTrigger = New-Object System.Windows.Forms.Button
 $btnTrigger.Location = New-Object System.Drawing.Point(16, 26)
 $btnTrigger.Size = New-Object System.Drawing.Size(205, 36)
-$btnTrigger.Text = "📸 立即触发抓帧 (F12)"
+$btnTrigger.Text = "[F12] 立即触发抓帧"
 $btnTrigger.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5, [System.Drawing.FontStyle]::Bold)
 $btnTrigger.BackColor = [System.Drawing.Color]::FromArgb(0, 130, 85)
 $btnTrigger.ForeColor = [System.Drawing.Color]::White
@@ -250,7 +273,7 @@ $grpTools.Controls.Add($btnTrigger)
 $btnThumb = New-Object System.Windows.Forms.Button
 $btnThumb.Location = New-Object System.Drawing.Point(235, 26)
 $btnThumb.Size = New-Object System.Drawing.Size(205, 36)
-$btnThumb.Text = "🖼️ 预览最新截帧缩略图"
+$btnThumb.Text = "[预览] 最新截帧缩略图"
 $btnThumb.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5)
 $btnThumb.BackColor = [System.Drawing.Color]::FromArgb(45, 95, 145)
 $btnThumb.ForeColor = [System.Drawing.Color]::White
@@ -262,7 +285,7 @@ $grpTools.Controls.Add($btnThumb)
 $btnOpenRdoc = New-Object System.Windows.Forms.Button
 $btnOpenRdoc.Location = New-Object System.Drawing.Point(454, 26)
 $btnOpenRdoc.Size = New-Object System.Drawing.Size(205, 36)
-$btnOpenRdoc.Text = "🔍 在 qTinecmaTool 中打开"
+$btnOpenRdoc.Text = "[查看] 在 qTinecmaTool 中打开"
 $btnOpenRdoc.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.5)
 $btnOpenRdoc.BackColor = [System.Drawing.Color]::FromArgb(105, 65, 145)
 $btnOpenRdoc.ForeColor = [System.Drawing.Color]::White
@@ -275,7 +298,7 @@ $grpTools.Controls.Add($btnOpenRdoc)
 $btnDeploy = New-Object System.Windows.Forms.Button
 $btnDeploy.Location = New-Object System.Drawing.Point(16, 70)
 $btnDeploy.Size = New-Object System.Drawing.Size(205, 34)
-$btnDeploy.Text = "📦 重新部署双代理 DLL"
+$btnDeploy.Text = "[同步] 重新部署双代理 DLL"
 $btnDeploy.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
 $btnDeploy.BackColor = [System.Drawing.Color]::FromArgb(60, 64, 75)
 $btnDeploy.ForeColor = [System.Drawing.Color]::White
@@ -287,7 +310,7 @@ $grpTools.Controls.Add($btnDeploy)
 $btnViewLog = New-Object System.Windows.Forms.Button
 $btnViewLog.Location = New-Object System.Drawing.Point(235, 70)
 $btnViewLog.Size = New-Object System.Drawing.Size(205, 34)
-$btnViewLog.Text = "📋 查看代理运行日志"
+$btnViewLog.Text = "[日志] 查看代理运行日志"
 $btnViewLog.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
 $btnViewLog.BackColor = [System.Drawing.Color]::FromArgb(60, 64, 75)
 $btnViewLog.ForeColor = [System.Drawing.Color]::White
@@ -299,7 +322,7 @@ $grpTools.Controls.Add($btnViewLog)
 $btnClean = New-Object System.Windows.Forms.Button
 $btnClean.Location = New-Object System.Drawing.Point(454, 70)
 $btnClean.Size = New-Object System.Drawing.Size(205, 34)
-$btnClean.Text = "🧹 一键清理反作弊/环境"
+$btnClean.Text = "[清理] 一键清理反作弊/环境"
 $btnClean.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
 $btnClean.BackColor = [System.Drawing.Color]::FromArgb(60, 64, 75)
 $btnClean.ForeColor = [System.Drawing.Color]::White
@@ -364,7 +387,7 @@ $form.Controls.Add($chkKeepOpen)
 $btnLaunch = New-Object System.Windows.Forms.Button
 $btnLaunch.Location = New-Object System.Drawing.Point(24, 604)
 $btnLaunch.Size = New-Object System.Drawing.Size(380, 46)
-$btnLaunch.Text = "🚀 部署代理并启动游戏 (Enter)"
+$btnLaunch.Text = "▶ 部署代理并启动游戏 (Enter)"
 $btnLaunch.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 11, [System.Drawing.FontStyle]::Bold)
 $btnLaunch.BackColor = [System.Drawing.Color]::FromArgb(0, 150, 100)
 $btnLaunch.ForeColor = [System.Drawing.Color]::White
@@ -375,7 +398,7 @@ $btnLaunch.Cursor = [System.Windows.Forms.Cursors]::Hand
 $btnExit = New-Object System.Windows.Forms.Button
 $btnExit.Location = New-Object System.Drawing.Point(420, 604)
 $btnExit.Size = New-Object System.Drawing.Size(279, 46)
-$btnExit.Text = "✖ 退出面板 (Esc)"
+$btnExit.Text = "✕ 退出面板 (Esc)"
 $btnExit.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 10.5)
 $btnExit.BackColor = [System.Drawing.Color]::FromArgb(70, 72, 80)
 $btnExit.ForeColor = [System.Drawing.Color]::White
@@ -592,10 +615,10 @@ $updateGameInfo = {
                     $txtGame.Text = $detectedMW2019
                 }
             }
-            $isFound = (Test-Path $txtGame.Text) -and (Test-Path (Join-Path $txtGame.Text "ModernWarfare.exe"))
+            $isFound = (![string]::IsNullOrWhiteSpace($txtGame.Text)) -and (Test-Path $txtGame.Text) -and (Test-Path (Join-Path $txtGame.Text "ModernWarfare.exe"))
             if ($isFound) {
                 $lblGameTip.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
-                $lblGameTip.Text = "状态：已检测到 ModernWarfare.exe！`n适配：Win7 遗留库避坑完成，双代理已就绪。点击启动将拉起游戏，战网客户端亦可直接进入。"
+                $lblGameTip.Text = "状态：已检测到 ModernWarfare.exe！`n适配：Win7 遗留库避坑完成，双代理已就绪。点击启动将拉起战网与游戏，战网客户端亦可直接进入。"
             } else {
                 $lblGameTip.ForeColor = [System.Drawing.Color]::FromArgb(255, 140, 100)
                 $lblGameTip.Text = "提示：未在当前目录找到 ModernWarfare.exe，请点击 [浏览...] 选择《使命召唤：现代战争》安装目录。"
@@ -606,7 +629,7 @@ $updateGameInfo = {
                     $txtGame.Text = $detectedCodHQ
                 }
             }
-            $isFound = (Test-Path $txtGame.Text) -and (Test-Path (Join-Path $txtGame.Text "cod.exe"))
+            $isFound = (![string]::IsNullOrWhiteSpace($txtGame.Text)) -and (Test-Path $txtGame.Text) -and (Test-Path (Join-Path $txtGame.Text "cod.exe"))
             if ($isFound) {
                 $lblGameTip.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
                 $lblGameTip.Text = "状态：已检测到 cod.exe！`n适配：双代理将自动同步至根目录及单人战役子目录 sp26\，点击启动将通过 Steam 唤醒拉起。"
@@ -629,10 +652,13 @@ $rbGameCustom.Add_CheckedChanged({ & $updateGameInfo })
 $txtGame.Add_TextChanged({ & $updateGameInfo })
 
 # Set initial game selection
-if ((Test-Path (Join-Path $GameDir "ModernWarfare.exe")) -or ($GameDir -match "Modern Warfare")) {
+$hasMW = (![string]::IsNullOrWhiteSpace($GameDir)) -and ((Test-Path (Join-Path $GameDir "ModernWarfare.exe")) -or ($GameDir -match "Modern Warfare"))
+$hasCod = (![string]::IsNullOrWhiteSpace($GameDir)) -and (Test-Path (Join-Path $GameDir "cod.exe"))
+
+if ($hasMW) {
     $rbGameMW.Checked = $true
     $txtGame.Text = if (![string]::IsNullOrWhiteSpace($GameDir)) { $GameDir } else { $detectedMW2019 }
-} elseif (Test-Path (Join-Path $GameDir "cod.exe")) {
+} elseif ($hasCod) {
     $rbGameCod.Checked = $true
     $txtGame.Text = $GameDir
 } elseif (![string]::IsNullOrWhiteSpace($detectedMW2019) -and [string]::IsNullOrWhiteSpace($detectedCodHQ)) {
@@ -664,12 +690,64 @@ $btnLaunch.Add_Click({
         $lblToolStatus.ForeColor = [System.Drawing.Color]::FromArgb(100, 220, 160)
 
         if ($rbGameMW.Checked) {
-            $mwExe = Join-Path $txtGame.Text "ModernWarfare.exe"
-            if (Test-Path $mwExe) {
-                Start-Process -FilePath $mwExe -WorkingDirectory $txtGame.Text
-                $lblToolStatus.Text = "[游戏已拉起] ModernWarfare.exe 启动成功！(战网客户端亦可直接点击进入游戏)"
+            # 1. Detect Battle.net launcher
+            $bnetExe = $BattleNetLauncher
+            if ([string]::IsNullOrWhiteSpace($bnetExe) -or !(Test-Path $bnetExe)) {
+                $bCandidates = @(
+                    "C:\Program Files (x86)\Battle.net\Battle.net Launcher.exe",
+                    "C:\Program Files\Battle.net\Battle.net Launcher.exe",
+                    "C:\Program Files (x86)\Battle.net\Battle.net.exe",
+                    "C:\Program Files\Battle.net\Battle.net.exe"
+                )
+                foreach ($b in $bCandidates) {
+                    if (Test-Path $b) { $bnetExe = $b; break }
+                }
+            }
+
+            # 2. Check if Battle.net is already running; if not, launch Battle.net
+            $bnetRunning = Get-Process | Where-Object { $_.ProcessName -like "*Battle.net*" }
+            if (!$bnetRunning -and (![string]::IsNullOrWhiteSpace($bnetExe)) -and (Test-Path $bnetExe)) {
+                $bnetDir = [System.IO.Path]::GetDirectoryName($bnetExe)
+                Start-Process -FilePath $bnetExe -WorkingDirectory $bnetDir
+                Start-Sleep -Seconds 2
+            }
+
+            # 3. Launch game via Modern Warfare Launcher stub and URI protocol
+            $mwLauncher = if (![string]::IsNullOrWhiteSpace($txtGame.Text)) { Join-Path $txtGame.Text "Modern Warfare Launcher.exe" } else { "" }
+            $launched = $false
+
+            if (![string]::IsNullOrWhiteSpace($mwLauncher) -and (Test-Path $mwLauncher)) {
+                try {
+                    Start-Process -FilePath $mwLauncher -WorkingDirectory $txtGame.Text
+                    $launched = $true
+                } catch {}
+            }
+
+            # Also wake up / focus MW2019 (ODIN) page in Battle.net via URI protocol
+            try {
+                Start-Process "battlenet://ODIN"
+                $launched = $true
+            } catch {}
+
+            # If Battle.net CLI launcher exists, trigger launch argument
+            if (![string]::IsNullOrWhiteSpace($bnetExe) -and (Test-Path $bnetExe)) {
+                try {
+                    $bnetDir = [System.IO.Path]::GetDirectoryName($bnetExe)
+                    Start-Process -FilePath $bnetExe -WorkingDirectory $bnetDir -ArgumentList "--exec=`"launch ODIN`""
+                    $launched = $true
+                } catch {}
+            }
+
+            if ($launched) {
+                $lblToolStatus.Text = "[战网已拉起] 已唤醒战网客户端并定位至《使命召唤：现代战争》！`n双代理已部署就绪，若游戏未自动进入，可在战网客户端直接点击【进入游戏】。"
             } else {
-                $lblToolStatus.Text = "[代理已就绪] 请直接在战网 (Battle.net) 客户端点击【进入游戏】。"
+                $mwExe = if (![string]::IsNullOrWhiteSpace($txtGame.Text)) { Join-Path $txtGame.Text "ModernWarfare.exe" } else { "" }
+                if (![string]::IsNullOrWhiteSpace($mwExe) -and (Test-Path $mwExe)) {
+                    Start-Process -FilePath $mwExe -WorkingDirectory $txtGame.Text
+                    $lblToolStatus.Text = "[游戏已拉起] ModernWarfare.exe 启动成功！(战网客户端亦可直接点击进入游戏)"
+                } else {
+                    $lblToolStatus.Text = "[代理已就绪] 请直接在战网 (Battle.net) 客户端点击【进入游戏】。"
+                }
             }
         } elseif ($rbGameCod.Checked) {
             # Start Steam if needed

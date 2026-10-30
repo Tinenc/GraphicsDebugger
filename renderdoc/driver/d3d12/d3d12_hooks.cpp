@@ -1,4 +1,4 @@
-/******************************************************************************
+﻿/******************************************************************************
  * The MIT License (MIT)
  *
  * Copyright (c) 2016-2026 Baldur Karlsson
@@ -917,23 +917,17 @@ public:
                                                void **ppDevice)
   {
     LogGraphicsCreationCaller("D3D12CreateDevice", GRAPHICS_DIAGNOSTICS_CALLER());
-    PFN_D3D12_CREATE_DEVICE createFunc = d3d12hooks.CreateDevice();
+    char sysPath[MAX_PATH];
+    GetSystemDirectoryA(sysPath, MAX_PATH);
+    strcat_s(sysPath, "\\d3d12.dll");
+    HMODULE sysD3D12 = LoadLibraryA(sysPath);
+    PFN_D3D12_CREATE_DEVICE createFunc = sysD3D12 ? (PFN_D3D12_CREATE_DEVICE)GetProcAddress(sysD3D12, "D3D12CreateDevice") : d3d12hooks.CreateDevice();
 
     if(!createFunc)
     {
-      char sysPath[MAX_PATH];
-      GetSystemDirectoryA(sysPath, MAX_PATH);
-      strcat_s(sysPath, "\\d3d12.dll");
-      HMODULE sysD3D12 = LoadLibraryA(sysPath);
-      if(sysD3D12)
-        createFunc = (PFN_D3D12_CREATE_DEVICE)GetProcAddress(sysD3D12, "D3D12CreateDevice");
-
-      if(!createFunc)
-      {
-        HMODULE d3d12 = GetModuleHandleA("d3d12.dll");
-        if(d3d12)
-          createFunc = (PFN_D3D12_CREATE_DEVICE)GetProcAddress(d3d12, "D3D12CreateDevice");
-      }
+      HMODULE d3d12 = GetModuleHandleA("d3d12.dll");
+      if(d3d12)
+        createFunc = (PFN_D3D12_CREATE_DEVICE)GetProcAddress(d3d12, "D3D12CreateDevice");
 
       if(!createFunc)
       {
@@ -941,7 +935,6 @@ public:
         return E_UNEXPECTED;
       }
     }
-
     HRESULT ret =
         d3d12hooks.Create_Internal(createFunc, NULL, pAdapter, MinimumFeatureLevel, riid, ppDevice);
     if(SUCCEEDED(ret) && ppDevice && *ppDevice && pAdapter)

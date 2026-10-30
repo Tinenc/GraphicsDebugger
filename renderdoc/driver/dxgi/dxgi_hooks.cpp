@@ -1,4 +1,4 @@
-/******************************************************************************
+﻿/******************************************************************************
  * The MIT License (MIT)
  *
  * Copyright (c) 2015-2026 Baldur Karlsson
@@ -297,13 +297,8 @@ public:
   {
     LogGraphicsCreationCaller("CreateDXGIFactory", GRAPHICS_DIAGNOSTICS_CALLER());
 
-    PFN_CREATE_DXGI_FACTORY realCreate = dxgihooks.CreateDXGIFactory();
-    if(!realCreate)
-    {
-      HMODULE sysDxgi = GetSystemDXGIModule();
-      if(sysDxgi)
-        realCreate = (PFN_CREATE_DXGI_FACTORY)GetProcAddress(sysDxgi, "CreateDXGIFactory");
-    }
+    HMODULE sysDxgi = GetSystemDXGIModule();
+    PFN_CREATE_DXGI_FACTORY realCreate = sysDxgi ? (PFN_CREATE_DXGI_FACTORY)GetProcAddress(sysDxgi, "CreateDXGIFactory") : dxgihooks.CreateDXGIFactory();
     RDCLOG("CreateDXGIFactory_hook: real=%p ppFactory=%p (entering real call)",
            (void *)realCreate, ppFactory);
 
@@ -322,13 +317,8 @@ public:
   {
     LogGraphicsCreationCaller("CreateDXGIFactory1", GRAPHICS_DIAGNOSTICS_CALLER());
 
-    PFN_CREATE_DXGI_FACTORY realCreate = dxgihooks.CreateDXGIFactory1();
-    if(!realCreate)
-    {
-      HMODULE sysDxgi = GetSystemDXGIModule();
-      if(sysDxgi)
-        realCreate = (PFN_CREATE_DXGI_FACTORY)GetProcAddress(sysDxgi, "CreateDXGIFactory1");
-    }
+    HMODULE sysDxgi = GetSystemDXGIModule();
+    PFN_CREATE_DXGI_FACTORY realCreate = sysDxgi ? (PFN_CREATE_DXGI_FACTORY)GetProcAddress(sysDxgi, "CreateDXGIFactory1") : dxgihooks.CreateDXGIFactory1();
     RDCLOG("CreateDXGIFactory1_hook: real=%p ppFactory=%p (entering real call)",
            (void *)realCreate, ppFactory);
 
@@ -347,13 +337,8 @@ public:
   {
     LogGraphicsCreationCaller("CreateDXGIFactory2", GRAPHICS_DIAGNOSTICS_CALLER());
 
-    PFN_CREATE_DXGI_FACTORY2 realCreate = dxgihooks.CreateDXGIFactory2();
-    if(!realCreate)
-    {
-      HMODULE sysDxgi = GetSystemDXGIModule();
-      if(sysDxgi)
-        realCreate = (PFN_CREATE_DXGI_FACTORY2)GetProcAddress(sysDxgi, "CreateDXGIFactory2");
-    }
+    HMODULE sysDxgi = GetSystemDXGIModule();
+    PFN_CREATE_DXGI_FACTORY2 realCreate = sysDxgi ? (PFN_CREATE_DXGI_FACTORY2)GetProcAddress(sysDxgi, "CreateDXGIFactory2") : dxgihooks.CreateDXGIFactory2();
     RDCLOG("CreateDXGIFactory2_hook: real=%p Flags=0x%x ppFactory=%p (entering real call)",
            (void *)realCreate, Flags, ppFactory);
 
@@ -368,7 +353,6 @@ public:
     return ret;
   }
 private:
-
   static HRESULT WINAPI DXGIGetDebugInterface_hook(REFIID riid, void **ppDebug)
   {
     if(ppDebug)

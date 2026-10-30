@@ -1,4 +1,4 @@
-﻿/******************************************************************************
+/******************************************************************************
  * The MIT License (MIT)
  *
  * Copyright (c) 2015-2026 Baldur Karlsson
@@ -109,7 +109,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     wchar_t curFile[512] = {0};
     GetModuleFileNameW(NULL, curFile, 512);
     rdcstr f = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
-    if(f.find("cod") != -1 || f.find("modernwarfare") != -1)
+    if(f == "cod.exe")
     {
       g_SkipGraphicsDriverHooks = true;
     }

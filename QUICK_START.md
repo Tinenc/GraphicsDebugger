@@ -28,7 +28,8 @@ C:\Program Files\GraphicsDebugger-Steam-Cod\tools\TinecmaTool启动向导.bat
 - **现代战争 2019 (战网: MW2019 / ModernWarfare.exe)**：
   - 自动定位 `D:\Call of Duty Modern Warfare`；
   - 自动备份过时的 Win7 运行时为 `d3d12_win7.dll.bak`；
-  - 自动部署免杀双代理。
+  - 自动部署双代理并激活 AMD AGS DX12 与 DXGI 交换链全包装；
+  - 自动唤醒战网客户端 (`Battle.net Launcher.exe`) 定位至游戏页面，支持战网原生点击“进入游戏”无感抓帧。
 - **Call of Duty HQ (Steam: cod.exe / sp26-cod.exe)**：
   - 自动定位 Steam 游戏库；
   - 自动部署双代理至根目录及 `sp26\` 子目录。

@@ -68,8 +68,9 @@ tools/
 * **现代战争 2019 (战网: MW2019 / ModernWarfare.exe)**：
   - 自动检测并定位 `D:\Call of Duty Modern Warfare`；
   - 自动将原厂 1.9MB 的 Win7 兼容库 `d3d12.dll` 备份为 `d3d12_win7.dll.bak`；
-  - 部署 DXGI + D3D12 双代理，并设置免杀策略（关闭 TargetControl 端口、屏蔽 IAT Hook、PEB 模块链摘除）；
-  - 支持直接拉起 `ModernWarfare.exe`，战网客户端亦可直接点击“进入游戏”。
+  - 部署 DXGI + D3D12 双代理，并设置免杀策略（关闭 TargetControl 端口、PEB 模块链物理摘链）；
+  - 自动拦截 `amd_ags_x64.dll!agsDriverExtensionsDX12_CreateDevice` 与 `GetProcAddress`，确保底层 D3D12 设备被完整包装；
+  - 自动唤醒战网客户端 (`Battle.net Launcher.exe`) 并定位至现代战争页面，战网客户端亦可直接点击“进入游戏”。
 * **Call of Duty HQ (Steam: cod.exe / sp26-cod.exe)**：
   - 自动检测 Steam 库（如 `F:\SteamLibrary\...`）；
   - 自动将双代理同步部署至游戏根目录及单人战役子目录 `sp26\`；
@@ -112,9 +113,12 @@ COD 系列（COD HQ 与 MW2019）采用了极为严格的启动完整性校验�
 3. **PEB 模块链物理隐匿 (UnlinkModuleFromPEB)**：
    - 代理 DLL 在 `LoadLibraryA(g_rdocPath)` 之后，立刻遍历 PEB（`PEB->Ldr`）并将 TinecmaTool.dll 从 `InLoadOrderModuleList`、`InMemoryOrderModuleList` 与 `InInitializationOrderModuleList` 中双向摘链。
    - 使得反作弊驱动枚举已加载模块时完全看不见调试器 DLL。
-4. **反作弊端口与 IAT 保护**：
+4. **反作弊端口与目标差异化 IAT 门控**：
    - 在 `renderdoc/core/core.cpp` 中识别到 COD 进程时，跳过打开 TargetControl TCP 监听端口（防止端口扫描看门狗报警）；
-   - 在 `renderdoc/os/win32/win32_libentry.cpp` 中识别到 COD 进程时，设置 `g_SkipGraphicsDriverHooks = true`，跳过改写 PE 导入表（防止内存完整性校验 APPCRASH）。
+   - 在 `renderdoc/os/win32/win32_libentry.cpp` 中**仅针对 COD HQ 启动器壳进程 (`cod.exe`)** 设置 `g_SkipGraphicsDriverHooks = true`，跳过改写壳进程自身导入表（防止内存完整性校验 APPCRASH）；
+   - 对于现代战争 (`ModernWarfare.exe`)，由于其本身即为单体真实渲染器，且通过 `amd_ags_x64.dll!agsDriverExtensionsDX12_CreateDevice` 与动态 `GetProcAddress("D3D12CreateDevice")` 构建设备，TinecmaTool 正常启用 IAT 拦截以确保设备成功包装，彻底解决 `Creating swap chain with non-hooked device` 报错。
+5. **DXGI 代理递归死循环防护**：
+   - 在 `dxgi_proxy.cpp` 中引入 `thread_local` 递归状态锁，并在 `dxgi_hooks.cpp` 中通过 `GetSystemDXGIModule()` 直接查询系统原生 `C:\Windows\System32\dxgi.dll`，根除代理与 Hook 之间相互调用的爆栈崩溃。
 
 ### 重新编译代理 DLL
 若修改了 `dxgi_proxy.cpp` 或 `d3d12_proxy.cpp`，执行以下批处理即可秒级完成 x64 编译：
@@ -154,28 +158,36 @@ build.bat
 ## 常见问题与排坑手册 (FAQ)
 
 ### Q1: 游戏左上角未出现 HUD，提示 `Creating swap chain with non-hooked device`？
-* **原因**：游戏目录下只放了 `dxgi.dll`，缺少 `d3d12.dll` 代理，导致设备未经拦截包装。
-* **处理**：在面板中点击 **`📦 重新部署双代理 DLL`**，确保游戏目录下同时存在 `dxgi.dll` 与 `d3d12.dll`。
+* **原因 1**：游戏目录下只放了 `dxgi.dll`，缺少 `d3d12.dll` 代理，导致设备未经拦截包装。在面板中点击 **`📦 重新部署双代理 DLL`** 确保两者就绪。
+* **原因 2（现代战争 2019 特有）**：`ModernWarfare.exe` 依赖 `amd_ags_x64.dll!agsDriverExtensionsDX12_CreateDevice` 与 `GetProcAddress` 创建 D3D12 设备。旧版本 TinecmaTool 误将其设为跳过 IAT Hook 导致设备未受控。当前版本已全面修复，直接拉起即可自动挂载。
 
 ### Q2: 现代战争 2019 启动闪退或报错 `E_PIX_DEVICE_D3D12_FOR_WIN7_DETECTED`？
 * **原因**：游戏目录下存在原厂的 1.9MB `d3d12.dll`（Win7 遗留运行时），与 Windows 11 不兼容。
 * **处理**：确保原 1.9MB 文件被重命名为 `d3d12_win7.dll.bak`，且游戏根目录下的 `d3d12.dll` 是由我们编译的 16KB 代理库。
 
-### Q3: 为什么在游戏刚拉起黑屏（Frame 0-10）时按 F12 会闪退？
+### Q3: 现代战争 2019 启动立即无征兆崩溃闪退（无限递归爆栈 0xC00000FD）？
+* **原因**：`dxgi_proxy.dll` 将 `CreateDXGIFactory*` 转发给 TinecmaTool 时，内部回调回 proxy 导出函数形成回环死循环。
+* **处理**：当前版本的 `dxgi_proxy.dll` 与 `TinecmaTool.dll` 已加入 `thread_local` 递归锁与原生 `System32\dxgi.dll` 直接定位，彻底杜绝回环崩溃。
+
+### Q4: 点击启动游戏未能唤醒战网或游戏迅速闪退？
+* **原因**：启动战网进程时缺少其自身的 `WorkingDirectory`，导致战网读取不到配置静默退出；游戏缺少战网凭证亦会随之退出。
+* **处理**：控制中心面板已内置战网路径探测与 URI 唤醒协议（`battlenet://ODIN`），点击启动即可自动拉起战网并定位至游戏。
+
+### Q5: 为什么在游戏刚拉起黑屏（Frame 0-10）时按 F12 会闪退？
 * **原因**：启动极早期着色器管线未完全就绪，盲发抓帧信号触发瞬间 GPU Readback 会导致反作弊看门狗卡顿超时（0x00001337）。
 * **处理**：请等待游戏着色器加载完成，平稳进入 **3D 主菜单角色展示** 或 **战斗对战画面** 后，再按 F12 抓帧。
 
-### Q4: 如何查看抓帧文件并调试着色器？
+### Q6: 如何查看抓帧文件并调试着色器？
 * **处理**：在面板中直接点击 **`🔍 在 qTinecmaTool 中打开`**，调试器将自动打开桌面最新的 `.rdc` 文件。在 **Pipeline State** 视图中即可逐行调试 HLSL 反编译着色器并导出纹理资源。
 
-### Q5: 控制中心 PowerShell 界面乱码或报错“无法识别 cmdlet / 语法错误”？
+### Q7: 控制中心 PowerShell 界面乱码或报错“无法识别 cmdlet / 语法错误”？
 * **原因**：Windows PowerShell 5.1 在中文（GBK 代码页 936）环境下默认按 ANSI 解析没有 BOM 的 UTF-8 脚本文件，导致中文注释或字符串被误读为非法语法符号。
 * **处理**：所有图形控制脚本（如 `gui_countdown.ps1`）必须带有 **UTF-8 BOM 头**（`EF BB BF`）。项目已统一使用 `[System.Text.Encoding]::UTF8` 重新保存，切勿使用无 BOM 的纯 UTF-8 覆盖保存。
 
-### Q6: 双击批处理以管理员身份运行后，找不到文件或提示路径不存在？
+### Q8: 双击批处理以管理员身份运行后，找不到文件或提示路径不存在？
 * **原因**：Windows UAC 提权（`RunAs`）会将当前进程的 Working Directory 强制重置为 `C:\Windows\System32`，导致相对路径定位失效。
 * **处理**：启动器脚本开头均已强制加入 `cd /d "%~dp0"`，确保无论通过何种提权方式拉起，工作目录始终锚定在 `tools\` 目录下。
 
-### Q7: 游戏启动后无响应或闪退，反作弊服务冲突？
+### Q9: 游戏启动后无响应或闪退，反作弊服务冲突？
 * **原因**：战网或 Steam 反作弊驱动残留（如 `atvi-randgrid_sr`）可能处于挂起或异常看门狗状态。
 * **处理**：在面板中点击 **`🧹 一键清理反作弊/环境`**，自动停止驱动服务并清理桌面残留的触发信号文件，然后重新启动游戏。
