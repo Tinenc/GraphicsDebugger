@@ -72,3 +72,7 @@ tools/proxy/*.obj
 tools/proxy/*.exp
 tools/proxy/*.lib
 tools/proxy/*.pdb
+
+# helper exes are built by helpers/build.cmd, not shipped
+tools/naraka/helpers/*.obj
+tools/naraka/helpers/*.pdb

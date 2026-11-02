@@ -60,6 +60,20 @@ run-naraka.bat gui       打开图形界面
 | `Naraka-Gui.ps1` | WinForms 控制中心（`-SmokeTest` 可无窗口自检） |
 | `run-naraka.bat` | 命令行入口，GUI 调的也是它 |
 | `wait-and-inject.ps1` | 100ms 紧轮询等渲染进程，出现即注入 |
+| `helpers/` | 无人值守用的三个小工具（截图 / 发键 / 点击），`helpers\build.cmd` 编 |
+
+## 手游流程和 PC 不同
+
+手游必须让启动器把上下文发下来，`StartGame_l22.exe` 单独起会秒退。顺序：
+
+1. 开 `F:\NarakaMobile\NGP\NarakaMobileLauncher.exe`
+2. **先** `run-naraka.bat inject mobile`（它自己那次起不来无所谓，接着的轮询才是关键）
+3. 再点启动器里的「启动游戏」
+4. 等日志出现 `created wrapped device`
+5. 进到画面后**点一下游戏窗口**，按 **F12**
+
+第 5 步的"点一下"是必须的：F12 只在前台生效（`GetKeyState` 会比对
+`GetForegroundWindow()`）。详细步骤见指南 §4.3。
 
 ## 两条硬约束（都是实测的，别改）
 
