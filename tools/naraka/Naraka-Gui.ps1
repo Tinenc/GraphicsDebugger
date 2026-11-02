@@ -262,7 +262,7 @@ function Begin-Capture {
     $script:CaptureStart = Get-Date
     New-Item -ItemType File -Force -Path $Trigger | Out-Null
     $script:Phase = 'capturing'
-    Write-Status '已下发抓帧请求，等待 .rdc 落盘（大场景可能需要几十秒）' $ColAccent
+    Write-Status '已下发抓帧请求，等待 .rdc 落盘（大场景可能几十秒）；无反应就在游戏里按 F12' $ColAccent
 }
 
 function Complete-Success {
@@ -376,7 +376,7 @@ $form.Controls.Add($grpInfo)
 $infoText = @'
 ● 点 [启动并注入] 后脚本会启动所选目标的 starter，渲染进程一出现就注入。
 ● 进游戏后等到真正开始渲染（不是加载画面）再抓帧。
-● 抓帧方式：点 [抓帧] ，或手动建一个文件
+● 抓帧方式：游戏里按 F12（RenderDoc 默认捕获键）；或点 [抓帧] 写触发文件
     %LOCALAPPDATA%\Temp\Naraka\proxy\captures\trigger_capture_narakabladepoint
 ● 产物目录：%LOCALAPPDATA%\Temp\Naraka\proxy\captures
 ● 日志：%LOCALAPPDATA%\Temp\TinecmaTool\RenderDoc_app_*.log

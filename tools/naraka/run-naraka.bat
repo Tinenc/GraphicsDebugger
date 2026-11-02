@@ -264,6 +264,9 @@ echo [capture] pid=%PID%
 >"%TRIGGER%" echo CAPTURE
 echo [capture] trigger written: %TRIGGER%
 echo [capture] waiting for the .rdc ...
+echo [tip] if nothing happens, just press F12 in the game - that is RenderDoc's
+echo [tip] default capture key and needs no rebuild. This file trigger only works
+echo [tip] with a core built after 5c2c7436c.
 
 rem The trigger only does anything while a capture layer is inside the game, and
 rem only a core built after 5c2c7436c watches for it. If nothing arrives those two
@@ -273,8 +276,8 @@ for /l %%N in (1,1,40) do (
   ping -n 2 127.0.0.1 >nul
 )
 echo [warn] no completion signal after about 40s.
+echo [hint] press F12 in the game - the default capture key, works without a rebuild.
 echo [hint] is the layer injected in this session? see:  %~nx0 status
-echo [hint] is the core newer than the trigger watcher? rebuild x64 if unsure.
 goto :fail
 
 :capture_done
