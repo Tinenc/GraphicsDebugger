@@ -431,12 +431,10 @@ inline bool UnlinkFromPEB(HMODULE mod)
 
 typedef int(RENDERDOC_CC *PFN_TCM_GetAPI)(RENDERDOC_Version version, void **outAPIPointers);
 
-// Candidate locations, most specific first. The build injects the repo path so a
-// dev tree works with no ini at all; the ini rdoc_dll always wins.
-#ifndef NARAKA_RDOC_DEFAULT
-#define NARAKA_RDOC_DEFAULT ""
-#endif
-
+// Candidate locations for the core, most specific first. No path is baked in at
+// build time: a compiled-in absolute path both breaks when the tree moves and
+// leaks the build machine's layout into a shipped binary. The ini's rdoc_dll
+// always wins, and the deploy script writes it.
 inline void LoadCore(const char *dllTag)
 {
   State &s = S();
@@ -459,8 +457,13 @@ inline void LoadCore(const char *dllTag)
   if(!s.cfg.rdocDll.empty())
     candidates[count++] = s.cfg.rdocDll;
   candidates[count++] = JoinPath(s.exeDir, "TinecmaTool.dll");
-  if(NARAKA_RDOC_DEFAULT[0] != '\0')
-    candidates[count++] = NARAKA_RDOC_DEFAULT;
+
+  {
+    char pf[MAX_PATH] = {0};
+    DWORD n = GetEnvironmentVariableA("ProgramFiles", pf, MAX_PATH);
+    if(n > 0 && n < MAX_PATH)
+      candidates[count++] = JoinPath(JoinPath(pf, "GraphicsDebugger-Naraka"), "x64\\Development\\TinecmaTool.dll");
+  }
 
   for(int i = 0; i < count; i++)
   {

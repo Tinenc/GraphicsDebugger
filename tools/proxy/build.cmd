@@ -25,7 +25,9 @@ if not exist "%MSVC%\bin\Hostx64\x64\cl.exe" (
 
 set "INCLUDE=%MSVC%\include;%SDKROOT%\Include\%SDKV%\ucrt;%SDKROOT%\Include\%SDKV%\shared;%SDKROOT%\Include\%SDKV%\um;%SDKROOT%\Include\%SDKV%\winrt"
 set "LIB=%MSVC%\lib\x64;%SDKROOT%\Lib\%SDKV%\um\x64;%SDKROOT%\Lib\%SDKV%\ucrt\x64"
-set "CL=%MSVC%\bin\Hostx64\x64\cl.exe"
+rem NOT named CL: that is an MSVC environment variable holding default compiler
+rem options, and cl.exe would treat the path as an input file.
+set "CLPATH=%MSVC%\bin\Hostx64\x64\cl.exe"
 
 cd /d "%~dp0"
 
@@ -33,7 +35,8 @@ rem repo root = two levels up from tools\proxy
 set "REPO=%~dp0..\.."
 for %%i in ("%REPO%") do set "REPO=%%~fi"
 
-set "CORE=%REPO%\x64\Development\TinecmaTool.dll"
+rem Core location is resolved at runtime, not baked in: ini rdoc_dll first, then
+rem <exe dir>\TinecmaTool.dll, then %%ProgramFiles%%\GraphicsDebugger-Naraka\x64\Development.
 set "APPINC=%REPO%\renderdoc\api\app"
 
 echo [1/4] Regenerating .def from system DLLs...
@@ -45,22 +48,19 @@ if %ERRORLEVEL%==0 (
 )
 
 echo [2/4] Building dxgi.dll...
-"%CL%" /nologo /std:c++17 /O2 /MD /W3 /EHsc /D_CRT_SECURE_NO_WARNINGS ^
-  /DNARAKA_RDOC_DEFAULT="\"%CORE:\=\\%\"" ^
+"%CLPATH%" /nologo /std:c++17 /O2 /MD /W3 /EHsc /D_CRT_SECURE_NO_WARNINGS ^
   /I"%APPINC%" ^
   dxgi_proxy.cpp /Fe:dxgi.dll /link /DEF:dxgi.def /DLL /MACHINE:X64 /SUBSYSTEM:WINDOWS user32.lib
 if errorlevel 1 goto :failed
 
 echo [3/4] Building d3d11.dll...
-"%CL%" /nologo /std:c++17 /O2 /MD /W3 /EHsc /D_CRT_SECURE_NO_WARNINGS ^
-  /DNARAKA_RDOC_DEFAULT="\"%CORE:\=\\%\"" ^
+"%CLPATH%" /nologo /std:c++17 /O2 /MD /W3 /EHsc /D_CRT_SECURE_NO_WARNINGS ^
   /I"%APPINC%" ^
   d3d11_proxy.cpp /Fe:d3d11.dll /link /DEF:d3d11.def /DLL /MACHINE:X64 /SUBSYSTEM:WINDOWS user32.lib
 if errorlevel 1 goto :failed
 
 echo [4/4] Building d3d12.dll...
-"%CL%" /nologo /std:c++17 /O2 /MD /W3 /EHsc /D_CRT_SECURE_NO_WARNINGS ^
-  /DNARAKA_RDOC_DEFAULT="\"%CORE:\=\\%\"" ^
+"%CLPATH%" /nologo /std:c++17 /O2 /MD /W3 /EHsc /D_CRT_SECURE_NO_WARNINGS ^
   /I"%APPINC%" ^
   d3d12_proxy.cpp /Fe:d3d12.dll /link /DEF:d3d12.def /DLL /MACHINE:X64 /SUBSYSTEM:WINDOWS user32.lib
 if errorlevel 1 goto :failed

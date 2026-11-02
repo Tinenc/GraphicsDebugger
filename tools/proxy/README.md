@@ -117,7 +117,7 @@ New-Item "$env:LOCALAPPDATA\Temp\Naraka\proxy\captures\trigger_capture_narakabla
 [naraka]
 mode=renderdoc          ; renderdoc | pix | both | off
 target_process=narakabladepoint.exe
-rdoc_dll=<TinecmaTool.dll 绝对路径>   ; 留空则依次尝试 exe 目录、编译期默认路径
+rdoc_dll=<TinecmaTool.dll 绝对路径>   ; 留空则依次尝试 exe 目录、%ProgramFiles%\GraphicsDebugger-Naraka\x64\Development
 capture_dir=<抓帧输出目录>
 log_dir=<日志目录>
 ```
@@ -143,6 +143,11 @@ python run-proxy-test.py
 | `proxy-d3d12` | 同上，额外覆盖 factory/device 握手 |
 
 后两个用例在核心未重编时标记为 `SKIP`（不是 PASS），并断言代理确实拒绝了旧核心。
+
+`thumb` 只校验「工具说写了缩略图 + 输出文件大小合理」，**不看退出码**：这个 fork 的
+`TinecmaToolcmd` 连 `version` / `--help` 都返回非零（经管道看是 127，经 CreateProcess 看是
+`0xC0000409`），拿它当成功判据等于拿一个常数当判据。缩略图内容本身仍然是可以核对的——
+D3D11 夹具抓到的就是它清屏时那个 `(0.1, 0.2, 0.3)` 深藏青。
 
 ## 已知边界
 

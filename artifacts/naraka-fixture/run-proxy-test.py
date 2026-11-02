@@ -37,6 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 PROXYDIR = os.path.join(REPO, "tools", "proxy")
 CORE = os.path.join(REPO, "x64", "Development", "TinecmaTool.dll")
+TOOLCMD = os.path.join(REPO, "x64", "Development", "TinecmaToolcmd.exe")
 FIXTURE = os.path.join(HERE, "proxy_fixture.exe")
 WORKROOT = os.path.join(os.environ["LOCALAPPDATA"], "Temp", "Naraka", "proxy-tests")
 
@@ -117,12 +118,15 @@ def run_case(case, api, with_proxies, target, mode, frames, expect_capture):
         print("  trigger written: %s" % trig)
 
     done_file = os.path.join(capdir, "capture_done.txt")
-    deadline = time.time() + 45
+
+    # Wait for the fixture to finish its own frame loop rather than cutting it off
+    # once the capture lands. Two reasons: "presented" only becomes a meaningful
+    # assertion if the loop actually completed, and a process that dies right
+    # after a capture is exactly the failure mode worth catching - a capture tool
+    # that kills the host is useless in a protected game.
+    deadline = time.time() + 60
     while time.time() < deadline:
         if proc.poll() is not None:
-            break
-        if expect_capture and os.path.exists(done_file):
-            time.sleep(1.0)
             break
         time.sleep(0.25)
 
@@ -136,7 +140,7 @@ def run_case(case, api, with_proxies, target, mode, frames, expect_capture):
             proc.kill()
 
     out = proc.stdout.read() if proc.stdout else ""
-    print("-- fixture --" + ("  (terminated by harness)" if killed else ""))
+    print("-- fixture --" + ("  (terminated by harness after 60s)" if killed else ""))
     for line in out.strip().splitlines():
         print("   " + line)
 
@@ -204,6 +208,9 @@ def run_case(case, api, with_proxies, target, mode, frames, expect_capture):
         # The whole point of a proxy: the process must not notice it.
         checks.append(("device created through proxy", PASS if device_ok else FAIL))
         checks.append(("frames presented", PASS if presented else FAIL))
+        # Dying right after a capture is the classic capture-tool failure in a
+        # protected game, so the host finishing its loop counts as a result.
+        checks.append(("host exited on its own", FAIL if killed else PASS))
 
         if mode == "off" or target != "proxy_fixture.exe":
             checks.append(
@@ -220,7 +227,6 @@ def run_case(case, api, with_proxies, target, mode, frames, expect_capture):
             )
         else:
             checks.append(("bridge invoked", PASS if "BRIDGE " in log else FAIL))
-
     rdcs = glob.glob(os.path.join(capdir, "*.rdc"))
     print("-- rdc --")
     if rdcs:
@@ -232,6 +238,31 @@ def run_case(case, api, with_proxies, target, mode, frames, expect_capture):
     if expect_capture:
         if core_has_bridge():
             checks.append(("capture file produced", PASS if rdcs else FAIL))
+
+            # A file on disk is not a capture. Ask the tool itself to open it and
+            # pull a thumbnail: that exercises the container, the chunk stream and
+            # the replay backend, which is where a truncated or half-flushed
+            # capture fails.
+            #
+            # The exit code is deliberately NOT part of this check. TinecmaToolcmd
+            # in this fork returns 127 (and, launched via subprocess, 0xC0000409)
+            # for every command including `version` and `--help`, i.e. for commands
+            # that never touch the graphics path at all. Gating on it would be
+            # gating on a known constant. The evidence used instead is: the tool
+            # said it wrote a thumbnail, and a plausibly sized JPEG is there.
+            if rdcs:
+                thumb = os.path.join(d, "thumb.jpg")
+                if os.path.exists(thumb):
+                    os.remove(thumb)
+                tr = subprocess.run([TOOLCMD, "thumb", "--out=" + thumb, "--format=jpg", rdcs[0]],
+                                    capture_output=True, text=True, errors="replace", timeout=180)
+                size = os.path.getsize(thumb) if os.path.exists(thumb) else 0
+                printed = "Wrote thumbnail" in (tr.stdout or "")
+                print("-- thumb -- %s (%d bytes, tool exit 0x%08X)" % (thumb, size, tr.returncode & 0xFFFFFFFF))
+                checks.append(("capture opens and yields a thumbnail",
+                               PASS if (printed and size > 1024) else FAIL))
+            else:
+                checks.append(("capture opens and yields a thumbnail", FAIL))
         else:
             checks.append(("capture file produced (needs rebuilt core)", SKIP))
 

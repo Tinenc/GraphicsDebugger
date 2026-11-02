@@ -25,7 +25,7 @@ if not exist "%MSVC%\bin\Hostx64\x64\cl.exe" (
 
 set "INCLUDE=%MSVC%\include;%SDKROOT%\Include\%SDKV%\ucrt;%SDKROOT%\Include\%SDKV%\shared;%SDKROOT%\Include\%SDKV%\um;%SDKROOT%\Include\%SDKV%\winrt"
 set "LIB=%MSVC%\lib\x64;%SDKROOT%\Lib\%SDKV%\um\x64;%SDKROOT%\Lib\%SDKV%\ucrt\x64"
-set "CL=%MSVC%\bin\Hostx64\x64\cl.exe"
+set "CLPATH=%MSVC%\bin\Hostx64\x64\cl.exe"
 
 set "REPO=%~dp0..\.."
 for %%i in ("%REPO%") do set "REPO=%%~fi"
@@ -42,13 +42,13 @@ for %%f in (
     renderdoc\hooks\hooks.cpp
 ) do (
     echo --- %%f
-    "%CL%" /nologo /std:c++17 /Zs /D_CRT_SECURE_NO_WARNINGS ^
+    "%CLPATH%" /nologo /std:c++17 /Zs /D_CRT_SECURE_NO_WARNINGS ^
       /DRENDERDOC_PLATFORM_WIN32 /DRENDERDOC_EXPORTS ^
       /I renderdoc /I renderdoc\api\replay /I renderdoc\3rdparty ^
       %%f >nul 2>&1
     if errorlevel 1 (
         echo     [FAIL]
-        "%CL%" /nologo /std:c++17 /Zs /D_CRT_SECURE_NO_WARNINGS ^
+        "%CLPATH%" /nologo /std:c++17 /Zs /D_CRT_SECURE_NO_WARNINGS ^
           /DRENDERDOC_PLATFORM_WIN32 /DRENDERDOC_EXPORTS ^
           /I renderdoc /I renderdoc\api\replay /I renderdoc\3rdparty ^
           %%f 2>&1 | findstr /i "error"
