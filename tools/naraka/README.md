@@ -1,10 +1,28 @@
 # Naraka 抓帧启动器
 
-《永劫无间》的 TinecmaTool 抓帧入口。**不往游戏安装目录写任何文件**——启动
-`StartGame.exe`，`NarakaBladepoint.exe` 一出现就注入核心，靠导出表重定向拿到设备创建。
+《永劫无间》与《永劫无间手游》的 TinecmaTool 抓帧入口。**不往游戏安装目录写任何
+文件**——启动游戏的 starter，渲染进程一出现就注入核心，靠导出表重定向拿到设备创建。
 
 > 完整背景、实现细节、排查表见
 > [`docs/NARAKA_抓帧指南_2026-11-02.md`](../../docs/NARAKA_抓帧指南_2026-11-02.md)。
+
+## 两个目标
+
+| | PC | 手游 |
+|---|---|---|
+| 目录 | `F:\Naraka\program` | `F:\NarakaMobile\game` |
+| 启动器 | `StartGame.exe` | `StartGame_l22.exe` |
+| 渲染进程 | `NarakaBladepoint.exe` | `NarakaBladepointMobile.exe` |
+
+界面里在「1. 目标」切换；命令行用第二个参数，或直接把目标当第一个参数：
+
+```
+run-naraka.bat inject mobile     等价于  run-naraka.bat mobile
+run-naraka.bat status mobile
+```
+
+两者共用同一套核心与同一条路线。手游也是 x64 / Unity，它的 `UnityPlayer.dll` 同样不
+静态导入 `dxgi`/`d3d11`/`d3d12`（运行时按名解析），所以导出表重定向照样命中。
 
 ## 用法
 
@@ -24,6 +42,9 @@ run-naraka.bat gui       打开图形界面
 ```
 
 启动游戏时会把分析器（`qTinecmaTool.exe`）一起拉起来，已经在跑就不重复开。
+
+**手游尚未实机验证抓帧**——只按导入表确认了结构一致（见上），第一次跑需要留意
+`Export redirect` 是否出现 6 条。
 
 ## 文件
 

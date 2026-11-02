@@ -35,8 +35,29 @@ $ToolCmd   = Join-Path $Root 'x64\Development\TinecmaToolcmd.exe'
 $GuiViewer = Join-Path $Root 'x64\Development\qTinecmaTool.exe'
 $InjectPs1 = Join-Path $PSScriptRoot 'wait-and-inject.ps1'
 
-$Starter = 'StartGame.exe'
-$Target  = 'NarakaBladepoint.exe'
+# 两个目标共用同一套核心：注入渲染进程 + 导出表重定向。差别只有三个名字——
+# 启动器、渲染进程、安装目录。手游那份也是 x64 / Unity，UnityPlayer 同样运行时
+# 解析图形入口，所以不需要另一条代码路径。
+$Targets = [ordered]@{
+    pc     = @{
+        Label   = '永劫无间 PC'
+        Dir     = 'F:\Naraka\program'
+        Starter = 'StartGame.exe'
+        Proc    = 'NarakaBladepoint.exe'
+    }
+    mobile = @{
+        Label   = '永劫无间手游'
+        Dir     = 'F:\NarakaMobile\game'
+        Starter = 'StartGame_l22.exe'
+        Proc    = 'NarakaBladepointMobile.exe'
+    }
+}
+
+# 当前选中的目标。Starter / Proc / GameDir 都从这里派生，改选择时一起换。
+$script:TargetKey = 'pc'
+$script:Starter   = $Targets.pc.Starter
+$script:Target    = $Targets.pc.Proc
+$GameDir          = $Targets.pc.Dir
 
 $Work     = Join-Path $env:LOCALAPPDATA 'Temp\Naraka\proxy'
 $Captures = Join-Path $Work 'captures'
@@ -111,7 +132,7 @@ function Start-Game([string]$dir) {
         Write-Status '已通过 explorer 以中等完整性启动（本会话是提权的）' $ColDim
     } else {
         Start-Process -FilePath (Join-Path $dir $Starter) -WorkingDirectory $dir
-        Write-Status '已启动 StartGame.exe（中等完整性）' $ColDim
+        Write-Status ('已启动 ' + $script:Starter + '（中等完整性）') $ColDim
     }
 }
 
@@ -165,6 +186,24 @@ function Start-Viewer([string]$capture = '') {
     }
 }
 
+# 切换目标：只换三个名字，流程完全一致。界面已建好时同步更新路径框、并把当前
+# 目标写进状态区，免得看着旧路径以为没切。
+function Select-Target([string]$key) {
+    if (-not $Targets.Contains($key)) { return }
+    $t = $Targets[$key]
+    $script:TargetKey = $key
+    $script:Starter   = $t.Starter
+    $script:Target    = $t.Proc
+    $script:GameDir   = $t.Dir
+    if ($script:TxtPath) { $script:TxtPath.Text = $t.Dir }
+    Write-Status ('目标：' + $t.Label + '   ' + $t.Starter + ' → ' + $t.Proc) $ColAccent
+    if (Test-Path (Join-Path $t.Dir $t.Starter)) {
+        Write-Status ('目录 OK: ' + $t.Dir) $ColDim
+    } else {
+        Write-Status ('找不到 ' + (Join-Path $t.Dir $t.Starter) + '，请检查路径') $ColBad
+    }
+}
+
 # Flat buttons on a dark panel: the stock disabled rendering greys the glyph out
 # against the panel colour and it turns unreadable. So these stay enabled for their
 # whole life and the click handlers do the gating, saying why nothing happened -
@@ -189,6 +228,8 @@ function Set-Running($running) {
     $script:GrpRoute.Enabled = -not $running
     $script:TxtPath.Enabled = -not $running
     $script:BtnBrowse.Enabled = -not $running
+    $script:RadPC.Enabled = -not $running
+    $script:RadMobile.Enabled = -not $running
 }
 
 function Begin-Inject {
@@ -196,7 +237,7 @@ function Begin-Inject {
     $script:Phase = 'wait-renderer'
     $script:WaitTicks = 0
     $script:Deadline = (Get-Date).AddMinutes(5)
-    Write-Status '等待 NarakaBladepoint.exe 出现（约 12 秒），出现即注入' $ColAccent
+    Write-Status ('等待 ' + $script:Target + ' 出现（约 8-12 秒），出现即注入') $ColAccent
 
     $args = @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass',
@@ -233,7 +274,7 @@ function Complete-Success {
 
 # ------------------------------------------------------------------ UI ----
 $form = New-Object Windows.Forms.Form
-$form.Text = 'TinecmaTool  —  Naraka: Bladepoint 抓帧控制中心'
+$form.Text = 'TinecmaTool  —  Naraka / Naraka Mobile 抓帧控制中心'
 $form.Size = New-Object Drawing.Size(700, 720)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedSingle'
@@ -244,7 +285,7 @@ $form.Font = $FontUi
 $form.TopMost = $true
 
 $title = New-Object Windows.Forms.Label
-$title.Text = 'TinecmaTool  /  Naraka: Bladepoint'
+$title.Text = 'TinecmaTool  /  Naraka  ·  Mobile'
 $title.Font = New-Object Drawing.Font('Microsoft YaHei UI', 14, [Drawing.FontStyle]::Bold)
 $title.ForeColor = $ColText
 $title.SetBounds(20, 14, 640, 30)
@@ -256,16 +297,31 @@ $sub.ForeColor = $ColDim
 $sub.SetBounds(22, 44, 640, 20)
 $form.Controls.Add($sub)
 
-# --- 1. 游戏路径 -----------------------------------------------------------
+# --- 1. 目标 ---------------------------------------------------------------
 $grpPath = New-Object Windows.Forms.GroupBox
-$grpPath.Text = ' 1. 游戏路径 '
+$grpPath.Text = ' 1. 目标 '
 $grpPath.ForeColor = $ColAccent
-$grpPath.SetBounds(18, 74, 646, 74)
+$grpPath.SetBounds(18, 74, 646, 100)
 $form.Controls.Add($grpPath)
+
+$script:RadPC = New-Object Windows.Forms.RadioButton
+$script:RadPC.Text = '永劫无间 PC  —  StartGame.exe  →  NarakaBladepoint.exe'
+$script:RadPC.SetBounds(14, 22, 420, 22)
+$script:RadPC.ForeColor = $ColText
+$script:RadPC.Checked = $true
+$script:RadPC.Add_CheckedChanged({ if ($script:RadPC.Checked) { Select-Target 'pc' } })
+$grpPath.Controls.Add($script:RadPC)
+
+$script:RadMobile = New-Object Windows.Forms.RadioButton
+$script:RadMobile.Text = '永劫无间手游  —  StartGame_l22.exe  →  NarakaBladepointMobile.exe'
+$script:RadMobile.SetBounds(14, 46, 460, 22)
+$script:RadMobile.ForeColor = $ColText
+$script:RadMobile.Add_CheckedChanged({ if ($script:RadMobile.Checked) { Select-Target 'mobile' } })
+$grpPath.Controls.Add($script:RadMobile)
 
 $script:TxtPath = New-Object Windows.Forms.TextBox
 $script:TxtPath.Text = $GameDir
-$script:TxtPath.SetBounds(14, 30, 520, 24)
+$script:TxtPath.SetBounds(14, 72, 520, 24)
 $script:TxtPath.BackColor = $ColPanel
 $script:TxtPath.ForeColor = $ColText
 $script:TxtPath.BorderStyle = 'FixedSingle'
@@ -273,13 +329,13 @@ $grpPath.Controls.Add($script:TxtPath)
 
 $script:BtnBrowse = New-Object Windows.Forms.Button
 $script:BtnBrowse.Text = '浏览...'
-$script:BtnBrowse.SetBounds(544, 28, 86, 27)
+$script:BtnBrowse.SetBounds(544, 70, 86, 27)
 $script:BtnBrowse.FlatStyle = 'Flat'
 $script:BtnBrowse.BackColor = $ColPanel
 $script:BtnBrowse.ForeColor = $ColText
 $script:BtnBrowse.Add_Click({
     $dlg = New-Object Windows.Forms.FolderBrowserDialog
-    $dlg.Description = '选择 Naraka 的 program 目录（里面有 StartGame.exe）'
+    $dlg.Description = '选择游戏目录（PC 是 program，里面有 StartGame.exe；手游是 game，里面有 StartGame_l22.exe）'
     if ($dlg.ShowDialog() -eq 'OK') {
         $script:TxtPath.Text = $dlg.SelectedPath
         $script:GameDir = $dlg.SelectedPath
@@ -291,7 +347,7 @@ $grpPath.Controls.Add($script:BtnBrowse)
 $script:GrpRoute = New-Object Windows.Forms.GroupBox
 $script:GrpRoute.Text = ' 2. 抓帧方式 '
 $script:GrpRoute.ForeColor = $ColAccent
-$script:GrpRoute.SetBounds(18, 158, 646, 96)
+$script:GrpRoute.SetBounds(18, 184, 646, 96)
 $form.Controls.Add($script:GrpRoute)
 
 # Only one route is left, so this is a statement rather than a choice. The proxy
@@ -314,11 +370,11 @@ $script:GrpRoute.Controls.Add($lblRouteNote)
 $grpInfo = New-Object Windows.Forms.GroupBox
 $grpInfo.Text = ' 3. 使用说明（说明信息区，非可交互控件） '
 $grpInfo.ForeColor = $ColDim
-$grpInfo.SetBounds(18, 264, 646, 158)
+$grpInfo.SetBounds(18, 290, 646, 158)
 $form.Controls.Add($grpInfo)
 
 $infoText = @'
-● 点 [启动并注入] 后脚本会启动 StartGame.exe，等 NarakaBladepoint.exe 出现就注入。
+● 点 [启动并注入] 后脚本会启动所选目标的 starter，渲染进程一出现就注入。
 ● 进游戏后等到真正开始渲染（不是加载画面）再抓帧。
 ● 抓帧方式：点 [抓帧] ，或手动建一个文件
     %LOCALAPPDATA%\Temp\Naraka\proxy\captures\trigger_capture_narakabladepoint
@@ -339,17 +395,17 @@ $grpInfo.Controls.Add($lblInfo)
 $lblStateCaption = New-Object Windows.Forms.Label
 $lblStateCaption.Text = '状态'
 $lblStateCaption.ForeColor = $ColDim
-$lblStateCaption.SetBounds(22, 432, 40, 20)
+$lblStateCaption.SetBounds(22, 458, 40, 20)
 $form.Controls.Add($lblStateCaption)
 
 $script:LblState = New-Object Windows.Forms.Label
 $script:LblState.Text = '待机 — 还没启动'
 $script:LblState.ForeColor = $ColDim
-$script:LblState.SetBounds(66, 432, 600, 20)
+$script:LblState.SetBounds(66, 458, 600, 20)
 $form.Controls.Add($script:LblState)
 
 $script:StatusBox = New-Object Windows.Forms.RichTextBox
-$script:StatusBox.SetBounds(18, 456, 646, 150)
+$script:StatusBox.SetBounds(18, 482, 646, 124)
 $script:StatusBox.BackColor = [Drawing.Color]::FromArgb(22, 22, 22)
 $script:StatusBox.ForeColor = $ColText
 $script:StatusBox.Font = $FontMono

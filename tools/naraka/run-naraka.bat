@@ -13,6 +13,11 @@ rem    run-naraka.bat status      environment report, starts nothing
 rem    run-naraka.bat gui         open the graphical control center
 rem    run-naraka.bat help        this text
 rem
+rem  Every mode takes an optional target as its second argument:
+rem    pc      Naraka: Bladepoint        F:\Naraka\program        [default]
+rem    mobile  Naraka: Bladepoint Mobile F:\NarakaMobile\game
+rem  e.g.  run-naraka.bat inject mobile
+rem
 rem  Naraka-Launcher.bat opens the GUI, which is the normal way in. This file is
 rem  the same thing without a window, and is what the GUI calls.
 rem
@@ -37,6 +42,7 @@ set "VIEWER=%ROOT%x64\Development\qTinecmaTool.exe"
 set "GAMEDIR=F:\Naraka\program"
 set "STARTER=StartGame.exe"
 set "TARGET=NarakaBladepoint.exe"
+set "TGT=pc"
 
 rem Historical name - the capture core resolves this path itself, so it is not
 rem ours to rename. See the trigger watcher in renderdoc/os/win32/win32_libentry.cpp
@@ -50,6 +56,40 @@ if "%MODE%"=="" set "MODE=launch"
 if /i "%MODE%"=="-h" set "MODE=help"
 if /i "%MODE%"=="--help" set "MODE=help"
 if /i "%MODE%"=="/?" set "MODE=help"
+
+rem Second argument picks the game. Same core and same route for both - only the
+rem three names differ. Mobile is Unity/x64 as well, and its UnityPlayer also
+rem resolves the graphics entry points at runtime, so nothing else changes.
+set "TGT=%~2"
+
+rem Also allow the target to be the first argument:  run-naraka.bat mobile
+if /i "%MODE%"=="pc"     goto :tgt_as_mode_pc
+if /i "%MODE%"=="mobile" goto :tgt_as_mode_mobile
+goto :tgt_apply
+
+:tgt_as_mode_pc
+set "TGT=pc"
+set "MODE=inject"
+goto :tgt_apply
+
+:tgt_as_mode_mobile
+set "TGT=mobile"
+set "MODE=inject"
+
+:tgt_apply
+if "%TGT%"=="" set "TGT=pc"
+if /i "%TGT%"=="mobile" (
+  set "LABEL=Naraka: Bladepoint Mobile"
+  set "GAMEDIR=F:\NarakaMobile\game"
+  set "STARTER=StartGame_l22.exe"
+  set "TARGET=NarakaBladepointMobile.exe"
+) else (
+  set "TGT=pc"
+  set "LABEL=Naraka: Bladepoint"
+  set "GAMEDIR=F:\Naraka\program"
+  set "STARTER=StartGame.exe"
+  set "TARGET=NarakaBladepoint.exe"
+)
 
 rem elevation matters in the opposite direction here - see the header
 net session >nul 2>&1
@@ -356,7 +396,7 @@ goto :fail
 rem ---------------------------------------------------------------------------
 :status
 echo.
-echo  TinecmaTool - Naraka: Bladepoint
+echo  TinecmaTool - %LABEL%
 echo.
 echo   repo      : %ROOT%
 echo   game dir  : %GAMEDIR%
@@ -429,6 +469,9 @@ echo.
 echo  start target : %GAMEDIR%\%STARTER%
 echo  renderer     : %TARGET%
 echo  captures     : %CAPTURES%
+echo.
+echo  Second argument picks the game: pc (default) or mobile.
+echo    %~nx0 inject mobile
 echo.
 echo  Never elevated: an elevated launch keeps NarakaBladepoint.exe from ever
 echo  appearing. This script drops to medium integrity through explorer instead.
