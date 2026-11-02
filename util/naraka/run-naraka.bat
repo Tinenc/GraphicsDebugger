@@ -63,6 +63,7 @@ if /i "%MODE%"=="status"   goto :status
 if /i "%MODE%"=="capture"  goto :capture
 if /i "%MODE%"=="proxy"    goto :proxy
 if /i "%MODE%"=="undeploy" goto :undeploy
+if /i "%MODE%"=="inject"   goto :inject
 if /i "%MODE%"=="launch"   goto :preflight
 echo [error] unknown mode: %MODE%
 goto :usage
@@ -265,6 +266,141 @@ echo [ok] game directory restored.
 goto :done
 
 rem ---------------------------------------------------------------------------
+:inject
+rem Inject the capture core into the renderer as soon as it appears.
+rem
+rem This is the one route that does not put files in the game directory. It also
+rem has to win a race: the renderer appears about 12s after the starter is
+rem launched and creates its D3D12 device about 18s after that. Miss the window
+rem and the device exists before the layer does, which is unrecoverable for that
+rem session - RenderDoc can only wrap a device it saw being created.
+rem
+rem Two known risks, both recorded rather than hidden:
+rem   - VMProtect restores its own import table during unpacking, which is what
+rem     made the D3D11 IAT path report zero resolved functions in the 10-24
+rem     session. Whether the D3D12 path survives that is exactly what this run
+rem     is meant to find out.
+rem   - remote-thread injection into a protected process may be detected. If the
+rem     game warns or exits, stop - do not retry.
+if not exist "%TOOL%" (
+  echo [error] toolcmd not found: %TOOL%
+  goto :fail
+)
+if not exist "%WORK%"     mkdir "%WORK%"     >nul 2>&1
+if not exist "%CAPTURES%" mkdir "%CAPTURES%" >nul 2>&1
+>>"%RUNLOG%" echo ===== %DATE% %TIME% mode=inject elevated=%ELEVATED% =====
+
+set "ANY="
+for %%F in (dxgi.dll d3d11.dll d3d12.dll) do (
+  if exist "%GAMEDIR%\%%F" set "ANY=1"
+)
+if defined ANY (
+  echo [error] proxies are still deployed in %GAMEDIR%
+  echo [hint]  with them present the game loads the proxy and the core skips its
+  echo [hint]  IAT hooks, so injecting would do nothing. Run:  %~nx0 undeploy
+  goto :fail
+)
+
+if exist "%TRIGGER%" del /q "%TRIGGER%" >nul 2>&1
+
+call :launchgame
+echo.
+echo [inject] waiting for %TARGET% to appear, then injecting immediately ...
+call :log "[inject] waiting for target"
+
+set "WAITS=0"
+set "PID="
+:injectwait
+set "PID="
+for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq %TARGET%" /FO CSV /NH 2^>nul ^| findstr /i "%TARGET%"') do (
+  if not defined PID set "PID=%%~P"
+)
+if defined PID goto :doinject
+set /a WAITS+=1
+if !WAITS! geq 300 (
+  echo [warn] gave up after about 5 minutes, %TARGET% never appeared.
+  goto :fail
+)
+ping -n 2 127.0.0.1 >nul
+goto :injectwait
+
+:doinject
+call :log "[inject] found pid=!PID! after ~!WAITS!s"
+echo [inject] %TARGET% pid=!PID!
+echo [inject] injecting now - the device window is roughly 18s from here
+"%TOOL%" inject --PID=!PID! -c "%CAPTURES%\naraka"
+set "RC=!errorlevel!"
+call :log "[inject] rc=!RC!"
+if not "!RC!"=="0" goto :injectfail
+
+echo.
+echo [ok] injected into pid !PID!
+echo.
+echo [wait] watching the core log for device wrapping, up to 90s ...
+set "NEWLOG="
+for /f "delims=" %%F in ('dir /b /o-d "%LOCALAPPDATA%\Temp\TinecmaTool\RenderDoc_*.log" 2^>nul') do (
+  if not defined NEWLOG set "NEWLOG=%LOCALAPPDATA%\Temp\TinecmaTool\%%F"
+)
+if not defined NEWLOG (
+  echo [warn] no RenderDoc log yet - the core may not have initialised.
+  goto :injectdone
+)
+echo [log] !NEWLOG!
+call :log "[inject] log=!NEWLOG!"
+
+set "TICKS=0"
+:watchloop
+findstr /c:"created wrapped device" "!NEWLOG!" >nul 2>&1
+if not errorlevel 1 (
+  echo.
+  echo [OK] device wrapped - the layer is in the pipeline.
+  goto :watchpresent
+)
+set /a TICKS+=3
+if !TICKS! geq 90 (
+  echo.
+  echo [warn] 90s and no wrapped device.
+  echo [hint] the IAT hook did not survive - VMProtect restores its import table
+  echo [hint] during unpacking, which is the failure recorded for D3D11 on 10-24.
+  echo [hint] last lines:
+  powershell -NoProfile -Command "Get-Content '!NEWLOG!' -Tail 8 -ErrorAction SilentlyContinue" 2>nul
+  goto :injectdone
+)
+ping -n 4 127.0.0.1 >nul
+goto :watchloop
+
+:watchpresent
+set "TICKS=0"
+:presentloop
+findstr /c:"Graphics first present" "!NEWLOG!" >nul 2>&1
+if not errorlevel 1 (
+  echo [OK] first present reached - the swapchain is hooked.
+  goto :injectdone
+)
+set /a TICKS+=3
+if !TICKS! geq 60 goto :injectdone
+ping -n 4 127.0.0.1 >nul
+goto :presentloop
+
+:injectdone
+echo.
+echo [next] get into the game until it is actually rendering, then:
+echo [next]   press F12, or run:  %~nx0 capture
+echo [next] captures land in: %CAPTURES%
+goto :done
+
+:injectfail
+echo.
+echo [fail] injection returned !RC!
+echo [hint] usual causes, in order of likelihood:
+echo [hint]  1. the anti-cheat stripped handle rights - OpenProcess works but
+echo [hint]     WriteProcessMemory or CreateRemoteThread return ACCESS_DENIED.
+echo [hint]  2. we were too late. The renderer appeared but had already created
+echo [hint]     its device; a wrapped device can only be produced at creation.
+echo [hint]  3. wrong process - the renderer is %TARGET%, not %STARTER%.
+goto :fail
+
+rem ---------------------------------------------------------------------------
 :status
 echo.
 echo  TinecmaTool - Naraka: Bladepoint
@@ -348,6 +484,7 @@ echo.
 echo  TinecmaTool + Naraka: Bladepoint
 echo.
 echo    %~nx0              start the game and watch it come up   [default]
+echo    %~nx0 inject       start, then inject the renderer at first sight
 echo    %~nx0 status       environment report, starts nothing
 echo    %~nx0 capture      write the capture trigger file
 echo    %~nx0 proxy        deploy proxies then start   [blocked by anti-cheat]

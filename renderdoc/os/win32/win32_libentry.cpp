@@ -50,13 +50,14 @@ static BOOL add_hooks()
     return TRUE;
   }
 
-  // Protected game processes that are fronted by our own proxy DLLs (tools/proxy). Their graphics
-  // entry points are reached through the proxy's TINECMATOOL_* exports, so the IAT rewrite is both
-  // useless (VMProtect restores its own import table) and a detection signal.
+  // Skip graphics IAT hooks only when something tells us to.
   //
-  // TCM_SKIP_GRAPHICS_IAT=1 forces the same behaviour for any host process. The proxy sets it
-  // before LoadLibrary'ing this DLL, which is what keeps a mis-configured target or a test harness
-  // from double-hooking - see tools/proxy/naraka_proxy_common.h for what that costs.
+  // Originally this also keyed off the process name being narakabladepoint.exe, on the assumption
+  // that the proxy layer would always be the one loading us there. That assumption is what makes
+  // injection look broken: an injected renderer got g_SkipGraphicsDriverHooks set purely because
+  // of its name, registered nothing, and could never wrap a device. The proxy sets
+  // TCM_SKIP_GRAPHICS_IAT itself right before LoadLibrary, so the name test was redundant for the
+  // case it was written for and actively harmful for the other one.
   //
   // Read with GetEnvironmentVariableA, not getenv: the CRT snapshots the environment at startup,
   // so a value placed by SetEnvironmentVariableA moments earlier is invisible to getenv.
@@ -64,12 +65,11 @@ static BOOL add_hooks()
     char skipIat[8] = {0};
     DWORD skipLen = GetEnvironmentVariableA("TCM_SKIP_GRAPHICS_IAT", skipIat, sizeof(skipIat));
 
-    if(f == "narakabladepoint.exe" || (skipLen > 0 && skipLen < sizeof(skipIat) && skipIat[0] == '1'))
+    if(skipLen > 0 && skipLen < sizeof(skipIat) && skipIat[0] == '1')
     {
       g_SkipGraphicsDriverHooks = true;
-      RDCLOG(
-          "Graphics IAT hooks disabled for %s - expecting a TINECMATOOL_* bridge call from a proxy",
-          f.c_str());
+      RDCLOG("Graphics IAT hooks disabled for %s - a proxy layer will supply the entry points",
+             f.c_str());
     }
   }
 
