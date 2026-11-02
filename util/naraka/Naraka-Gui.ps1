@@ -59,7 +59,7 @@ $script:Deadline     = $null
 $ColBack    = [Drawing.Color]::FromArgb(30, 30, 30)
 $ColPanel   = [Drawing.Color]::FromArgb(37, 37, 38)
 $ColText    = [Drawing.Color]::FromArgb(230, 230, 230)
-$ColDim     = [Drawing.Color]::FromArgb(150, 150, 150)
+$ColDim     = [Drawing.Color]::FromArgb(178, 178, 178)
 $ColAccent  = [Drawing.Color]::FromArgb(86, 156, 214)
 $ColWarn    = [Drawing.Color]::FromArgb(214, 157, 86)
 $ColOk      = [Drawing.Color]::FromArgb(106, 190, 106)
@@ -116,9 +116,27 @@ function Start-Game([string]$dir) {
     }
 }
 
+# Flat buttons on a dark panel: the stock disabled rendering greys the glyph out
+# against the panel colour and it turns unreadable. So these stay enabled for their
+# whole life and the click handlers do the gating, saying why nothing happened -
+# a readable hint beats a button that looks broken.
+function New-SecondaryButton([string]$text, [int]$x, [int]$y, [int]$w) {
+    $b = New-Object Windows.Forms.Button
+    $b.Text = $text
+    $b.SetBounds($x, $y, $w, 36)
+    $b.FlatStyle = 'Flat'
+    $b.BackColor = [Drawing.Color]::FromArgb(52, 52, 56)
+    $b.ForeColor = [Drawing.Color]::FromArgb(248, 248, 248)
+    $b.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(96, 96, 100)
+    $b.FlatAppearance.BorderSize = 1
+    $b.FlatAppearance.MouseOverBackColor = [Drawing.Color]::FromArgb(68, 68, 74)
+    $b.FlatAppearance.MouseDownBackColor = [Drawing.Color]::FromArgb(40, 40, 44)
+    $b.UseVisualStyleBackColor = $false
+    return $b
+}
+
 function Set-Running($running) {
     $script:BtnLaunch.Enabled = -not $running
-    $script:BtnCapture.Enabled = $false
     $script:GrpRoute.Enabled = -not $running
     $script:TxtPath.Enabled = -not $running
     $script:BtnBrowse.Enabled = -not $running
@@ -147,18 +165,18 @@ function Begin-Capture {
         Write-Status '渲染进程不在运行，无法抓帧' $ColBad
         return
     }
+    if ($script:Phase -ne 'ready' -and $script:Phase -ne 'capturing') {
+        Write-Status ('设备还没包装（当前阶段 ' + $script:Phase + '），等状态显示「就绪」再按抓帧') $ColWarn
+        return
+    }
     $script:CaptureStart = Get-Date
     New-Item -ItemType File -Force -Path $Trigger | Out-Null
     $script:Phase = 'capturing'
-    $script:BtnCapture.Enabled = $false
     Write-Status '已下发抓帧请求，等待 .rdc 落盘（大场景可能需要几十秒）' $ColAccent
 }
 
 function Complete-Success {
     $script:Phase = 'ready'
-    $script:BtnCapture.Enabled = $true
-    $script:BtnOpen.Enabled = $true
-    $script:BtnViewer.Enabled = $true
     $script:LblState.Text = '就绪 — 设备已包装，可以抓帧'
     $script:LblState.ForeColor = $ColOk
     Write-Status '设备已包装（created wrapped device），可以按 [抓帧] 或 F12 之外的文件触发' $ColOk
@@ -296,34 +314,23 @@ $script:BtnLaunch.SetBounds(18, 620, 176, 36)
 $script:BtnLaunch.FlatStyle = 'Flat'
 $script:BtnLaunch.BackColor = [Drawing.Color]::FromArgb(45, 90, 140)
 $script:BtnLaunch.ForeColor = [Drawing.Color]::White
+$script:BtnLaunch.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(74, 133, 194)
+$script:BtnLaunch.FlatAppearance.BorderSize = 1
+$script:BtnLaunch.FlatAppearance.MouseOverBackColor = [Drawing.Color]::FromArgb(56, 106, 162)
+$script:BtnLaunch.UseVisualStyleBackColor = $false
 $form.Controls.Add($script:BtnLaunch)
 
-$script:BtnCapture = New-Object Windows.Forms.Button
-$script:BtnCapture.Text = '抓帧'
-$script:BtnCapture.SetBounds(202, 620, 120, 36)
-$script:BtnCapture.FlatStyle = 'Flat'
-$script:BtnCapture.BackColor = $ColPanel
-$script:BtnCapture.ForeColor = $ColText
-$script:BtnCapture.Enabled = $false
+$script:BtnCapture = New-SecondaryButton '抓帧' 202 620 120
 $form.Controls.Add($script:BtnCapture)
 
-$script:BtnOpen = New-Object Windows.Forms.Button
-$script:BtnOpen.Text = '产物目录'
-$script:BtnOpen.SetBounds(330, 620, 110, 36)
-$script:BtnOpen.FlatStyle = 'Flat'
-$script:BtnOpen.BackColor = $ColPanel
-$script:BtnOpen.ForeColor = $ColText
-$script:BtnOpen.Enabled = $false
-$script:BtnOpen.Add_Click({ Start-Process -FilePath $Captures })
+$script:BtnOpen = New-SecondaryButton '产物目录' 330 620 110
+$script:BtnOpen.Add_Click({
+    if (-not (Test-Path $Captures)) { New-Item -ItemType Directory -Force -Path $Captures | Out-Null }
+    Start-Process -FilePath $Captures
+})
 $form.Controls.Add($script:BtnOpen)
 
-$script:BtnViewer = New-Object Windows.Forms.Button
-$script:BtnViewer.Text = '打开分析器'
-$script:BtnViewer.SetBounds(448, 620, 110, 36)
-$script:BtnViewer.FlatStyle = 'Flat'
-$script:BtnViewer.BackColor = $ColPanel
-$script:BtnViewer.ForeColor = $ColText
-$script:BtnViewer.Enabled = $false
+$script:BtnViewer = New-SecondaryButton '打开分析器' 448 620 110
 $script:BtnViewer.Add_Click({
     $rdc = Get-ChildItem -Path $Captures -Filter '*.rdc' -ErrorAction SilentlyContinue |
            Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -336,12 +343,7 @@ $script:BtnViewer.Add_Click({
 })
 $form.Controls.Add($script:BtnViewer)
 
-$btnClose = New-Object Windows.Forms.Button
-$btnClose.Text = '关闭 (Esc)'
-$btnClose.SetBounds(566, 620, 98, 36)
-$btnClose.FlatStyle = 'Flat'
-$btnClose.BackColor = $ColPanel
-$btnClose.ForeColor = $ColText
+$btnClose = New-SecondaryButton '关闭 (Esc)' 566 620 98
 $form.Controls.Add($btnClose)
 
 $form.AcceptButton = $script:BtnLaunch
@@ -476,13 +478,11 @@ $timer.Add_Tick({
                        Sort-Object LastWriteTime -Descending | Select-Object -First 1
                 if ($rdc) {
                     $script:Phase = 'ready'
-                    $script:BtnCapture.Enabled = $true
                     $script:LblState.Text = ('抓帧完成: ' + $rdc.Name)
                     $script:LblState.ForeColor = $ColOk
                     Write-Status ('已保存 ' + $rdc.Name + '  (' + [math]::Round($rdc.Length / 1MB, 2) + ' MB)') $ColOk
                 } elseif ((Get-Date) -gt $script:CaptureStart.AddSeconds(90)) {
                     $script:Phase = 'ready'
-                    $script:BtnCapture.Enabled = $true
                     Write-Status '90 秒没有新 .rdc，抓帧可能没被接受（看核心日志）' $ColWarn
                 }
             }
