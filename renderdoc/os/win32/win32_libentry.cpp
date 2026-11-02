@@ -27,6 +27,7 @@
 #include <tchar.h>
 #include <windows.h>
 #include <stdlib.h>
+#include <intrin.h>
 #include "common/common.h"
 #include "core/core.h"
 #include "hooks/hooks.h"
@@ -112,6 +113,7 @@ static BOOL add_hooks()
 
       if(self)
       {
+#if defined(_WIN64)
         // Same layout the proxy layer uses, spelled out because this file cannot include it.
         typedef struct
         {
@@ -158,6 +160,11 @@ static BOOL add_hooks()
         }
 
         RDCLOG("PEB unlink of our own module: %s", unlinked ? "done" : "not found in the list");
+#else
+        // x86 reaches the PEB through fs:[0x30] with a different field layout. The x86 build here
+        // is the launcher shim, which has no business hiding itself, so it simply does not.
+        RDCLOG("PEB unlink skipped on x86");
+#endif
       }
     }
   }
