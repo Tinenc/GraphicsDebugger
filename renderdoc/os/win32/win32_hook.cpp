@@ -1351,33 +1351,63 @@ bool RangeIsZero(byte *base, DWORD rva, SIZE_T size)
   return true;
 }
 
-// Look for `need` zero bytes in the padding the loader commits between sections (and after the last
-// one). Real code lives inside VirtualSize; the alignment gap after it is padding, which is what
-// makes it safe to overwrite without disturbing anything.
+// Look for `need` zero bytes in the padding a mapped image carries.
+//
+// The useful padding is not the gap between sections - Windows images are packed to
+// SectionAlignment, so that gap is usually empty. It is the tail of each section: the loader maps
+// SizeOfRawData bytes, of which only VirtualSize is meaningful content, and the remainder is
+// zero-fill. Measured on dxgi.dll: between 1.2KB and 4KB of zeros per section, versus nothing at all
+// between sections.
 void *FindImageCave(byte *base, const IMAGE_NT_HEADERS *nt, SIZE_T need)
 {
   const DWORD align = nt->OptionalHeader.SectionAlignment;
   IMAGE_SECTION_HEADER *sections = IMAGE_FIRST_SECTION(nt);
 
-  for(WORD i = 0; i < nt->FileHeader.NumberOfSections; i++)
+  // Two passes: prefer an already-executable section so the stub lands on pages that are mapped
+  // executable, then fall back to anything.
+  for(int pass = 0; pass < 2; pass++)
   {
-    DWORD gapStart = AlignUp(sections[i].VirtualAddress + sections[i].Misc.VirtualSize, align);
-    DWORD gapEnd;
-    if(i + 1 < nt->FileHeader.NumberOfSections)
-      gapEnd = sections[i + 1].VirtualAddress;
-    else
-      gapEnd = AlignUp(sections[i].VirtualAddress + sections[i].Misc.VirtualSize, align);
+    for(WORD i = 0; i < nt->FileHeader.NumberOfSections; i++)
+    {
+      const bool executable = (sections[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
+      if(pass == 0 && !executable)
+        continue;
+      if(pass == 1 && executable)
+        continue;  // already covered by pass 0
 
-    if(gapEnd <= gapStart)
-      continue;
-    if(SIZE_T(gapEnd - gapStart) < need)
-      continue;
+      DWORD contentEnd = sections[i].VirtualAddress + sections[i].Misc.VirtualSize;
+      DWORD mappedEnd = sections[i].VirtualAddress +
+                        (sections[i].SizeOfRawData > sections[i].Misc.VirtualSize
+                             ? sections[i].SizeOfRawData
+                             : sections[i].Misc.VirtualSize);
 
-    if(RangeIsZero(base, gapStart, need))
-      return base + gapStart;
+      DWORD nextStart = (i + 1 < nt->FileHeader.NumberOfSections)
+                            ? sections[i + 1].VirtualAddress
+                            : nt->OptionalHeader.SizeOfImage;
+      if(nextStart < mappedEnd)
+        mappedEnd = nextStart;
+
+      if(mappedEnd <= contentEnd || SIZE_T(mappedEnd - contentEnd) < need)
+        continue;
+
+      // 16-byte align the stub so it starts on a clean boundary.
+      DWORD start = (contentEnd + 15u) & ~15u;
+      if(start + need > mappedEnd)
+        start = contentEnd;
+
+      if(RangeIsZero(base, start, need))
+        return base + start;
+
+      // otherwise walk forward looking for a run inside the same slack
+      for(DWORD rva = start; rva + need <= mappedEnd; rva += 16)
+      {
+        if(RangeIsZero(base, rva, need))
+          return base + rva;
+      }
+    }
   }
 
-  // last resort: the slack at the very end of the image
+  // last resort: the page-aligned gap after the final section
   DWORD last = nt->FileHeader.NumberOfSections - 1;
   DWORD tailStart = AlignUp(sections[last].VirtualAddress + sections[last].Misc.VirtualSize, align);
   DWORD tailEnd = nt->OptionalHeader.SizeOfImage;
@@ -1531,17 +1561,25 @@ typedef struct
 
 typedef struct
 {
-  ULONG Flags;
+  ULONG Flags;  // LDR_DLL_LOADED_NOTIFICATION_DATA has its own reserved Flags
   const NotificationString *FullDllName;
   const NotificationString *BaseDllName;
   PVOID DllBase;
   ULONG SizeOfImage;
 } LoadedModuleNotification;
 
+// The outer LDR_DLL_NOTIFICATION_DATA is Flags followed by that struct. Getting this wrong is
+// subtle in the worst way: without the inner Flags every pointer shifts by 8, BaseDllName ends up
+// reading FullDllName instead, the name comparison fails, and the redirect silently never happens -
+// no crash, no log, just nothing. That is exactly what the first two live runs did.
 typedef struct
 {
   ULONG Flags;
-  LoadedModuleNotification Loaded;
+  ULONG LoadedFlags;  // reserved, first member of the Loaded struct above
+  const NotificationString *FullDllName;
+  const NotificationString *BaseDllName;
+  PVOID DllBase;
+  ULONG SizeOfImage;
 } DllNotificationData;
 
 typedef VOID(CALLBACK *PFN_DllNotification)(ULONG, const DllNotificationData *, PVOID);
@@ -1549,10 +1587,10 @@ typedef VOID(CALLBACK *PFN_DllNotification)(ULONG, const DllNotificationData *, 
 VOID CALLBACK GraphicsDllNotification(ULONG reason, const DllNotificationData *data, PVOID)
 {
   const ULONG kReasonLoaded = 1;
-  if(reason != kReasonLoaded || !data || !data->Loaded.BaseDllName || !data->Loaded.DllBase)
+  if(reason != kReasonLoaded || !data || !data->BaseDllName || !data->DllBase)
     return;
 
-  const NotificationString *baseName = data->Loaded.BaseDllName;
+  const NotificationString *baseName = data->BaseDllName;
   const int len = int(baseName->Length / sizeof(WCHAR));
   if(len <= 0 || len >= MAX_PATH)
     return;
@@ -1566,7 +1604,7 @@ VOID CALLBACK GraphicsDllNotification(ULONG reason, const DllNotificationData *d
     if(target.installed || strcmp(target.moduleName.c_str(), name) != 0)
       continue;
 
-    if(RedirectExportInModule((HMODULE)data->Loaded.DllBase, name, target.functionName.c_str(),
+    if(RedirectExportInModule((HMODULE)data->DllBase, name, target.functionName.c_str(),
                               target.replacement))
       target.installed = true;
   }
