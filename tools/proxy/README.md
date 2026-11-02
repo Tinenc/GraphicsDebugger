@@ -96,9 +96,12 @@ msbuild renderdoc.sln /m /p:Configuration=Development /p:Platform=x64
 
 > 这一节记录的是已跑通但**被反作弊识别**的部署方式，默认不可执行。
 > 完整实测结论见 [`docs/NARAKA_代理层实测_2026-11-02.md`](../../docs/NARAKA_代理层实测_2026-11-02.md)。
+>
+> 部署脚本 `Deploy-NarakaProxy.ps1` 已于 2026-11-02 随代理路线一起删除。下面是它原本
+> 的用法，仅作记录；要重新启用请从 git 历史取回该脚本（提交 `585e096c6` 之前）。
 
 ```powershell
-cd "C:\Program Files\GraphicsDebugger-Naraka\util\naraka"
+cd "C:\Program Files\GraphicsDebugger-Naraka\tools\naraka"
 
 # 默认会拒绝部署，并在拒绝时说明原因
 .\Deploy-NarakaProxy.ps1

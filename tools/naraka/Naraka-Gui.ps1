@@ -7,12 +7,12 @@
 #  1) 绝不提权。从高完整性父进程拉起 StartGame.exe，NeacClient 会起来但
 #     NarakaBladepoint.exe 永不出现。本脚本发现自己在提权环境时，会把启动交给
 #     explorer.exe 退回中等完整性。
-#  2) 默认走注入，不走代理。注入不往游戏目录放任何文件；代理路线技术可用但会被
-#     反作弊识别（2026-11-02 实测：进游戏弹提示后游戏拆除图形设备退出）。
+#  2) 只保留注入这一条路。注入不往游戏目录放任何文件；代理路线实测可用但会被
+#     反作弊识别（2026-11-02：进游戏弹提示后游戏拆除图形设备退出），已从界面移除，
+#     源码留在 tools/proxy 备查。
 #
 #  COD 那份 GUI 的教训也照搬了：不使用 emoji（微软雅黑会退化成空心方块，被误当成
-#  复选框），信息区用 GroupBox + ● 明确标注"非可交互控件"，可选项一律用原生
-#  RadioButton。
+#  复选框），信息区用 GroupBox + ● 明确标注"非可交互控件"。
 # ===========================================================================
 
 [CmdletBinding()]
@@ -34,7 +34,6 @@ $CoreDll   = Join-Path $Root 'x64\Development\TinecmaTool.dll'
 $ToolCmd   = Join-Path $Root 'x64\Development\TinecmaToolcmd.exe'
 $GuiViewer = Join-Path $Root 'x64\Development\qTinecmaTool.exe'
 $InjectPs1 = Join-Path $PSScriptRoot 'wait-and-inject.ps1'
-$DeployPs1 = Join-Path $PSScriptRoot 'Deploy-NarakaProxy.ps1'
 
 $Starter = 'StartGame.exe'
 $Target  = 'NarakaBladepoint.exe'
@@ -179,7 +178,7 @@ function Complete-Success {
     $script:Phase = 'ready'
     $script:LblState.Text = '就绪 — 设备已包装，可以抓帧'
     $script:LblState.ForeColor = $ColOk
-    Write-Status '设备已包装（created wrapped device），可以按 [抓帧] 或 F12 之外的文件触发' $ColOk
+    Write-Status '设备已包装（created wrapped device），可以按 [抓帧]' $ColOk
 }
 
 # ------------------------------------------------------------------ UI ----
@@ -245,18 +244,21 @@ $script:GrpRoute.ForeColor = $ColAccent
 $script:GrpRoute.SetBounds(18, 158, 646, 96)
 $form.Controls.Add($script:GrpRoute)
 
-$script:RadInject = New-Object Windows.Forms.RadioButton
-$script:RadInject.Text = '注入渲染进程（推荐）—  不往游戏目录写任何文件'
-$script:RadInject.SetBounds(16, 26, 610, 22)
-$script:RadInject.ForeColor = $ColText
-$script:RadInject.Checked = $true
-$script:GrpRoute.Controls.Add($script:RadInject)
+# Only one route is left, so this is a statement rather than a choice. The proxy
+# route stays documented in tools/proxy/README.md but is not offered here: putting
+# dxgi/d3d11/d3d12 next to the game gets them seen, and the game then tears its
+# graphics devices down and exits without writing a capture.
+$lblRoute = New-Object Windows.Forms.Label
+$lblRoute.Text = '注入渲染进程 —  启动 StartGame.exe，渲染进程一出现就注入，不往游戏目录写任何文件'
+$lblRoute.SetBounds(16, 24, 620, 22)
+$lblRoute.ForeColor = $ColText
+$script:GrpRoute.Controls.Add($lblRoute)
 
-$script:RadProxy = New-Object Windows.Forms.RadioButton
-$script:RadProxy.Text = '代理 DLL（实验）—  会被反作弊识别，仅用于对比'
-$script:RadProxy.SetBounds(16, 52, 610, 22)
-$script:RadProxy.ForeColor = $ColWarn
-$script:GrpRoute.Controls.Add($script:RadProxy)
+$lblRouteNote = New-Object Windows.Forms.Label
+$lblRouteNote.Text = '代理 DLL 路线已停用：安装目录里多出三个 DLL 会被反作弊识别，进游戏即弹提示。'
+$lblRouteNote.SetBounds(16, 50, 620, 22)
+$lblRouteNote.ForeColor = $ColWarn
+$script:GrpRoute.Controls.Add($lblRouteNote)
 
 # --- 3. 说明（非交互） -----------------------------------------------------
 $grpInfo = New-Object Windows.Forms.GroupBox
@@ -267,7 +269,7 @@ $form.Controls.Add($grpInfo)
 
 $infoText = @'
 ● 点 [启动并注入] 后脚本会启动 StartGame.exe，等 NarakaBladepoint.exe 出现就注入。
-● 后台放行后进入游戏，等到真正开始渲染（不是加载画面）再抓帧。
+● 进游戏后等到真正开始渲染（不是加载画面）再抓帧。
 ● 抓帧方式：点 [抓帧] ，或手动建一个文件
     %LOCALAPPDATA%\Temp\Naraka\proxy\captures\trigger_capture_narakabladepoint
 ● 产物目录：%LOCALAPPDATA%\Temp\Naraka\proxy\captures
@@ -379,38 +381,6 @@ $script:BtnLaunch.Add_Click({
     }
     $script:GameDir = $game
 
-    if ($script:RadProxy.Checked) {
-        $answer = [Windows.Forms.MessageBox]::Show(
-            "代理路线实测结果：`n`n" +
-            "游戏能起来、设备也能被包装，但安装目录里的三个 DLL 会被反作弊看到，" +
-            "进游戏会弹提示，随后游戏拆除图形设备退出，没有产出 .rdc。`n`n" +
-            "确定要继续吗？（会改动游戏安装目录）",
-            '代理路线已被反作弊识别',
-            [Windows.Forms.MessageBoxButtons]::YesNo,
-            [Windows.Forms.MessageBoxIcon]::Warning)
-        if ($answer -ne [Windows.Forms.DialogResult]::Yes) {
-            Write-Status '已取消（代理路线）' $ColDim
-            return
-        }
-        Write-Status '代理路线：先部署，再启动' $ColWarn
-        $p = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $DeployPs1 + '"'),
-            '-ForceProtected', '-Apply', '-GameDir', ('"' + $game + '"')
-        ) -PassThru -Wait -WindowStyle Hidden
-        if ($p.ExitCode -ne 0) {
-            Write-Status ('部署失败，退出码 ' + $p.ExitCode + '（权限不足或被策略拦住）') $ColBad
-            return
-        }
-        Write-Status '代理已部署' $ColWarn
-        Start-Game $game
-        $script:Phase = 'wait-proxy-device'
-        $script:Deadline = (Get-Date).AddMinutes(4)
-        $script:LblState.Text = '等待代理层加载并把设备包装起来'
-        $script:LblState.ForeColor = $ColAccent
-        Set-Running $true
-        return
-    }
-
     if (Get-ProcByName $Target) {
         Write-Status '游戏已经在运行了。先关掉它，否则设备已经创建、注入来不及。' $ColWarn
         return
@@ -456,19 +426,6 @@ $timer.Add_Tick({
                     $script:LblState.ForeColor = $ColBad
                     Write-Status '90 秒内没有看到 created wrapped device' $ColBad
                     Write-Status '常见原因：注入晚于设备创建，或导出重定向没装上（看日志 Export redirect）' $ColWarn
-                    Set-Running $false
-                }
-            }
-            'wait-proxy-device' {
-                $log = Get-NewestCoreLog
-                if ($log) {
-                    $hit = Select-String -Path $log -Pattern 'created wrapped device' -SimpleMatch -ErrorAction SilentlyContinue
-                    if ($hit) { Complete-Success }
-                }
-                if ((Get-Date) -gt $script:Deadline) {
-                    $script:Phase = 'failed'
-                    $script:LblState.Text = '超时 — 代理层没有包装设备'
-                    $script:LblState.ForeColor = $ColBad
                     Set-Running $false
                 }
             }

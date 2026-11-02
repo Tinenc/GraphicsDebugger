@@ -3,46 +3,41 @@ setlocal EnableExtensions EnableDelayedExpansion
 title TinecmaTool - Naraka: Bladepoint
 
 rem ===========================================================================
-rem  One-click TinecmaTool launcher for Naraka: Bladepoint.
+rem  TinecmaTool launcher for Naraka: Bladepoint.
 rem
-rem    run-naraka.bat              preflight, start the game, watch it come up
-rem    run-naraka.bat status       environment report only, starts nothing
-rem    run-naraka.bat capture      write the capture trigger file
-rem    run-naraka.bat proxy        deploy proxies then start [BLOCKED - see below]
-rem    run-naraka.bat undeploy     remove the proxies, restore the game dir
-rem    run-naraka.bat help         this text
+rem    run-naraka.bat             start the game and watch it come up
+rem    run-naraka.bat inject      start, then inject the renderer at first sight
+rem    run-naraka.bat capture     write the capture trigger file
+rem    run-naraka.bat status      environment report, starts nothing
+rem    run-naraka.bat gui         open the graphical control center
+rem    run-naraka.bat help        this text
 rem
-rem  Two things here are the opposite of the Steam-Cod launcher, both measured:
+rem  Naraka-Launcher.bat opens the GUI, which is the normal way in. This file is
+rem  the same thing without a window, and is what the GUI calls.
 rem
-rem  1. DO NOT ELEVATE. Started from an elevated parent, StartGame.exe brings up
-rem     NeacClient.exe but NarakaBladepoint.exe never appears and Player.log is
-rem     never touched. Through explorer.exe - medium integrity - the game starts
-rem     normally. So this script never asks for admin; when it detects that it is
-rem     already elevated it hands the launch to explorer instead.
-rem
-rem  2. The proxy route is refused unless asked for twice. Putting dxgi/d3d11/
-rem     d3d12 into the game directory works technically - the game reaches
-rem     "Graphics first present" with wrapped devices - but the protection sees
-rem     the files in the install, warns on entering the game and shuts the
-rem     graphics devices down. See docs/NARAKA_代理层实测_2026-11-02.md
+rem  DO NOT ELEVATE. Measured 2026-11-02: started from an elevated parent,
+rem  StartGame.exe brings up NeacClient.exe but NarakaBladepoint.exe never
+rem  appears and Player.log is never touched. Through explorer.exe - medium
+rem  integrity - the game starts normally. So this script never asks for admin;
+rem  when it finds itself elevated it hands the launch to explorer instead.
 rem
 rem  The start target is StartGame.exe, not NarakaBladepoint.exe: the renderer
-rem  expects the launch ticket that StartGame hands it. It also is not
-rem  LauncherGame.exe, which is an x86 shell that exits within a second.
+rem  needs the launch ticket StartGame hands it. It is also not LauncherGame.exe,
+rem  an x86 shell that exits within a second.
 rem ===========================================================================
 
 set "HERE=%~dp0"
-rem repo root: this file lives in util\naraka
+rem repo root: this file lives in tools\naraka
 for %%i in ("%HERE%..\..") do set "ROOT=%%~fi\"
 set "TOOL=%ROOT%x64\Development\TinecmaToolcmd.exe"
 set "CORE=%ROOT%x64\Development\TinecmaTool.dll"
-set "PROXYDIR=%ROOT%tools\proxy"
-set "DEPLOY=%HERE%Deploy-NarakaProxy.ps1"
 
 set "GAMEDIR=F:\Naraka\program"
 set "STARTER=StartGame.exe"
 set "TARGET=NarakaBladepoint.exe"
 
+rem Historical name - the capture core resolves this path itself, so it is not
+rem ours to rename. See the trigger watcher in renderdoc/os/win32/win32_libentry.cpp
 set "WORK=%LOCALAPPDATA%\Temp\Naraka\proxy"
 set "CAPTURES=%WORK%\captures"
 set "TRIGGER=%CAPTURES%\trigger_capture_narakabladepoint"
@@ -58,14 +53,12 @@ rem elevation matters in the opposite direction here - see the header
 net session >nul 2>&1
 if errorlevel 1 (set "ELEVATED=0") else (set "ELEVATED=1")
 
-if /i "%MODE%"=="help"     goto :usage
-if /i "%MODE%"=="status"   goto :status
-if /i "%MODE%"=="capture"  goto :capture
-if /i "%MODE%"=="proxy"    goto :proxy
-if /i "%MODE%"=="undeploy" goto :undeploy
-if /i "%MODE%"=="inject"   goto :inject
-if /i "%MODE%"=="gui"      goto :gui
-if /i "%MODE%"=="launch"   goto :preflight
+if /i "%MODE%"=="help"    goto :usage
+if /i "%MODE%"=="status"  goto :status
+if /i "%MODE%"=="capture" goto :capture
+if /i "%MODE%"=="inject"  goto :inject
+if /i "%MODE%"=="gui"     goto :gui
+if /i "%MODE%"=="launch"  goto :preflight
 echo [error] unknown mode: %MODE%
 goto :usage
 
@@ -78,18 +71,16 @@ if not exist "%GAMEDIR%\%STARTER%" (
   goto :fail
 )
 
-if not exist "%WORK%"  mkdir "%WORK%"      >nul 2>&1
-if not exist "%CAPTURES%" mkdir "%CAPTURES%" >nul 2>&1
+call :makedirs
 >>"%RUNLOG%" echo ===== %DATE% %TIME% mode=%MODE% elevated=%ELEVATED% =====
 
-call :checkdeployed
+call :hygiene
 
-rem a leftover trigger file from an earlier session would fire a capture on
-rem frame 0, while the engine is still compiling pipelines - the watchdog-stall
-rem pattern. Remove it before the game starts.
+rem a leftover trigger file from an earlier session would fire a capture on frame
+rem 0, while the engine is still compiling pipelines. Drop it before we start.
 if exist "%TRIGGER%" del /q "%TRIGGER%" >nul 2>&1
 
-rem game-over-recording hooks the same swapchain we do
+rem the in-game recorder hooks the same swapchain we do
 tasklist /FI "IMAGENAME eq CCGameRecord.exe" /FO CSV /NH 2>nul | findstr /i "CCGameRecord" >nul
 if not errorlevel 1 (
   echo [warn] the in-game recorder is running. It hooks the same DXGI entry
@@ -98,6 +89,28 @@ if not errorlevel 1 (
 
 call :launchgame
 goto :watch
+
+rem ---------------------------------------------------------------------------
+:makedirs
+if not exist "%WORK%"     mkdir "%WORK%"     >nul 2>&1
+if not exist "%CAPTURES%" mkdir "%CAPTURES%" >nul 2>&1
+goto :eof
+
+rem ---------------------------------------------------------------------------
+:hygiene
+rem The capture path is injection now. A dxgi/d3d11/d3d12 left next to the game
+rem would be loaded instead of the system ones, the core would skip its own hooks
+rem for that process, and injection would silently achieve nothing.
+set "STRAY="
+for %%F in (dxgi.dll d3d11.dll d3d12.dll) do (
+  if exist "%GAMEDIR%\%%F" set "STRAY=1"
+)
+if defined STRAY (
+  echo [warn] capture DLLs found in the game directory. They get loaded instead
+  echo [warn] of the system ones and injection will do nothing.
+  echo [warn] remove dxgi.dll / d3d11.dll / d3d12.dll from %GAMEDIR%
+)
+goto :eof
 
 rem ---------------------------------------------------------------------------
 :launchgame
@@ -111,11 +124,11 @@ popd
 goto :eof
 
 :launch_via_explorer
-rem explorer.exe is already running at medium integrity, so a process started
-rem through it inherits that instead of our high-integrity token.
-echo [note] this shell is elevated. Launching through explorer so the game
-echo [note] runs at medium integrity - an elevated launch leaves NeacClient
-echo [note] up but NarakaBladepoint.exe never appears.
+rem explorer.exe already runs at medium integrity, so a process started through
+rem it inherits that instead of our high-integrity token.
+echo [note] this shell is elevated. Launching through explorer so the game runs
+echo [note] at medium integrity - an elevated launch leaves NeacClient up but
+echo [note] NarakaBladepoint.exe never appears.
 set "LAUNCHCMD=%WORK%\naraka_launch.cmd"
 >"%LAUNCHCMD%" echo @echo off
 >>"%LAUNCHCMD%" echo cd /d "%GAMEDIR%"
@@ -129,65 +142,37 @@ call :log "[wait] watching for %TARGET%"
 echo [wait] waiting for %TARGET% ...
 
 set "WAITS=0"
-set "HEART=0"
 :waitloop
-if !WAITS! geq 240 (
-  echo [warn] gave up after about 4 minutes, %TARGET% never appeared.
-  echo [hint] check the starter is still running, and see:
-  echo [hint]   %WORK%\naraka_proxy.log
-  call :log "[warn] gave up, target never appeared"
-  goto :fail
-)
-set /a WAITS+=1
-
 set "PID="
 for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq %TARGET%" /FO CSV /NH 2^>nul ^| findstr /i "%TARGET%"') do (
   if not defined PID set "PID=%%~P"
 )
 if defined PID goto :up
 
-set /a HEART+=1
-if !HEART! geq 4 (
-  set "HEART=0"
-  call :heartbeat
+set /a WAITS+=1
+if !WAITS! geq 240 (
+  echo [warn] gave up after about 4 minutes, %TARGET% never appeared.
+  echo [hint] check %GAMEDIR%\log\Neac.log and the launcher log:
+  echo [hint]   %RUNLOG%
+  goto :fail
+)
+if !WAITS! geq 15 (
+  set "WAITS=0"
+  echo [wait] still waiting ...
 )
 ping -n 2 127.0.0.1 >nul
 goto :waitloop
 
-:heartbeat
-set "SHELL="
-for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq %STARTER%" /FO CSV /NH 2^>nul ^| findstr /i "%STARTER%"') do (
-  if not defined SHELL set "SHELL=%%~P"
-)
-if defined SHELL (
-  echo [wait] +%WAITS%s  %STARTER% pid=%SHELL% is up, waiting for %TARGET% ...
-) else (
-  echo [wait] +%WAITS%s  nothing running yet - did the game window come up?
-)
-goto :eof
-
-rem ---------------------------------------------------------------------------
 :up
-call :log "[found] %TARGET% pid=%PID%"
+echo [ok] %TARGET% pid !PID! - the game is up.
 echo.
-echo [ok] %TARGET% is running, pid=%PID%
-call :checkdeployed
-echo.
-if exist "%WORK%\renderdoc_core.log" (
-  echo [log] capture core log:
-  powershell -NoProfile -Command "$p='%WORK%\renderdoc_core.log'; $i=Get-Item $p; $age=((Get-Date)-$i.LastWriteTime).TotalMinutes; if ($age -lt 10) { 'this session, last lines:'; Get-Content $p -Tail 6 } else { 'stale - last written ' + $i.LastWriteTime + ', no capture layer loaded this run' }" 2>nul
-  echo.
-)
-echo [next] get into the game until it is actually rendering, then either:
-echo [next]   press F12
-echo [next]   or run:  %~nx0 capture
-echo [next] captures land in: %CAPTURES%
-echo [next] proxy log:        %WORK%\naraka_proxy.log
+echo [state] no capture layer in this run - starting is all this mode does.
+echo [state] to capture, use:  %~nx0 inject
 goto :done
 
 rem ---------------------------------------------------------------------------
 :capture
-if not exist "%CAPTURES%" mkdir "%CAPTURES%" >nul 2>&1
+call :makedirs
 set "PID="
 for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq %TARGET%" /FO CSV /NH 2^>nul ^| findstr /i "%TARGET%"') do (
   if not defined PID set "PID=%%~P"
@@ -200,13 +185,17 @@ echo [capture] pid=%PID%
 >"%TRIGGER%" echo CAPTURE
 echo [capture] trigger written: %TRIGGER%
 echo [capture] waiting for the .rdc ...
+
+rem The trigger only does anything while a capture layer is inside the game, and
+rem only a core built after 5c2c7436c watches for it. If nothing arrives those two
+rem are the first things to check - see:  %~nx0 status
 for /l %%N in (1,1,40) do (
   if exist "%CAPTURES%\capture_done.txt" goto :capture_done
   ping -n 2 127.0.0.1 >nul
 )
 echo [warn] no completion signal after about 40s.
-echo [hint] the trigger only works while our layer is loaded in the game. If the
-echo [hint] proxy is not deployed there is nothing to trigger - see:  %~nx0 status
+echo [hint] is the layer injected in this session? see:  %~nx0 status
+echo [hint] is the core newer than the trigger watcher? rebuild x64 if unsure.
 goto :fail
 
 :capture_done
@@ -214,61 +203,10 @@ set "RDC="
 for %%F in ("%CAPTURES%\*.rdc") do set "RDC=%%~fF"
 echo.
 echo [ok] capture complete: !RDC!
-echo [ok] open it with:  "%ROOT%x64\Development\qTinecmaTool.exe" "!RDC!"
-goto :done
-
-rem ---------------------------------------------------------------------------
-:proxy
-echo.
-echo  ==========================================================================
-echo   PROXY DEPLOYMENT IS BLOCKED BY THE ANTI-CHEAT
-echo  ==========================================================================
-echo   Measured 2026-11-02: with dxgi/d3d11/d3d12 in the game directory the
-echo   game did start and did render with wrapped devices - "Graphics first
-echo   present" was logged. Then the protection warned, tore the graphics
-echo   devices down and the process ended. No capture was produced.
-echo.
-echo   The three DLLs sitting in the install directory is what gets seen.
-echo   Everything this route needs already works; it is the visibility that
-echo   does not.
-echo.
-echo   Details: docs\NARAKA_代理层实测_2026-11-02.md
-echo  ==========================================================================
-echo.
-choice /c YN /n /m "  deploy anyway and accept the warning plus the ban risk? [Y/N] "
-if errorlevel 2 goto :done
-echo.
-echo  Type DEPLOY to confirm:
-set "ANSWER="
-set /p "ANSWER=> "
-if /i not "%ANSWER%"=="DEPLOY" (
-  echo [abort] not confirmed.
-  goto :done
-)
-call :log "[proxy] deploying with -ForceProtected"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%DEPLOY%" -ForceProtected -Apply
-if errorlevel 1 (
-  echo [error] deployment failed - see the output above.
-  goto :fail
-)
-goto :preflight
-
-rem ---------------------------------------------------------------------------
-:undeploy
-echo [undeploy] removing proxies from %GAMEDIR%
-call :log "[undeploy]"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%DEPLOY%" -Undeploy -Apply
-if errorlevel 1 (
-  echo [error] undeploy failed - see the output above.
-  goto :fail
-)
-echo.
-echo [ok] game directory restored.
 goto :done
 
 rem ---------------------------------------------------------------------------
 :gui
-rem 图形控制中心，等同于双击 Naraka-Launcher.bat
 if not exist "%HERE%Naraka-Launcher.bat" (
   echo [error] Naraka-Launcher.bat not found next to this file.
   goto :fail
@@ -280,38 +218,18 @@ rem ---------------------------------------------------------------------------
 :inject
 rem Inject the capture core into the renderer as soon as it appears.
 rem
-rem This is the one route that does not put files in the game directory. It also
-rem has to win a race: the renderer appears about 12s after the starter is
-rem launched and creates its D3D12 device about 18s after that. Miss the window
-rem and the device exists before the layer does, which is unrecoverable for that
-rem session - RenderDoc can only wrap a device it saw being created.
-rem
-rem Two known risks, both recorded rather than hidden:
-rem   - VMProtect restores its own import table during unpacking, which is what
-rem     made the D3D11 IAT path report zero resolved functions in the 10-24
-rem     session. Whether the D3D12 path survives that is exactly what this run
-rem     is meant to find out.
-rem   - remote-thread injection into a protected process may be detected. If the
-rem     game warns or exits, stop - do not retry.
+rem This is the only route that does not put files in the game directory. It also
+rem has to win a race: the renderer appears about 12s after the starter and
+rem creates its D3D12 device a few seconds after that. Miss the window and the
+rem device exists before the layer does - unrecoverable for that session, because
+rem RenderDoc can only wrap a device it saw being created.
 if not exist "%TOOL%" (
   echo [error] toolcmd not found: %TOOL%
   goto :fail
 )
-if not exist "%WORK%"     mkdir "%WORK%"     >nul 2>&1
-if not exist "%CAPTURES%" mkdir "%CAPTURES%" >nul 2>&1
+call :makedirs
 >>"%RUNLOG%" echo ===== %DATE% %TIME% mode=inject elevated=%ELEVATED% =====
-
-set "ANY="
-for %%F in (dxgi.dll d3d11.dll d3d12.dll) do (
-  if exist "%GAMEDIR%\%%F" set "ANY=1"
-)
-if defined ANY (
-  echo [error] proxies are still deployed in %GAMEDIR%
-  echo [hint]  with them present the game loads the proxy and the core skips its
-  echo [hint]  IAT hooks, so injecting would do nothing. Run:  %~nx0 undeploy
-  goto :fail
-)
-
+call :hygiene
 if exist "%TRIGGER%" del /q "%TRIGGER%" >nul 2>&1
 
 call :launchgame
@@ -319,10 +237,10 @@ echo.
 echo [inject] waiting for %TARGET%, then injecting the moment it appears ...
 call :log "[inject] waiting for target"
 
-rem The wait lives in wait-and-inject.ps1, not here. A batch loop built from
-rem tasklist plus ping took about ten seconds just to notice the process - by
-rem then the device already existed and the injection was wasted. The script
-rem polls Get-Process every 100ms in a single process and reports its timings.
+rem The wait lives in wait-and-inject.ps1. A batch loop built from tasklist plus
+rem ping took about ten seconds just to notice the process; by then the device
+rem already existed and the injection was wasted. The script polls Get-Process
+rem every 100ms in a single process and reports its own timings.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%HERE%wait-and-inject.ps1" -ProcessName "%TARGET%" -ToolCmd "%TOOL%" -CaptureDir "%CAPTURES%"
 if errorlevel 1 goto :injectfail
 call :log "[inject] injected"
@@ -332,11 +250,11 @@ echo [ok] injected - the layer is inside the renderer now
 echo.
 echo [wait] watching the core log for device wrapping, up to 90s ...
 set "NEWLOG="
-for /f "delims=" %%F in ('dir /b /o-d "%LOCALAPPDATA%\Temp\TinecmaTool\RenderDoc_*.log" 2^>nul') do (
+for /f "delims=" %%F in ('dir /b /o-d "%LOCALAPPDATA%\Temp\TinecmaTool\RenderDoc_app_*.log" 2^>nul') do (
   if not defined NEWLOG set "NEWLOG=%LOCALAPPDATA%\Temp\TinecmaTool\%%F"
 )
 if not defined NEWLOG (
-  echo [warn] no RenderDoc log yet - the core may not have initialised.
+  echo [warn] no core log yet - the layer may not have initialised.
   goto :injectdone
 )
 echo [log] !NEWLOG!
@@ -354,8 +272,9 @@ set /a TICKS+=3
 if !TICKS! geq 90 (
   echo.
   echo [warn] 90s and no wrapped device.
-  echo [hint] the IAT hook did not survive - VMProtect restores its import table
-  echo [hint] during unpacking, which is the failure recorded for D3D11 on 10-24.
+  echo [hint] check "Export redirect" in the log: that redirect is what makes a
+  echo [hint] wrapped device possible. No redirect lines means the export table
+  echo [hint] was not patched and nothing intercepts device creation.
   echo [hint] last lines:
   powershell -NoProfile -Command "Get-Content '!NEWLOG!' -Tail 8 -ErrorAction SilentlyContinue" 2>nul
   goto :injectdone
@@ -378,8 +297,8 @@ goto :presentloop
 
 :injectdone
 echo.
-echo [next] get into the game until it is actually rendering, then:
-echo [next]   press F12, or run:  %~nx0 capture
+echo [next] get into the game until it is actually rendering, then run:
+echo [next]   %~nx0 capture
 echo [next] captures land in: %CAPTURES%
 goto :done
 
@@ -418,38 +337,19 @@ echo.
 echo   builds:
 if exist "%CORE%" (echo     core      OK) else (echo     core      MISSING - build x64 first)
 if exist "%TOOL%" (echo     toolcmd   OK) else (echo     toolcmd   MISSING - build x64 first)
-if exist "%PROXYDIR%\dxgi.dll"  (echo     proxies   OK) else (echo     proxies   not built - run tools\proxy\build.cmd)
 echo.
-echo   core bridge exports for the D3D12 factory path:
+echo   capture bridge exports:
 powershell -NoProfile -Command "if (Test-Path '%CORE%') { $t=[Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes('%CORE%')); foreach ($n in 'TINECMATOOL_CreateDXGIFactory','TINECMATOOL_D3D12CreateDevice','TINECMATOOL_D3D11CreateDevice') { '{0,-38} {1}' -f $n, $(if ($t.Contains($n)) {'yes'} else {'no'}) } }" 2>nul
 echo.
-echo   deployment in the game directory:
-set "DEPLOYED=0"
+echo   install dir:
+set "STRAY="
 for %%F in (dxgi.dll d3d11.dll d3d12.dll) do (
-  if exist "%GAMEDIR%\%%F" (
-    echo     %%F present
-    set "DEPLOYED=1"
-  )
+  if exist "%GAMEDIR%\%%F" (echo     %%F present - breaks injection & set "STRAY=1")
 )
-if "!DEPLOYED!"=="0" echo     clean - no proxy files in the install
+if not defined STRAY echo     clean
 echo.
 call :processes
 goto :done
-
-rem ---------------------------------------------------------------------------
-:checkdeployed
-set "ANY="
-for %%F in (dxgi.dll d3d11.dll d3d12.dll) do (
-  if exist "%GAMEDIR%\%%F" set "ANY=1"
-)
-if not defined ANY (
-  echo [state] no proxy in the game directory. Starting the game will not load
-  echo [state] any capture layer - no capture will be possible this run.
-  exit /b 0
-)
-echo [state] proxies ARE present in the game directory. Expect the protection to
-echo [state] warn and shut the graphics devices down. See: %~nx0 status
-exit /b 0
 
 rem ---------------------------------------------------------------------------
 :processes
@@ -473,6 +373,7 @@ rem ---------------------------------------------------------------------------
 >>"%RUNLOG%" echo [%TIME%] %~1
 goto :eof
 
+rem ---------------------------------------------------------------------------
 :usage
 echo.
 echo  TinecmaTool + Naraka: Bladepoint
@@ -480,10 +381,8 @@ echo.
 echo    %~nx0 gui          open the graphical control center
 echo    %~nx0              start the game and watch it come up   [default]
 echo    %~nx0 inject       start, then inject the renderer at first sight
-echo    %~nx0 status       environment report, starts nothing
 echo    %~nx0 capture      write the capture trigger file
-echo    %~nx0 proxy        deploy proxies then start   [blocked by anti-cheat]
-echo    %~nx0 undeploy     remove the proxies, restore the game dir
+echo    %~nx0 status       environment report, starts nothing
 echo    %~nx0 help         this text
 echo.
 echo  start target : %GAMEDIR%\%STARTER%
@@ -495,6 +394,7 @@ echo  appearing. This script drops to medium integrity through explorer instead.
 echo.
 goto :done
 
+rem ---------------------------------------------------------------------------
 :fail
 echo.
 echo Script stopped.

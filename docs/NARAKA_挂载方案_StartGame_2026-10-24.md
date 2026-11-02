@@ -95,10 +95,12 @@ LauncherGame.exe (x86, 引导壳, 立即退出)
 管理员 PowerShell：
 
 ```powershell
-cd "C:\Program Files\GraphicsDebugger-Naraka\util\naraka"
+cd "C:\Program Files\GraphicsDebugger-Naraka\tools\naraka"
 
 # 先只预检（不启动游戏、零副作用）
-.\Invoke-NarakaCapture.ps1 -PreflightOnly
+# 注：这一节的 Invoke-NarakaCapture.ps1 已于 2026-11-02 删除，现由 run-naraka.bat
+# status / inject / capture 取代。
+.\run-naraka.bat status
 
 # 确认无误后正式抓
 .\Invoke-NarakaCapture.ps1
@@ -195,8 +197,10 @@ TinecmaToolcmd capture -w --opt-hook-children --opt-disallow-fullscreen \
 可还原的补丁，Neac 也没有看到被注入的进程。
 
 - 设计与取舍：[`tools/proxy/README.md`](../tools/proxy/README.md)
-- 部署/还原：`util/naraka/Deploy-NarakaProxy.ps1`（默认干跑，`-Apply` 才写入）
 - 测试：`artifacts/naraka-fixture/run-proxy-test.py`
+- 注：代理部署脚本与本节描述的部署方式已于 2026-11-02 一并删除（反作弊会识别安装目录
+  里的 DLL，实测进游戏即弹提示）。现在只保留注入路线，见
+  [`tools/naraka/README.md`](../tools/naraka/README.md)。
 
 §3 的前置条件、§6 的五级判据、§7 的止损表仍然全部适用——变的只是注入方式，
 不是验收标准。
