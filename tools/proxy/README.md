@@ -1,5 +1,14 @@
 # Naraka proxy layer（dxgi.dll / d3d11.dll / d3d12.dll）
 
+> **状态（2026-11-02 实测）：不要往游戏目录部署。**
+> 抓帧链路本身完全跑通 —— 设备被包装、`Graphics first present` 都出现了，
+> 见 [`docs/NARAKA_代理层实测_2026-11-02.md`](../../docs/NARAKA_代理层实测_2026-11-02.md)。
+> 但三个 DLL 躺在安装目录里被反作弊看见：进入游戏时弹出提示，随后游戏拆除图形设备退出。
+> `Deploy-NarakaProxy.ps1` 因此默认拒绝部署，只有显式 `-ForceProtected` 才会装。
+>
+> **保留的是核心侧的 D3D12 factory 桥接**（`TINECMATOOL_CreateDXGIFactory*` 等），
+> 那部分在 `TinecmaTool.dll` 内部，不需要动游戏目录。代理与测试留作该桥接的验证手段。
+
 用**成为游戏的导入项**代替**改写游戏的导入表**。
 
 ## 为什么
@@ -85,18 +94,28 @@ msbuild renderdoc.sln /m /p:Configuration=Development /p:Platform=x64
 
 ## 部署与抓帧
 
+> 这一节记录的是已跑通但**被反作弊识别**的部署方式，默认不可执行。
+> 完整实测结论见 [`docs/NARAKA_代理层实测_2026-11-02.md`](../../docs/NARAKA_代理层实测_2026-11-02.md)。
+
 ```powershell
 cd "C:\Program Files\GraphicsDebugger-Naraka\util\naraka"
 
-# 默认干跑：只报告，不写游戏目录
+# 默认会拒绝部署，并在拒绝时说明原因
 .\Deploy-NarakaProxy.ps1
 
-# 真正安装（会先做 SHA-256 备份清单）
-.\Deploy-NarakaProxy.ps1 -Apply
+# 确认要承担提示与封禁风险才继续
+.\Deploy-NarakaProxy.ps1 -ForceProtected -Apply
 
 # 完全还原
 .\Deploy-NarakaProxy.ps1 -Undeploy -Apply
 ```
+
+另外两条实操结论（与代理无关，但会让人误判成代理有问题）：
+
+- **必须用普通权限启动游戏**。从提权会话 `Start-Process` 拉起 `StartGame.exe`，
+  `NeacClient` 会起但 `NarakaBladepoint.exe` 永不出现、`Player.log` 不更新；
+  经 `explorer.exe`（中等完整性）拉起则正常进游戏。
+- 游戏内录制（`CCRecord`）会与我们的 DXGI 钩子抢交换链，抓帧前先关掉。
 
 然后**正常从启动器启动游戏**，进到 3D 画面后按 F12，或：
 

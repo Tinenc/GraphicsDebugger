@@ -108,10 +108,13 @@ HRESULT WINAPI NarakaImpl_CreateDXGIFactory2(UINT Flags, REFIID riid, void **ppF
 // this machine). A missing export is a hard load failure for anything importing
 // by name, so "we only needed the three creators" is not a safe assumption.
 
-#define NARAKA_DXGI_FORWARD(name)                                                            \
-  void *WINAPI NarakaImpl_##name(void *a1, void *a2, void *a3, void *a4, void *a5, void *a6) \
-  {                                                                                          \
-    return np::ForwardByName(g_realDxgi, #name, a1, a2, a3, a4, a5, a6);                     \
+#define NARAKA_DXGI_FORWARD(name) \
+  void *WINAPI NarakaImpl_##name(void *a1, void *a2, void *a3, void *a4, void *a5, \
+                                 void *a6, void *a7, void *a8, void *a9, \
+                                 void *a10, void *a11, void *a12) \
+  { \
+    return np::ForwardByName(g_realDxgi, #name, a1, a2, a3, a4, a5, a6, a7, a8, \
+                             a9, a10, a11, a12); \
   }
 
 NARAKA_DXGI_FORWARD(ApplyCompatResolutionQuirking)

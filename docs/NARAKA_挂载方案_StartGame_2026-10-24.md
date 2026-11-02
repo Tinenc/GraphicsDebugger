@@ -200,3 +200,12 @@ TinecmaToolcmd capture -w --opt-hook-children --opt-disallow-fullscreen \
 
 §3 的前置条件、§6 的五级判据、§7 的止损表仍然全部适用——变的只是注入方式，
 不是验收标准。
+
+**结果（2026-11-02 当日实机验证）**：五级判据全部通过（设备被包装、
+`Graphics first present` 出现），但安装目录里的三个 DLL 被反作弊识别，
+进入游戏时弹出提示后游戏拆除图形设备退出，未产出 `.rdc`。
+该部署方式就此停止，记录 `unsupported-protected`。完整证据见
+[`NARAKA_代理层实测_2026-11-02.md`](NARAKA_代理层实测_2026-11-02.md)。
+
+保留的是核心侧的 D3D12 factory 桥接（`TINECMATOOL_CreateDXGIFactory*` 等），
+它在 `TinecmaTool.dll` 内部，不需要在游戏目录放任何文件。

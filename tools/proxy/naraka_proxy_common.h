@@ -730,14 +730,25 @@ inline void Shutdown(const char *dllTag)
 //
 // Used for the exports we do not intercept. Every function in the dxgi, d3d11
 // and d3d12 export tables takes integral args and returns an integral or
-// pointer-sized value - no struct returns, no floating point - so a six-argument
-// pointer-shaped thunk is ABI-correct on x64 (surplus registers are ignored by
-// the callee). Functions that break that assumption are implemented explicitly.
+// pointer-sized value - no struct returns, no floating point - so a
+// pointer-shaped thunk is ABI-correct on x64.
+//
+// The thunk takes TWELVE arguments, not "as many as I think it needs". On x64
+// the callee never pops its arguments, so passing more than the callee reads is
+// harmless, while passing fewer is not: the callee reads whatever is at those
+// stack slots. Getting this wrong is how the first real-game run died -
+// D3D11On12CreateDevice takes 10 arguments, NVIDIA Aftermath calls it, the
+// 6-argument thunk handed it four garbage stack slots, and d3d11.dll faulted at
+// +0xAC321 with 0xC0000005. The widest export in the three tables is
+// D3D11CreateDeviceAndSwapChain at 11, and that one is implemented explicitly,
+// so 12 covers everything with margin.
 
-typedef void *(WINAPI *PFN_GenericThunk)(void *, void *, void *, void *, void *, void *);
+typedef void *(WINAPI *PFN_GenericThunk)(void *, void *, void *, void *, void *, void *, void *,
+                                         void *, void *, void *, void *, void *);
 
 inline void *ForwardByName(HMODULE real, const char *name, void *a1, void *a2, void *a3, void *a4,
-                           void *a5, void *a6)
+                           void *a5, void *a6, void *a7, void *a8, void *a9, void *a10, void *a11,
+                           void *a12)
 {
   static int s_forwardCount = 0;
   FARPROC fn = ResolveSystemProc(real, name);
@@ -747,12 +758,13 @@ inline void *ForwardByName(HMODULE real, const char *name, void *a1, void *a2, v
       Logf("forward", "MISSING export %s in system DLL", name);
     return nullptr;
   }
-  return ((PFN_GenericThunk)fn)(a1, a2, a3, a4, a5, a6);
+  return ((PFN_GenericThunk)fn)(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
 }
 
 // For the handful of exports that are only addressable by ordinal (d3d12 ordinal 99 is unnamed).
 inline void *ForwardByOrdinal(HMODULE real, WORD ordinal, void *a1, void *a2, void *a3, void *a4,
-                              void *a5, void *a6)
+                              void *a5, void *a6, void *a7, void *a8, void *a9, void *a10,
+                              void *a11, void *a12)
 {
   if(!real)
     return nullptr;
@@ -762,7 +774,7 @@ inline void *ForwardByOrdinal(HMODULE real, WORD ordinal, void *a1, void *a2, vo
     Logf("forward", "MISSING export ordinal %u in system DLL", (unsigned)ordinal);
     return nullptr;
   }
-  return ((PFN_GenericThunk)fn)(a1, a2, a3, a4, a5, a6);
+  return ((PFN_GenericThunk)fn)(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
 }
 
 }  // namespace np

@@ -223,6 +223,48 @@ static int RunD3D12(HWND wnd, int frames)
   hr = dev->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), (void **)&queue);
   printf("  queue         : hr=0x%08X queue=%p\n", (unsigned)hr, (void *)queue);
 
+  // --- ten-argument forwarder regression -----------------------------------
+  //
+  // D3D11On12CreateDevice takes 10 arguments and is forwarded by the d3d11
+  // proxy's generic thunk. This is not a contrived case: it is exactly what
+  // killed the real game. Unity creates the D3D12 device, NVIDIA Aftermath
+  // immediately sets up D3D11On12, the thunk passed four garbage stack slots,
+  // and d3d11.dll faulted at +0xAC321 with 0xC0000005 before the first frame.
+  //
+  // A forwarding test that only exercises two-argument factories would never
+  // have caught that, so the fixture calls this one for real.
+  {
+    HMODULE d3d11 = LoadLibraryA("d3d11.dll");
+    typedef HRESULT(WINAPI * PFN_D3D11On12)(IUnknown *, UINT, const D3D_FEATURE_LEVEL *, UINT,
+                                            IUnknown *const *, UINT, UINT, ID3D11Device **,
+                                            ID3D11DeviceContext **, D3D_FEATURE_LEVEL *);
+
+    PFN_D3D11On12 on12 =
+        d3d11 ? (PFN_D3D11On12)GetProcAddress(d3d11, "D3D11On12CreateDevice") : nullptr;
+
+    if(!on12)
+    {
+      printf("  d3d11on12     : SKIP (export missing)\n");
+    }
+    else
+    {
+      IUnknown *queues[1] = {queue ? (IUnknown *)queue : (IUnknown *)dev};
+      ID3D11Device *d11 = nullptr;
+      ID3D11DeviceContext *c11 = nullptr;
+      D3D_FEATURE_LEVEL got11 = D3D_FEATURE_LEVEL_11_0;
+
+      HRESULT hr12 =
+          on12((IUnknown *)dev, 0, nullptr, 0, queues, 1, 0, &d11, &c11, &got11);
+      printf("  d3d11on12     : hr=0x%08X device=%p ctx=%p level=0x%X\n", (unsigned)hr12,
+             (void *)d11, (void *)c11, (unsigned)got11);
+
+      if(c11)
+        c11->Release();
+      if(d11)
+        d11->Release();
+    }
+  }
+
   DXGI_SWAP_CHAIN_DESC1 sd = {};
   sd.Width = 0;
   sd.Height = 0;

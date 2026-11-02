@@ -44,7 +44,8 @@
 param(
     [string]$GameDir = 'F:\Naraka\program',
     [switch]$Apply,
-    [switch]$Undeploy
+    [switch]$Undeploy,
+    [switch]$ForceProtected
 )
 
 $ErrorActionPreference = 'Stop'
@@ -69,6 +70,33 @@ Write-Host ""
 
 # ---------------------------------------------------------------- preflight --
 Write-Host "[1/4] Preflight"
+
+# Measured on 2026-11-02, and the reason this route is blocked: with the three
+# DLLs in the game directory the game launched and rendered (wrapped D3D12 AND
+# D3D11 devices, "Graphics first present" logged), but the protection raised a
+# warning on entering the game and tore the graphics devices down seconds later.
+# The files in the install directory are visible to the anti-cheat; the capture
+# machinery itself was working.
+#
+# Deploying this is therefore opt-in behind a switch rather than something a
+# stray run can do. See docs/NARAKA_代理层实测_2026-11-02.md.
+if (-not $Undeploy -and -not $ForceProtected) {
+    Write-Host ""
+    Write-Host "  REFUSING TO DEPLOY" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Adding dxgi/d3d11/d3d12 to the game directory is detected by the"
+    Write-Host "  anti-cheat: on 2026-11-02 it warned on entering the game and then"
+    Write-Host "  shut the graphics devices down. The proxies worked; being visible"
+    Write-Host "  in the install directory is what failed."
+    Write-Host ""
+    Write-Host "  The retained D3D12 factory bridge lives inside the core and needs"
+    Write-Host "  no files in the game directory. Use that."
+    Write-Host ""
+    Write-Host "  To deploy anyway (accepting the warning and the ban risk):"
+    Write-Host "    .\Deploy-NarakaProxy.ps1 -ForceProtected -Apply"
+    Write-Host ""
+    exit 2
+}
 
 if (-not (Test-Path $GameDir)) { Write-Bad "game dir not found: $GameDir"; exit 1 }
 $GameExe = Join-Path $GameDir 'NarakaBladepoint.exe'
@@ -124,15 +152,19 @@ Write-Host ""
 Write-Host "[2/4] Current state of the game directory"
 
 $existing = @{}
+$ourHashes = @{}
+foreach ($n in $ProxyNames) {
+    $mp = Join-Path $ProxyDir $n
+    if (Test-Path $mp) { $ourHashes[$n] = (Get-FileHash $mp -Algorithm SHA256).Hash }
+}
+
 foreach ($n in $ProxyNames) {
     $p = Join-Path $GameDir $n
     if (Test-Path $p) {
         $h = (Get-FileHash $p -Algorithm SHA256).Hash
         $existing[$n] = $h
-        $isOurs = $false
-        $mp = Join-Path $ProxyDir $n
-        if (Test-Path $mp) { $isOurs = ((Get-FileHash $mp -Algorithm SHA256).Hash -eq $h) }
-        Write-Step "$n present ($(if ($isOurs) { 'ours' } else { 'NOT ours - will be backed up' }))"
+        $isOurs = ($ourHashes.ContainsKey($n) -and $ourHashes[$n] -eq $h)
+        Write-Step "$n present ($(if ($isOurs) { 'ours - already installed' } else { 'NOT ours - will be backed up' }))"
     } else {
         Write-Step "$n absent"
     }
@@ -167,6 +199,12 @@ if ($Undeploy) {
         $m = Get-Content $Manifest -Raw | ConvertFrom-Json
         foreach ($b in $m.backups) {
             $dst = Join-Path $GameDir $b.name
+            # A manifest written by the earlier, buggy version may list our own
+            # binaries as "originals". Restoring those would reinstall the proxy.
+            if ($ourHashes.ContainsKey($b.name) -and $ourHashes[$b.name] -eq $b.sha256) {
+                Write-Warn2 "$($b.name) in the manifest is our own build - not restoring it"
+                continue
+            }
             if ($Apply) {
                 Copy-Item $b.stash $dst -Force
                 Write-Ok "restored $($b.name) from backup"
@@ -198,9 +236,17 @@ $records = @()
 if ($Apply) {
     New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
 
-    # Stash anything we are about to displace before touching it.
+    # Stash anything we are about to displace before touching it - but only
+    # genuinely foreign files. An earlier version backed up every file present,
+    # including the proxies it had installed itself, so an undeploy "restored"
+    # our own DLLs back into the game directory. The unity of this check matters
+    # more than it looks: restoring our files is the opposite of uninstalling.
     foreach ($k in $existing.Keys) {
         $src = Join-Path $GameDir $k
+        if ($ourHashes.ContainsKey($k) -and $ourHashes[$k] -eq $existing[$k]) {
+            Write-Step "$k is our build - nothing to back up"
+            continue
+        }
         $stash = Join-Path $backupDir $k
         Copy-Item $src $stash -Force
         $records += [pscustomobject]@{ name = $k; stash = $stash; sha256 = $existing[$k] }

@@ -87,17 +87,21 @@ HRESULT WINAPI NarakaImpl_D3D12CreateDevice(IUnknown *pAdapter,
 // look tempting to intercept, but the core has no bridge for them and the real
 // implementations already handle the Agility SDK negotiation correctly.
 
-#define NARAKA_D3D12_FORWARD(name)                                                           \
-  void *WINAPI NarakaImpl_##name(void *a1, void *a2, void *a3, void *a4, void *a5, void *a6) \
-  {                                                                                          \
-    return np::ForwardByName(g_realD3D12, #name, a1, a2, a3, a4, a5, a6);                    \
+#define NARAKA_D3D12_FORWARD(name) \
+  void *WINAPI NarakaImpl_##name(void *a1, void *a2, void *a3, void *a4, void *a5, \
+                                 void *a6, void *a7, void *a8, void *a9, \
+                                 void *a10, void *a11, void *a12) \
+  { \
+    return np::ForwardByName(g_realD3D12, #name, a1, a2, a3, a4, a5, a6, a7, a8, \
+                             a9, a10, a11, a12); \
   }
 
 // Exported at ordinal 99 with no name, matching the system DLL.
 void *WINAPI NarakaImpl_NarakaOrdinal99(void *a1, void *a2, void *a3, void *a4, void *a5,
-                                        void *a6)
+                                        void *a6, void *a7, void *a8, void *a9, void *a10,
+                                        void *a11, void *a12)
 {
-  return np::ForwardByOrdinal(g_realD3D12, 99, a1, a2, a3, a4, a5, a6);
+  return np::ForwardByOrdinal(g_realD3D12, 99, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
 }
 
 NARAKA_D3D12_FORWARD(SetAppCompatStringPointer)

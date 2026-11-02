@@ -212,6 +212,13 @@ def run_case(case, api, with_proxies, target, mode, frames, expect_capture):
         # protected game, so the host finishing its loop counts as a result.
         checks.append(("host exited on its own", FAIL if killed else PASS))
 
+        if api == "d3d12":
+            # Ten-argument forwarder. This is the call NVIDIA Aftermath makes in
+            # the real game, and the one a six-argument thunk corrupted.
+            on12 = "d3d11on12     : hr=0x00000000" in out
+            checks.append(("D3D11On12CreateDevice (10 args) forwarded intact",
+                           PASS if on12 else FAIL))
+
         if mode == "off" or target != "proxy_fixture.exe":
             checks.append(
                 ("core not loaded (mode/target gate)", PASS if "core not loaded" in log else FAIL)
