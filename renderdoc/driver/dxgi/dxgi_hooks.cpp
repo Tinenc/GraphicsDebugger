@@ -283,6 +283,12 @@ public:
     CreateDXGIFactory2.Register("dxgi.dll", "CreateDXGIFactory2", CreateDXGIFactory2_hook);
     GetDebugInterface.Register("dxgi.dll", "DXGIGetDebugInterface", DXGIGetDebugInterface_hook);
     GetDebugInterface1.Register("dxgi.dll", "DXGIGetDebugInterface1", DXGIGetDebugInterface1_hook);
+
+    // Naraka's renderer does not resolve these through the import slots we patch, so also redirect
+    // the exports. See the note in d3d12_hooks.cpp.
+    LibraryHooks::RedirectExport("dxgi.dll", "CreateDXGIFactory", (void *)&CreateDXGIFactory_hook);
+    LibraryHooks::RedirectExport("dxgi.dll", "CreateDXGIFactory1", (void *)&CreateDXGIFactory1_hook);
+    LibraryHooks::RedirectExport("dxgi.dll", "CreateDXGIFactory2", (void *)&CreateDXGIFactory2_hook);
   }
 
   void RemoveHooks() override { RestoreNativeDXGIFactoryHooks(); }
@@ -308,10 +314,17 @@ public:
     if(ppFactory)
       *ppFactory = NULL;
 
-    HMODULE sysDxgi = GetSystemDXGIModule();
-    PFN_CREATE_DXGI_FACTORY real = sysDxgi ? (PFN_CREATE_DXGI_FACTORY)GetProcAddress(
-                                                 sysDxgi, "CreateDXGIFactory")
-                                           : dxgihooks.CreateDXGIFactory();
+    // Cached original first: once the export is redirected, GetProcAddress on it returns our
+    // own hook, and calling that would recurse forever.
+    PFN_CREATE_DXGI_FACTORY real = (PFN_CREATE_DXGI_FACTORY)LibraryHooks::GetExportOriginal("dxgi.dll", "CreateDXGIFactory");
+    if(real == NULL)
+      real = dxgihooks.CreateDXGIFactory();
+    if(real == NULL)
+    {
+      HMODULE sysDxgi = GetSystemDXGIModule();
+      if(sysDxgi)
+        real = (PFN_CREATE_DXGI_FACTORY)GetProcAddress(sysDxgi, "CreateDXGIFactory");
+    }
     if(real == NULL)
     {
       RDCERR("CreateDXGIFactory: no onward function available");
@@ -332,10 +345,17 @@ public:
     if(ppFactory)
       *ppFactory = NULL;
 
-    HMODULE sysDxgi = GetSystemDXGIModule();
-    PFN_CREATE_DXGI_FACTORY real = sysDxgi ? (PFN_CREATE_DXGI_FACTORY)GetProcAddress(
-                                                 sysDxgi, "CreateDXGIFactory1")
-                                           : dxgihooks.CreateDXGIFactory1();
+    // Cached original first: once the export is redirected, GetProcAddress on it returns our
+    // own hook, and calling that would recurse forever.
+    PFN_CREATE_DXGI_FACTORY real = (PFN_CREATE_DXGI_FACTORY)LibraryHooks::GetExportOriginal("dxgi.dll", "CreateDXGIFactory1");
+    if(real == NULL)
+      real = dxgihooks.CreateDXGIFactory1();
+    if(real == NULL)
+    {
+      HMODULE sysDxgi = GetSystemDXGIModule();
+      if(sysDxgi)
+        real = (PFN_CREATE_DXGI_FACTORY)GetProcAddress(sysDxgi, "CreateDXGIFactory1");
+    }
     if(real == NULL)
     {
       RDCERR("CreateDXGIFactory1: no onward function available");
@@ -356,10 +376,17 @@ public:
     if(ppFactory)
       *ppFactory = NULL;
 
-    HMODULE sysDxgi = GetSystemDXGIModule();
-    PFN_CREATE_DXGI_FACTORY2 real = sysDxgi ? (PFN_CREATE_DXGI_FACTORY2)GetProcAddress(
-                                                  sysDxgi, "CreateDXGIFactory2")
-                                            : dxgihooks.CreateDXGIFactory2();
+    // Cached original first: once the export is redirected, GetProcAddress on it returns our
+    // own hook, and calling that would recurse forever.
+    PFN_CREATE_DXGI_FACTORY2 real = (PFN_CREATE_DXGI_FACTORY2)LibraryHooks::GetExportOriginal("dxgi.dll", "CreateDXGIFactory2");
+    if(real == NULL)
+      real = dxgihooks.CreateDXGIFactory2();
+    if(real == NULL)
+    {
+      HMODULE sysDxgi = GetSystemDXGIModule();
+      if(sysDxgi)
+        real = (PFN_CREATE_DXGI_FACTORY2)GetProcAddress(sysDxgi, "CreateDXGIFactory2");
+    }
     if(real == NULL)
     {
       RDCERR("CreateDXGIFactory2: no onward function available");

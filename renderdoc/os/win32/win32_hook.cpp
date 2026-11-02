@@ -31,6 +31,7 @@
 #include <functional>
 #include <map>
 #include <set>
+#include <vector>
 #include "common/common.h"
 #include "common/formatting.h"
 #include "common/threading.h"
@@ -1297,3 +1298,240 @@ ScopedSuppressHooking::ScopedSuppressHooking()
 ScopedSuppressHooking::~ScopedSuppressHooking()
 {
 }
+
+// -------------------------------------------------------------------------------------------------
+// Export table redirection
+// -------------------------------------------------------------------------------------------------
+//
+// IAT hooks patch the slot a caller loads a function pointer into. That only works if the caller
+// resolves through that slot. Naraka's renderer does not: 16 IAT hooks installed on the real game
+// and the graphics entry points were never called through any of them, because the protected
+// resolution path finds its own way to the address.
+//
+// So patch the other end - the export table of the DLL being called. Whatever route a caller takes,
+// it ends up reading AddressOfFunctions[ordinal], and that is what this rewrites. The replacement
+// pointer is reached through a small stub written into the module's own section padding, which
+// keeps the new RVA inside the image (an RVA can only point forward from the module base, so a stub
+// living in our DLL would usually be unreachable).
+
+namespace {
+
+struct ExportRedirect
+{
+  HMODULE module = NULL;
+  rdcstr moduleName;
+  rdcstr functionName;
+  DWORD *slot = NULL;  // &AddressOfFunctions[ordinal]
+  DWORD originalRVA = 0;
+  void *original = NULL;
+  void *cave = NULL;
+  SIZE_T caveSize = 0;
+};
+
+std::vector<ExportRedirect> &ExportRedirects()
+{
+  static std::vector<ExportRedirect> redirects;
+  return redirects;
+}
+
+DWORD AlignUp(DWORD value, DWORD alignment)
+{
+  if(alignment == 0)
+    return value;
+  return (value + alignment - 1) & ~(alignment - 1);
+}
+
+bool RangeIsZero(byte *base, DWORD rva, SIZE_T size)
+{
+  for(SIZE_T i = 0; i < size; i++)
+  {
+    if(base[rva + i] != 0)
+      return false;
+  }
+  return true;
+}
+
+// Look for `need` zero bytes in the padding the loader commits between sections (and after the last
+// one). Real code lives inside VirtualSize; the alignment gap after it is padding, which is what
+// makes it safe to overwrite without disturbing anything.
+void *FindImageCave(byte *base, const IMAGE_NT_HEADERS *nt, SIZE_T need)
+{
+  const DWORD align = nt->OptionalHeader.SectionAlignment;
+  IMAGE_SECTION_HEADER *sections = IMAGE_FIRST_SECTION(nt);
+
+  for(WORD i = 0; i < nt->FileHeader.NumberOfSections; i++)
+  {
+    DWORD gapStart = AlignUp(sections[i].VirtualAddress + sections[i].Misc.VirtualSize, align);
+    DWORD gapEnd;
+    if(i + 1 < nt->FileHeader.NumberOfSections)
+      gapEnd = sections[i + 1].VirtualAddress;
+    else
+      gapEnd = AlignUp(sections[i].VirtualAddress + sections[i].Misc.VirtualSize, align);
+
+    if(gapEnd <= gapStart)
+      continue;
+    if(SIZE_T(gapEnd - gapStart) < need)
+      continue;
+
+    if(RangeIsZero(base, gapStart, need))
+      return base + gapStart;
+  }
+
+  // last resort: the slack at the very end of the image
+  DWORD last = nt->FileHeader.NumberOfSections - 1;
+  DWORD tailStart = AlignUp(sections[last].VirtualAddress + sections[last].Misc.VirtualSize, align);
+  DWORD tailEnd = nt->OptionalHeader.SizeOfImage;
+  if(tailEnd > tailStart && SIZE_T(tailEnd - tailStart) >= need && RangeIsZero(base, tailStart, need))
+    return base + tailStart;
+
+  return NULL;
+}
+
+}  // namespace
+
+bool LibraryHooks::RedirectExport(const char *moduleName, const char *functionName,
+                                  void *replacement)
+{
+  HMODULE mod = GetModuleHandleA(moduleName);
+  if(!mod)
+  {
+    RDCLOG("Export redirect: %s not loaded, nothing to redirect", moduleName);
+    return false;
+  }
+
+  byte *base = (byte *)mod;
+  IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)base;
+  if(dos->e_magic != IMAGE_DOS_SIGNATURE)
+    return false;
+
+  IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + dos->e_lfanew);
+  if(nt->Signature != IMAGE_NT_SIGNATURE)
+    return false;
+
+  IMAGE_DATA_DIRECTORY &dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+  if(dir.VirtualAddress == 0 || dir.Size == 0)
+  {
+    RDCLOG("Export redirect: %s has no export directory", moduleName);
+    return false;
+  }
+
+  IMAGE_EXPORT_DIRECTORY *exports = (IMAGE_EXPORT_DIRECTORY *)(base + dir.VirtualAddress);
+  DWORD *names = (DWORD *)(base + exports->AddressOfNames);
+  WORD *ordinals = (WORD *)(base + exports->AddressOfNameOrdinals);
+  DWORD *functions = (DWORD *)(base + exports->AddressOfFunctions);
+
+  for(DWORD i = 0; i < exports->NumberOfNames; i++)
+  {
+    const char *name = (const char *)(base + names[i]);
+    if(_stricmp(name, functionName) != 0)
+      continue;
+
+    DWORD *slot = &functions[ordinals[i]];
+    DWORD originalRVA = *slot;
+    if(originalRVA == 0 || originalRVA >= dir.VirtualAddress)
+    {
+      // 0 means this ordinal is unused; a value inside the export directory means it is a
+      // forwarder string, which cannot be redirected this way.
+      RDCLOG("Export redirect: %s!%s is not a plain code export - skipped", moduleName,
+             functionName);
+      return false;
+    }
+
+    // 12 bytes: mov rax, imm64 ; jmp rax
+    const SIZE_T stubSize = 12;
+    byte *cave = (byte *)FindImageCave(base, nt, stubSize);
+    if(!cave)
+    {
+      RDCLOG("Export redirect: no usable padding in %s for a %u byte stub", moduleName,
+             (uint32_t)stubSize);
+      return false;
+    }
+
+    DWORD caveRVA = DWORD(cave - base);
+
+    DWORD oldProtect = 0;
+    if(!VirtualProtect(cave, stubSize, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+      RDCLOG("Export redirect: cannot unprotect padding in %s (error %lu)", moduleName,
+             GetLastError());
+      return false;
+    }
+
+    cave[0] = 0x48;  // mov rax, imm64
+    cave[1] = 0xB8;
+    memcpy(cave + 2, &replacement, sizeof(void *));
+    cave[10] = 0xFF;  // jmp rax
+    cave[11] = 0xE0;
+
+    DWORD ignored = 0;
+    VirtualProtect(cave, stubSize, oldProtect, &ignored);
+    FlushInstructionCache(GetCurrentProcess(), cave, stubSize);
+
+    if(!VirtualProtect(slot, sizeof(DWORD), PAGE_READWRITE, &oldProtect))
+    {
+      RDCLOG("Export redirect: cannot unprotect export entry for %s!%s (error %lu)", moduleName,
+             functionName, GetLastError());
+      return false;
+    }
+
+    *slot = caveRVA;
+
+    DWORD ignored2 = 0;
+    VirtualProtect(slot, sizeof(DWORD), oldProtect, &ignored2);
+
+    ExportRedirect record;
+    record.module = mod;
+    record.moduleName = strlower(moduleName);
+    record.functionName = functionName;
+    record.slot = slot;
+    record.originalRVA = originalRVA;
+    record.original = base + originalRVA;
+    record.cave = cave;
+    record.caveSize = stubSize;
+    ExportRedirects().push_back(record);
+
+    RDCLOG("Export redirect: %s!%s RVA 0x%08lx -> stub 0x%08lx -> %p (original %p)", moduleName,
+           functionName, originalRVA, caveRVA, replacement, base + originalRVA);
+    return true;
+  }
+
+  RDCLOG("Export redirect: %s has no export named %s", moduleName, functionName);
+  return false;
+}
+
+void *LibraryHooks::GetExportOriginal(const char *moduleName, const char *functionName)
+{
+  rdcstr mod = strlower(moduleName);
+  for(ExportRedirect &record : ExportRedirects())
+  {
+    if(record.moduleName == mod && record.functionName == functionName)
+      return record.original;
+  }
+  return NULL;
+}
+
+void LibraryHooks::RemoveExportRedirects()
+{
+  for(ExportRedirect &record : ExportRedirects())
+  {
+    DWORD oldProtect = 0;
+    if(VirtualProtect(record.slot, sizeof(DWORD), PAGE_READWRITE, &oldProtect))
+    {
+      *record.slot = record.originalRVA;
+      DWORD ignored = 0;
+      VirtualProtect(record.slot, sizeof(DWORD), oldProtect, &ignored);
+    }
+
+    if(record.cave &&
+       VirtualProtect(record.cave, record.caveSize, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+      memset(record.cave, 0, record.caveSize);
+      DWORD ignored = 0;
+      VirtualProtect(record.cave, record.caveSize, oldProtect, &ignored);
+      FlushInstructionCache(GetCurrentProcess(), record.cave, record.caveSize);
+    }
+  }
+
+  ExportRedirects().clear();
+}
+

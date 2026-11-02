@@ -77,6 +77,13 @@ public:
     CreateDevice.Register("d3d11.dll", "D3D11CreateDevice", D3D11CreateDevice_hook);
     CreateDeviceAndSwapChain.Register("d3d11.dll", "D3D11CreateDeviceAndSwapChain",
                                       D3D11CreateDeviceAndSwapChain_hook);
+
+    // See the note in d3d12_hooks.cpp: the renderer's resolution path does not go through the IAT
+    // slots we patch, so redirect the exports as well.
+    LibraryHooks::RedirectExport("d3d11.dll", "D3D11CreateDevice",
+                                 (void *)&D3D11CreateDevice_hook);
+    LibraryHooks::RedirectExport("d3d11.dll", "D3D11CreateDeviceAndSwapChain",
+                                 (void *)&D3D11CreateDeviceAndSwapChain_hook);
   }
 
 private:
@@ -252,7 +259,14 @@ public:
       __out_opt IDXGISwapChain **ppSwapChain, __out_opt ID3D11Device **ppDevice,
       __out_opt D3D_FEATURE_LEVEL *pFeatureLevel, __out_opt ID3D11DeviceContext **ppImmediateContext)
   {
-    PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN createFunc = d3d11hooks.CreateDeviceAndSwapChain();
+    // Cached original first - see the note in d3d12_hooks.cpp. Resolving a redirected export with
+    // GetProcAddress hands back this hook, and calling it would recurse.
+    PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN createFunc =
+        (PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN)LibraryHooks::GetExportOriginal(
+            "d3d11.dll", "D3D11CreateDeviceAndSwapChain");
+
+    if(createFunc == NULL)
+      createFunc = d3d11hooks.CreateDeviceAndSwapChain();
 
     if(createFunc == NULL)
     {

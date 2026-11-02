@@ -593,6 +593,13 @@ public:
 
     m_RecurseSlot = Threading::AllocateTLSSlot();
     Threading::SetTLSValue(m_RecurseSlot, NULL);
+
+    // The IAT hooks above only fire if the caller resolves through the slot we patched. Naraka's
+    // renderer does not - measured 2026-11-02: 16 IAT hooks installed on the live game, none of the
+    // graphics entry points ever called through them. Redirect the export instead, so any
+    // resolution route arrives at our hook.
+    LibraryHooks::RedirectExport("d3d12.dll", "D3D12CreateDevice",
+                                 (void *)&D3D12CreateDevice_hook);
   }
 
   static HRESULT GetWrappedInterface(IUnknown *realUnk, REFIID riid, void **ppvInterface)
@@ -911,7 +918,13 @@ public:
                                                void **ppDevice)
   {
     LogGraphicsCreationCaller("D3D12CreateDevice", GRAPHICS_DIAGNOSTICS_CALLER());
-    PFN_D3D12_CREATE_DEVICE createFunc = d3d12hooks.CreateDevice();
+    // Cached original first. Once the export is redirected, GetProcAddress on d3d12.dll!
+    // D3D12CreateDevice returns this very hook, so resolving it that way would recurse forever.
+    PFN_D3D12_CREATE_DEVICE createFunc =
+        (PFN_D3D12_CREATE_DEVICE)LibraryHooks::GetExportOriginal("d3d12.dll", "D3D12CreateDevice");
+
+    if(!createFunc)
+      createFunc = d3d12hooks.CreateDevice();
 
     if(!createFunc)
     {

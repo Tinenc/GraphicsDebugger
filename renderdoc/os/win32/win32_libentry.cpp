@@ -93,6 +93,75 @@ static BOOL add_hooks()
 
   LibraryHooks::RegisterHooks();
 
+  // Hide from loader enumeration. A module-walking watchdog looks for exactly this - a DLL in the
+  // process that is not in the PEB list is suspicious on its own, but a DLL that IS in the list and
+  // was never part of the original image is equally easy to spot, and this is the step that costs
+  // least to take. Nothing else about the process is touched: no handles, no threads, no memory
+  // protection tricks.
+  //
+  // TCM_NO_PEB_UNLINK=1 keeps the module visible, for when a debugger or a stack walk is needed.
+  {
+    char opt[8] = {0};
+    DWORD len = GetEnvironmentVariableA("TCM_NO_PEB_UNLINK", opt, sizeof(opt));
+    if(!(len > 0 && len < sizeof(opt) && opt[0] == '1'))
+    {
+      HMODULE self = NULL;
+      GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                        (LPCTSTR)&add_hooks, &self);
+
+      if(self)
+      {
+        // Same layout the proxy layer uses, spelled out because this file cannot include it.
+        typedef struct
+        {
+          ULONG Length;
+          BOOLEAN Initialized;
+          PVOID SsHandle;
+          LIST_ENTRY InLoadOrderModuleList;
+          LIST_ENTRY InMemoryOrderModuleList;
+          LIST_ENTRY InInitializationOrderModuleList;
+        } PebLdrData;
+
+        typedef struct
+        {
+          LIST_ENTRY InLoadOrderLinks;
+          LIST_ENTRY InMemoryOrderLinks;
+          LIST_ENTRY InInitializationOrderLinks;
+          PVOID DllBase;
+        } LdrEntryHead;
+
+        unsigned char *peb = (unsigned char *)__readgsqword(0x60);
+        PebLdrData *ldr = peb ? *(PebLdrData **)(peb + 0x18) : NULL;
+        bool unlinked = false;
+
+        if(ldr)
+        {
+          LIST_ENTRY *head = &ldr->InLoadOrderModuleList;
+          LdrEntryHead *entry = (LdrEntryHead *)head->Flink;
+
+          while((LIST_ENTRY *)entry != head)
+          {
+            if(entry->DllBase == (PVOID)self)
+            {
+              entry->InLoadOrderLinks.Blink->Flink = entry->InLoadOrderLinks.Flink;
+              entry->InLoadOrderLinks.Flink->Blink = entry->InLoadOrderLinks.Blink;
+              entry->InMemoryOrderLinks.Blink->Flink = entry->InMemoryOrderLinks.Flink;
+              entry->InMemoryOrderLinks.Flink->Blink = entry->InMemoryOrderLinks.Blink;
+              entry->InInitializationOrderLinks.Blink->Flink = entry->InInitializationOrderLinks.Flink;
+              entry->InInitializationOrderLinks.Flink->Blink = entry->InInitializationOrderLinks.Blink;
+              unlinked = true;
+              break;
+            }
+            entry = (LdrEntryHead *)entry->InLoadOrderLinks.Flink;
+          }
+        }
+
+        RDCLOG("PEB unlink of our own module: %s", unlinked ? "done" : "not found in the list");
+      }
+    }
+  }
+
   return TRUE;
 }
 

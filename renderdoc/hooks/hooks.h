@@ -185,6 +185,29 @@ public:
   // onward function pointer
   static void RegisterFunctionHook(const char *libraryName, const FunctionHook &hook);
 
+  // Redirect one exported function of an already-loaded module, by rewriting its entry in the
+  // module's export address table to a stub that jumps to `replacement`.
+  //
+  // This exists for targets that resolve graphics entry points without going through an import
+  // slot we can patch. Naraka is one: the renderer walks its own resolution path, so IAT hooks
+  // install but never fire. Rewriting the export means every resolution route - IAT, direct
+  // GetProcAddress, a hand-walked export directory - lands on us.
+  //
+  // The stub lives in the module's own section padding, so the rewritten RVA stays inside the
+  // image and needs no code cave outside it. Returns false and logs if the module, the export or
+  // a usable cave is missing.
+  static bool RedirectExport(const char *moduleName, const char *functionName, void *replacement);
+
+  // The original address of a redirected export, or NULL if that export was not redirected.
+  //
+  // Once an export is redirected, GetProcAddress on it returns our hook. Any hook that resolves its
+  // "call onward" pointer with GetProcAddress would therefore call itself, so it has to ask for the
+  // saved original instead.
+  static void *GetExportOriginal(const char *moduleName, const char *functionName);
+
+  // Undo every RedirectExport() that went in.
+  static void RemoveExportRedirects();
+
   // detect if an identifier is present in the current process - used as a marker to indicate
   // replay-type programs.
   static bool Detect(const char *identifier);
