@@ -29,6 +29,18 @@
 
 typedef std::function<void(void *, const char *)> FunctionLoadCallback;
 
+// When true, graphics-driver hook registration is skipped for this process. Set by the platform
+// libentry before RegisterHooks().
+//
+// Naraka: the game ships as VMProtect + Neac/ACE, and VMProtect rewrites its own IAT during
+// unpacking, so every IAT patch we install is dead before the first call (measured 2026-10-24:
+// hooks registered, "Graphics function resolved" count 0). It is also an integrity signal the
+// protections watch for. Instead of patching the game's imports we become one of its imports:
+// tools/proxy places dxgi.dll / d3d11.dll / d3d12.dll next to NarakaBladepoint.exe, and those
+// proxies call the TINECMATOOL_* device/factory exports below directly. Nothing in the game's
+// own image is modified, so there is nothing for VMProtect to undo.
+extern bool g_SkipGraphicsDriverHooks;
+
 struct FunctionHook
 {
   FunctionHook() : orig(NULL), hook(NULL) {}

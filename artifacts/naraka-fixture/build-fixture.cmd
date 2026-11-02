@@ -41,3 +41,16 @@ echo EXITCODE_D3D11=%ERRORLEVEL%
   /link /SUBSYSTEM:CONSOLE
 
 echo EXITCODE_D3D12=%ERRORLEVEL%
+
+rem --- proxy fixture -----------------------------------------------------------
+rem Resolves dxgi.dll statically and d3d11/d3d12.dll by name at runtime, the way
+rem NarakaBladepoint.exe does, so it can be dropped next to the proxy DLLs to
+rem verify the forwarding and bridge layers. Needs dxgi.lib for the static import.
+
+"%MSVC%\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /O2 /EHsc /MD /W3 ^
+  /D_CRT_SECURE_NO_WARNINGS ^
+  proxy_fixture.cpp ^
+  /Fe:proxy_fixture.exe ^
+  /link /SUBSYSTEM:CONSOLE dxgi.lib user32.lib
+
+echo EXITCODE_PROXY=%ERRORLEVEL%

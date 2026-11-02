@@ -26,6 +26,9 @@
 #include "hooks.h"
 #include "common/common.h"
 
+// See hooks.h. Set by the platform libentry for protected processes that a proxy DLL fronts.
+bool g_SkipGraphicsDriverHooks = false;
+
 static rdcarray<LibraryHook *> &LibList()
 {
   static rdcarray<LibraryHook *> libs;

@@ -558,9 +558,21 @@ class D3D12Hook : LibraryHook
 public:
   void RegisterHooks()
   {
-    RDCLOG("Registering D3D12 hooks");
-
+    // The swapchain needs to be able to recognise a wrapped D3D12 device regardless of how that
+    // device was created, so this registration happens before any early-out below.
     WrappedIDXGISwapChain4::RegisterD3DDeviceCallback(GetD3D12DeviceIfAlloc);
+
+    if(g_SkipGraphicsDriverHooks)
+    {
+      // Proxy-layer host (see hooks.h). The game's imports stay untouched; tools/proxy calls
+      // TINECMATOOL_D3D12CreateDevice directly. d3dcompiler is still pulled in now because
+      // Create_Internal needs it while the capture is being written, long after this point.
+      GetD3DCompiler();
+      RDCLOG("Skipping D3D12 IAT hooks (graphics IAT disabled - proxy layer supplies the entry)");
+      return;
+    }
+
+    RDCLOG("Registering D3D12 hooks");
 
     // also require d3dcompiler_??.dll
     if(GetD3DCompiler() == NULL)
@@ -891,6 +903,9 @@ private:
     return ret;
   }
 
+  // Public: TINECMATOOL_D3D12CreateDevice at the bottom of this file calls it directly when the
+  // same-directory d3d12.dll proxy is the one the game loaded.
+public:
   static HRESULT WINAPI D3D12CreateDevice_hook(IUnknown *pAdapter,
                                                D3D_FEATURE_LEVEL MinimumFeatureLevel, REFIID riid,
                                                void **ppDevice)
@@ -900,7 +915,13 @@ private:
 
     if(!createFunc)
     {
-      HMODULE d3d12 = GetModuleHandleA("d3d12.dll");
+      // Must resolve the real export from System32\ by full path. GetModuleHandleA("d3d12.dll")
+      // returns whichever module the process imported, which under the proxy layer is our own
+      // d3d12.dll - and GetProcAddress on it would call back into this function forever.
+      wchar_t sysPath[MAX_PATH];
+      GetSystemDirectoryW(sysPath, MAX_PATH);
+      wcscat_s(sysPath, L"\\d3d12.dll");
+      HMODULE d3d12 = LoadLibraryW(sysPath);
 
       if(d3d12)
         createFunc = (PFN_D3D12_CREATE_DEVICE)GetProcAddress(d3d12, "D3D12CreateDevice");
@@ -1038,4 +1059,20 @@ HRESULT STDMETHODCALLTYPE WrappedID3D12DeviceFactory::GetConfigurationInterface(
           ToStr(iid).c_str(), SUCCEEDED(real) ? "did" : "did not", real);
 
   return E_NOINTERFACE;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Proxy bridge export
+// ---------------------------------------------------------------------------------------------
+//
+// Entry point for the same-directory d3d12.dll proxy (tools/proxy). The proxy is what the game
+// loads for `d3d12.dll`; it forwards every other export to System32 and routes D3D12CreateDevice
+// here so the device it hands back is a WrappedID3D12Device. Without the wrapping the DXGI proxy
+// would later be asked to attach a swapchain to a native device and refuse
+// ("Creating swap chain with non-hooked device!").
+extern "C" __declspec(dllexport) HRESULT WINAPI
+TINECMATOOL_D3D12CreateDevice(IUnknown *pAdapter, D3D_FEATURE_LEVEL MinimumFeatureLevel,
+                              REFIID riid, void **ppDevice)
+{
+  return D3D12Hook::D3D12CreateDevice_hook(pAdapter, MinimumFeatureLevel, riid, ppDevice);
 }

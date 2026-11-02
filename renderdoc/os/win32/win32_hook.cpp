@@ -1098,32 +1098,46 @@ static void InitHookData()
     s_HookData = new CachedHookData;
 
     RDCASSERT(s_HookData->DllHooks.empty());
-    s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
-        FunctionHook("LoadLibraryA", NULL, &Hooked_LoadLibraryA));
-    s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
-        FunctionHook("LoadLibraryW", NULL, &Hooked_LoadLibraryW));
-    s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
-        FunctionHook("LoadLibraryExA", NULL, &Hooked_LoadLibraryExA));
-    s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
-        FunctionHook("LoadLibraryExW", NULL, &Hooked_LoadLibraryExW));
-    s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
-        FunctionHook("GetProcAddress", NULL, &Hooked_GetProcAddress));
 
-    for(const char *apiset :
-        {"api-ms-win-core-libraryloader-l1-1-0.dll", "api-ms-win-core-libraryloader-l1-1-1.dll",
-         "api-ms-win-core-libraryloader-l1-1-2.dll", "api-ms-win-core-libraryloader-l1-2-0.dll",
-         "api-ms-win-core-libraryloader-l1-2-1.dll"})
+    // Proxy-layer host (see hooks.h). The kernel32 loader hooks exist only to lazily resolve
+    // graphics entry points by rewriting import slots, and HookAllModules only exists to sweep
+    // every loaded module rewriting its IAT. Both are pure liabilities in a VMProtect + Neac
+    // process: the packer reinstates its own import table during unpacking so the patches never
+    // take effect, and each write is an integrity signal. Leave the image untouched.
+    if(g_SkipGraphicsDriverHooks)
     {
-      s_HookData->DllHooks[apiset].FunctionHooks.push_back(
+      s_HookData->hookAll = false;
+      RDCLOG("Skipping kernel32 loader hooks and HookAllModules (proxy layer supplies the entry)");
+    }
+    else
+    {
+      s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
           FunctionHook("LoadLibraryA", NULL, &Hooked_LoadLibraryA));
-      s_HookData->DllHooks[apiset].FunctionHooks.push_back(
+      s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
           FunctionHook("LoadLibraryW", NULL, &Hooked_LoadLibraryW));
-      s_HookData->DllHooks[apiset].FunctionHooks.push_back(
+      s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
           FunctionHook("LoadLibraryExA", NULL, &Hooked_LoadLibraryExA));
-      s_HookData->DllHooks[apiset].FunctionHooks.push_back(
+      s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
           FunctionHook("LoadLibraryExW", NULL, &Hooked_LoadLibraryExW));
-      s_HookData->DllHooks[apiset].FunctionHooks.push_back(
+      s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
           FunctionHook("GetProcAddress", NULL, &Hooked_GetProcAddress));
+
+      for(const char *apiset :
+          {"api-ms-win-core-libraryloader-l1-1-0.dll", "api-ms-win-core-libraryloader-l1-1-1.dll",
+           "api-ms-win-core-libraryloader-l1-1-2.dll", "api-ms-win-core-libraryloader-l1-2-0.dll",
+           "api-ms-win-core-libraryloader-l1-2-1.dll"})
+      {
+        s_HookData->DllHooks[apiset].FunctionHooks.push_back(
+            FunctionHook("LoadLibraryA", NULL, &Hooked_LoadLibraryA));
+        s_HookData->DllHooks[apiset].FunctionHooks.push_back(
+            FunctionHook("LoadLibraryW", NULL, &Hooked_LoadLibraryW));
+        s_HookData->DllHooks[apiset].FunctionHooks.push_back(
+            FunctionHook("LoadLibraryExA", NULL, &Hooked_LoadLibraryExA));
+        s_HookData->DllHooks[apiset].FunctionHooks.push_back(
+            FunctionHook("LoadLibraryExW", NULL, &Hooked_LoadLibraryExW));
+        s_HookData->DllHooks[apiset].FunctionHooks.push_back(
+            FunctionHook("GetProcAddress", NULL, &Hooked_GetProcAddress));
+      }
     }
 
     GetModuleHandleEx(

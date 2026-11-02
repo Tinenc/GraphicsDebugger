@@ -41,9 +41,29 @@ class D3D11Hook : LibraryHook
 public:
   void RegisterHooks()
   {
-    RDCLOG("Registering D3D11 hooks");
-
+    // The swapchain must be able to spot a wrapped D3D11 device no matter how it was created,
+    // so this registration stays ahead of the early-out below.
     WrappedIDXGISwapChain4::RegisterD3DDeviceCallback(GetD3D11DeviceIfAlloc);
+
+    // Allocated up front: Create_Internal is reachable from the proxy bridge even when the IAT
+    // hooks below are skipped, and CheckRecurse/EndRecurse both dereference this slot.
+    if(m_RecurseSlot == 0)
+    {
+      m_RecurseSlot = Threading::AllocateTLSSlot();
+      Threading::SetTLSValue(m_RecurseSlot, NULL);
+    }
+
+    if(g_SkipGraphicsDriverHooks)
+    {
+      // Proxy-layer host (see hooks.h). tools/proxy calls TINECMATOOL_D3D11CreateDevice directly;
+      // the game's import table is never written to, which is what VMProtect's IAT restore used to
+      // undo. d3dcompiler is loaded now anyway so shader decompilation works during the capture.
+      GetD3DCompiler();
+      RDCLOG("Skipping D3D11 IAT hooks (graphics IAT disabled - proxy layer supplies the entry)");
+      return;
+    }
+
+    RDCLOG("Registering D3D11 hooks");
 
     // also require d3dcompiler_??.dll
     if(GetD3DCompiler() == NULL)
@@ -57,9 +77,6 @@ public:
     CreateDevice.Register("d3d11.dll", "D3D11CreateDevice", D3D11CreateDevice_hook);
     CreateDeviceAndSwapChain.Register("d3d11.dll", "D3D11CreateDeviceAndSwapChain",
                                       D3D11CreateDeviceAndSwapChain_hook);
-
-    m_RecurseSlot = Threading::AllocateTLSSlot();
-    Threading::SetTLSValue(m_RecurseSlot, NULL);
   }
 
 private:
@@ -71,9 +88,19 @@ private:
   // re-entrancy detection (can happen in rare cases with e.g. fraps)
   uint64_t m_RecurseSlot = 0;
 
-  void EndRecurse() { Threading::SetTLSValue(m_RecurseSlot, NULL); }
+  void EndRecurse()
+  {
+    if(m_RecurseSlot != 0)
+      Threading::SetTLSValue(m_RecurseSlot, NULL);
+  }
   bool CheckRecurse()
   {
+    if(m_RecurseSlot == 0)
+    {
+      m_RecurseSlot = Threading::AllocateTLSSlot();
+      Threading::SetTLSValue(m_RecurseSlot, NULL);
+    }
+
     if(Threading::GetTLSValue(m_RecurseSlot) == NULL)
     {
       Threading::SetTLSValue(m_RecurseSlot, (void *)1);
@@ -203,6 +230,9 @@ private:
     return ret;
   }
 
+  // Public: the TINECMATOOL_D3D11CreateDevice* bridge exports at the bottom of this file drive
+  // these directly when a same-directory d3d11.dll proxy fronts the real one.
+public:
   static HRESULT WINAPI D3D11CreateDevice_hook(
       __in_opt IDXGIAdapter *pAdapter, D3D_DRIVER_TYPE DriverType, HMODULE Software, UINT Flags,
       __in_ecount_opt(FeatureLevels) CONST D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels,
@@ -226,9 +256,17 @@ private:
 
     if(createFunc == NULL)
     {
-      RDCWARN("Call to D3D11CreateDeviceAndSwapChain_hook without onward function pointer");
-      createFunc = (PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN)GetProcAddress(
-          GetModuleHandleA("d3d11.dll"), "D3D11CreateDeviceAndSwapChain");
+      // Resolve from %SystemRoot%\System32 by full path. GetModuleHandleA("d3d11.dll") returns
+      // whatever module this process imported for that name - under the proxy layer that is our
+      // own d3d11.dll, and calling back into it would recurse until the stack dies.
+      wchar_t sysPath[MAX_PATH];
+      GetSystemDirectoryW(sysPath, MAX_PATH);
+      wcscat_s(sysPath, L"\\d3d11.dll");
+      HMODULE realD3D11 = LoadLibraryW(sysPath);
+
+      if(realD3D11)
+        createFunc = (PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN)GetProcAddress(
+            realD3D11, "D3D11CreateDeviceAndSwapChain");
     }
 
     // shouldn't ever get here, we should either have it from procaddress or the hook function, but
@@ -246,6 +284,41 @@ private:
 };
 
 D3D11Hook D3D11Hook::d3d11hooks;
+
+// ---------------------------------------------------------------------------------------------
+// Proxy bridge exports
+// ---------------------------------------------------------------------------------------------
+//
+// Entry points for the same-directory d3d11.dll proxy (tools/proxy). This is the D3D11 answer to
+// the dead end recorded in docs/NARAKA_挂载方案_StartGame_2026-10-24.md §7: the IAT hook never fired
+// because VMProtect reinstates its own import table during unpacking. Being the import itself
+// removes that whole failure mode - there is no patch for the packer to undo.
+extern "C" {
+
+__declspec(dllexport) HRESULT WINAPI TINECMATOOL_D3D11CreateDevice(
+    __in_opt IDXGIAdapter *pAdapter, D3D_DRIVER_TYPE DriverType, HMODULE Software, UINT Flags,
+    __in_ecount_opt(FeatureLevels) CONST D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels,
+    UINT SDKVersion, __out_opt ID3D11Device **ppDevice,
+    __out_opt D3D_FEATURE_LEVEL *pFeatureLevel, __out_opt ID3D11DeviceContext **ppImmediateContext)
+{
+  return D3D11Hook::D3D11CreateDevice_hook(pAdapter, DriverType, Software, Flags, pFeatureLevels,
+                                           FeatureLevels, SDKVersion, ppDevice, pFeatureLevel,
+                                           ppImmediateContext);
+}
+
+__declspec(dllexport) HRESULT WINAPI TINECMATOOL_D3D11CreateDeviceAndSwapChain(
+    __in_opt IDXGIAdapter *pAdapter, D3D_DRIVER_TYPE DriverType, HMODULE Software, UINT Flags,
+    __in_ecount_opt(FeatureLevels) CONST D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels,
+    UINT SDKVersion, __in_opt CONST DXGI_SWAP_CHAIN_DESC *pSwapChainDesc,
+    __out_opt IDXGISwapChain **ppSwapChain, __out_opt ID3D11Device **ppDevice,
+    __out_opt D3D_FEATURE_LEVEL *pFeatureLevel, __out_opt ID3D11DeviceContext **ppImmediateContext)
+{
+  return D3D11Hook::D3D11CreateDeviceAndSwapChain_hook(
+      pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion,
+      pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel, ppImmediateContext);
+}
+
+} // extern "C"
 
 HRESULT CreateD3D11_Internal(RealD3D11CreateFunction real, __in_opt IDXGIAdapter *pAdapter,
                              D3D_DRIVER_TYPE DriverType, HMODULE Software, UINT Flags,

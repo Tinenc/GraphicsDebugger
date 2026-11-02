@@ -33,6 +33,27 @@ typedef HRESULT(WINAPI *PFN_CREATE_DXGI_FACTORY2)(UINT, REFIID, void **);
 typedef HRESULT(WINAPI *PFN_GET_DEBUG_INTERFACE)(REFIID, void **);
 typedef HRESULT(WINAPI *PFN_GET_DEBUG_INTERFACE1)(UINT, REFIID, void **);
 
+// The real factory entry points always come from %SystemRoot%\System32\dxgi.dll, resolved
+// explicitly by path.
+//
+// This matters twice over. Normally the hook is reached from an IAT slot that pointed at system
+// dxgi, so "wherever we were imported from" happens to be right. Under the proxy layer
+// (tools/proxy) the game imports *our* dxgi.dll, so GetModuleHandleA("dxgi.dll") would hand back
+// the proxy - and GetProcAddress on it would call straight back into this file. Loading by full
+// system path sidesteps that loop entirely.
+static HMODULE GetSystemDXGIModule()
+{
+  static HMODULE s_hSystemDXGI = NULL;
+  if(!s_hSystemDXGI)
+  {
+    wchar_t sysDir[MAX_PATH];
+    GetSystemDirectoryW(sysDir, MAX_PATH);
+    wcscat_s(sysDir, L"\\dxgi.dll");
+    s_hSystemDXGI = LoadLibraryW(sysDir);
+  }
+  return s_hSystemDXGI;
+}
+
 MIDL_INTERFACE("9F251514-9D4D-4902-9D60-18988AB7D4B5")
 IDXGraphicsAnalysis : public IUnknown
 {
@@ -248,6 +269,11 @@ class DXGIHook : LibraryHook
 public:
   void RegisterHooks()
   {
+    if(g_SkipGraphicsDriverHooks)
+    {
+      RDCLOG("Skipping DXGI IAT hooks (graphics IAT disabled - proxy layer supplies the entry)");
+      return;
+    }
     RDCLOG("Registering DXGI hooks");
 
     LibraryHooks::RegisterLibraryHook("dxgi.dll", NULL);
@@ -273,12 +299,26 @@ private:
   HookedFunction<PFN_GET_DEBUG_INTERFACE> GetDebugInterface;
   HookedFunction<PFN_GET_DEBUG_INTERFACE1> GetDebugInterface1;
 
+  // Public so the TINECMATOOL_CreateDXGIFactory* bridge exports at the bottom of this file can
+  // drive them without going through an IAT slot.
+public:
   static HRESULT WINAPI CreateDXGIFactory_hook(__in REFIID riid, __out void **ppFactory)
   {
     LogGraphicsCreationCaller("CreateDXGIFactory", GRAPHICS_DIAGNOSTICS_CALLER());
     if(ppFactory)
       *ppFactory = NULL;
-    HRESULT ret = dxgihooks.CreateDXGIFactory()(riid, ppFactory);
+
+    HMODULE sysDxgi = GetSystemDXGIModule();
+    PFN_CREATE_DXGI_FACTORY real = sysDxgi ? (PFN_CREATE_DXGI_FACTORY)GetProcAddress(
+                                                 sysDxgi, "CreateDXGIFactory")
+                                           : dxgihooks.CreateDXGIFactory();
+    if(real == NULL)
+    {
+      RDCERR("CreateDXGIFactory: no onward function available");
+      return E_FAIL;
+    }
+
+    HRESULT ret = real(riid, ppFactory);
 
     if(SUCCEEDED(ret))
       RefCountDXGIObject::HandleWrap("CreateDXGIFactory", riid, ppFactory);
@@ -291,7 +331,18 @@ private:
     LogGraphicsCreationCaller("CreateDXGIFactory1", GRAPHICS_DIAGNOSTICS_CALLER());
     if(ppFactory)
       *ppFactory = NULL;
-    HRESULT ret = dxgihooks.CreateDXGIFactory1()(riid, ppFactory);
+
+    HMODULE sysDxgi = GetSystemDXGIModule();
+    PFN_CREATE_DXGI_FACTORY real = sysDxgi ? (PFN_CREATE_DXGI_FACTORY)GetProcAddress(
+                                                 sysDxgi, "CreateDXGIFactory1")
+                                           : dxgihooks.CreateDXGIFactory1();
+    if(real == NULL)
+    {
+      RDCERR("CreateDXGIFactory1: no onward function available");
+      return E_FAIL;
+    }
+
+    HRESULT ret = real(riid, ppFactory);
 
     if(SUCCEEDED(ret))
       RefCountDXGIObject::HandleWrap("CreateDXGIFactory1", riid, ppFactory);
@@ -304,7 +355,18 @@ private:
     LogGraphicsCreationCaller("CreateDXGIFactory2", GRAPHICS_DIAGNOSTICS_CALLER());
     if(ppFactory)
       *ppFactory = NULL;
-    HRESULT ret = dxgihooks.CreateDXGIFactory2()(Flags, riid, ppFactory);
+
+    HMODULE sysDxgi = GetSystemDXGIModule();
+    PFN_CREATE_DXGI_FACTORY2 real = sysDxgi ? (PFN_CREATE_DXGI_FACTORY2)GetProcAddress(
+                                                  sysDxgi, "CreateDXGIFactory2")
+                                            : dxgihooks.CreateDXGIFactory2();
+    if(real == NULL)
+    {
+      RDCERR("CreateDXGIFactory2: no onward function available");
+      return E_FAIL;
+    }
+
+    HRESULT ret = real(Flags, riid, ppFactory);
 
     if(SUCCEEDED(ret))
       RefCountDXGIObject::HandleWrap("CreateDXGIFactory2", riid, ppFactory);
@@ -312,6 +374,7 @@ private:
     return ret;
   }
 
+private:
   static HRESULT WINAPI DXGIGetDebugInterface_hook(REFIID riid, void **ppDebug)
   {
     if(ppDebug)
@@ -376,3 +439,34 @@ private:
 };
 
 DXGIHook DXGIHook::dxgihooks;
+
+// ---------------------------------------------------------------------------------------------
+// Proxy bridge exports
+// ---------------------------------------------------------------------------------------------
+//
+// These exist so a same-directory dxgi.dll (tools/proxy) can hand factory creation to us without
+// the game's import table being touched at all. The proxy is what the loader resolves for
+// `dxgi.dll`; it forwards everything else to System32 and routes the three factory creators here,
+// which wrap the resulting IDXGIFactory like a normal IAT hook would have.
+//
+// Signature note: this is the same shape as the DXGI exports, and the three differ in argument
+// count (CreateDXGIFactory2 takes Flags first), so they must never be aliased onto one another.
+extern "C" {
+
+__declspec(dllexport) HRESULT WINAPI TINECMATOOL_CreateDXGIFactory(REFIID riid, void **ppFactory)
+{
+  return DXGIHook::CreateDXGIFactory_hook(riid, ppFactory);
+}
+
+__declspec(dllexport) HRESULT WINAPI TINECMATOOL_CreateDXGIFactory1(REFIID riid, void **ppFactory)
+{
+  return DXGIHook::CreateDXGIFactory1_hook(riid, ppFactory);
+}
+
+__declspec(dllexport) HRESULT WINAPI TINECMATOOL_CreateDXGIFactory2(UINT Flags, REFIID riid,
+                                                                  void **ppFactory)
+{
+  return DXGIHook::CreateDXGIFactory2_hook(Flags, riid, ppFactory);
+}
+
+} // extern "C"

@@ -65,3 +65,10 @@ artifacts/naraka-fixture/fixture.log
 artifacts/naraka-fixture/out*.txt
 artifacts/naraka-fixture/fixture12.log
 artifacts/naraka-fixture/r12.txt
+
+# naraka proxy layer: link intermediates are local, the DLLs themselves ship
+# so a clone can deploy without a compiler
+tools/proxy/*.obj
+tools/proxy/*.exp
+tools/proxy/*.lib
+tools/proxy/*.pdb

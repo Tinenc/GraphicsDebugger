@@ -181,3 +181,22 @@ TinecmaToolcmd capture -w --opt-hook-children --opt-disallow-fullscreen \
 机器状态：StartGame 已退出，无残留进程；ACE 四个服务（`ACE-BASE` / `ACE-GAME` / `ACE-ADVT` / `ACE-SSC-DRV64`）注册值均为 `Start=3`（manual），**未被修改**；`tempdx12.txt` 与 `ExtraVars.unityargs` 保持启动器写出的原样。
 
 演进到静态资产解析（`StreamingAssets` + `globalgamemanagers` + `AppRes.info`）。
+
+---
+
+## 10. 后续：改为代理层（2026-11-02）
+
+上面 §9 的结论是"注入 StartGame 会阻断 Neac"，因此以 StartGame 为锚点的整条路线作废。
+它没有解决的其实是**注入**这件事本身，而不是"拿到设备创建时机"。
+
+后来的做法换掉了前提：不再注入任何进程，改为让游戏**自己加载**我们。把
+`dxgi.dll` / `d3d11.dll` / `d3d12.dll` 放进 `F://Naraka//program//`，利用加载器
+优先搜索 exe 目录的规则，成为游戏自己的导入项。游戏镜像零改动，VMProtect 没有
+可还原的补丁，Neac 也没有看到被注入的进程。
+
+- 设计与取舍：[`tools/proxy/README.md`](../tools/proxy/README.md)
+- 部署/还原：`util/naraka/Deploy-NarakaProxy.ps1`（默认干跑，`-Apply` 才写入）
+- 测试：`artifacts/naraka-fixture/run-proxy-test.py`
+
+§3 的前置条件、§6 的五级判据、§7 的止损表仍然全部适用——变的只是注入方式，
+不是验收标准。
