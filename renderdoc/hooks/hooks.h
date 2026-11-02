@@ -198,6 +198,19 @@ public:
   // a usable cave is missing.
   static bool RedirectExport(const char *moduleName, const char *functionName, void *replacement);
 
+  // Queue an export to be redirected whenever its module shows up, instead of only right now.
+  //
+  // At injection time the graphics DLLs are usually not loaded yet - measured on Naraka: injected
+  // at +1.1s, and all six redirects reported "module not loaded". Polling for the module would then
+  // race the caller's resolve-then-call, and lose whenever the resolve happens immediately after
+  // load. InstallDeferredExportRedirects() therefore hooks the loader's own DLL notification, which
+  // fires while the module is being mapped and before LoadLibrary returns to the caller.
+  static void AddExportRedirectTarget(const char *moduleName, const char *functionName,
+                                      void *replacement);
+
+  // Try every queued target now, then keep trying as modules load.
+  static void InstallDeferredExportRedirects();
+
   // The original address of a redirected export, or NULL if that export was not redirected.
   //
   // Once an export is redirected, GetProcAddress on it returns our hook. Any hook that resolves its

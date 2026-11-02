@@ -1389,10 +1389,12 @@ void *FindImageCave(byte *base, const IMAGE_NT_HEADERS *nt, SIZE_T need)
 
 }  // namespace
 
-bool LibraryHooks::RedirectExport(const char *moduleName, const char *functionName,
-                                  void *replacement)
+// Takes the module handle directly rather than looking it up by name: this is also called from the
+// loader's DLL notification, where the loader lock is already held and calling GetModuleHandle would
+// mean re-entering the loader for no reason.
+static bool RedirectExportInModule(HMODULE mod, const char *moduleName, const char *functionName,
+                                   void *replacement)
 {
-  HMODULE mod = GetModuleHandleA(moduleName);
   if(!mod)
   {
     RDCLOG("Export redirect: %s not loaded, nothing to redirect", moduleName);
@@ -1499,6 +1501,146 @@ bool LibraryHooks::RedirectExport(const char *moduleName, const char *functionNa
   return false;
 }
 
+namespace {
+
+struct ExportRedirectTarget
+{
+  rdcstr moduleName;
+  rdcstr functionName;
+  void *replacement = NULL;
+  bool installed = false;
+};
+
+std::vector<ExportRedirectTarget> &RedirectTargets()
+{
+  static std::vector<ExportRedirectTarget> targets;
+  return targets;
+}
+
+// Fired by the loader while a module is being mapped, i.e. before LoadLibrary returns to the caller.
+// That timing is the whole point: the caller resolves the export immediately after the load, so
+// installing the redirect any later leaves it holding the original pointer.
+// UNICODE_STRING is not visible in this translation unit under WIN32_LEAN_AND_MEAN, and its layout
+// is fixed, so spell it out.
+typedef struct
+{
+  USHORT Length;
+  USHORT MaximumLength;
+  PWSTR Buffer;
+} NotificationString;
+
+typedef struct
+{
+  ULONG Flags;
+  const NotificationString *FullDllName;
+  const NotificationString *BaseDllName;
+  PVOID DllBase;
+  ULONG SizeOfImage;
+} LoadedModuleNotification;
+
+typedef struct
+{
+  ULONG Flags;
+  LoadedModuleNotification Loaded;
+} DllNotificationData;
+
+typedef VOID(CALLBACK *PFN_DllNotification)(ULONG, const DllNotificationData *, PVOID);
+
+VOID CALLBACK GraphicsDllNotification(ULONG reason, const DllNotificationData *data, PVOID)
+{
+  const ULONG kReasonLoaded = 1;
+  if(reason != kReasonLoaded || !data || !data->Loaded.BaseDllName || !data->Loaded.DllBase)
+    return;
+
+  const NotificationString *baseName = data->Loaded.BaseDllName;
+  const int len = int(baseName->Length / sizeof(WCHAR));
+  if(len <= 0 || len >= MAX_PATH)
+    return;
+
+  char name[MAX_PATH] = {0};
+  for(int i = 0; i < len; i++)
+    name[i] = (char)tolower((int)baseName->Buffer[i]);
+
+  for(ExportRedirectTarget &target : RedirectTargets())
+  {
+    if(target.installed || strcmp(target.moduleName.c_str(), name) != 0)
+      continue;
+
+    if(RedirectExportInModule((HMODULE)data->Loaded.DllBase, name, target.functionName.c_str(),
+                              target.replacement))
+      target.installed = true;
+  }
+}
+
+}  // namespace
+
+bool LibraryHooks::RedirectExport(const char *moduleName, const char *functionName,
+                                  void *replacement)
+{
+  HMODULE mod = GetModuleHandleA(moduleName);
+  if(!mod)
+  {
+    RDCLOG("Export redirect: %s not loaded, nothing to redirect", moduleName);
+    return false;
+  }
+
+  return RedirectExportInModule(mod, moduleName, functionName, replacement);
+}
+
+void LibraryHooks::AddExportRedirectTarget(const char *moduleName, const char *functionName,
+                                           void *replacement)
+{
+  ExportRedirectTarget target;
+  target.moduleName = strlower(moduleName);
+  target.functionName = functionName;
+  target.replacement = replacement;
+  RedirectTargets().push_back(target);
+}
+
+void LibraryHooks::InstallDeferredExportRedirects()
+{
+  int pending = 0;
+  for(ExportRedirectTarget &target : RedirectTargets())
+  {
+    if(target.installed)
+      continue;
+
+    if(RedirectExportInModule(GetModuleHandleA(target.moduleName.c_str()),
+                              target.moduleName.c_str(), target.functionName.c_str(),
+                              target.replacement))
+      target.installed = true;
+    else
+      pending++;
+  }
+
+  if(pending == 0)
+  {
+    RDCLOG("Export redirect: all %u target(s) applied to already-loaded modules",
+           (uint32_t)RedirectTargets().size());
+    return;
+  }
+
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  if(!ntdll)
+    return;
+
+  typedef LONG(NTAPI * PFN_LdrRegisterDllNotification)(ULONG, PFN_DllNotification, PVOID, PVOID *);
+  PFN_LdrRegisterDllNotification reg =
+      (PFN_LdrRegisterDllNotification)GetProcAddress(ntdll, "LdrRegisterDllNotification");
+
+  if(!reg)
+  {
+    RDCLOG("Export redirect: LdrRegisterDllNotification unavailable, %d target(s) will not apply",
+           pending);
+    return;
+  }
+
+  PVOID cookie = NULL;
+  LONG status = reg(0, &GraphicsDllNotification, NULL, &cookie);
+  RDCLOG("Export redirect: %d target(s) pending, loader notification %s", pending,
+         status == 0 ? "registered" : "FAILED");
+}
+
 void *LibraryHooks::GetExportOriginal(const char *moduleName, const char *functionName)
 {
   rdcstr mod = strlower(moduleName);
@@ -1510,8 +1652,7 @@ void *LibraryHooks::GetExportOriginal(const char *moduleName, const char *functi
   return NULL;
 }
 
-void LibraryHooks::RemoveExportRedirects()
-{
+void LibraryHooks::RemoveExportRedirects(){
   for(ExportRedirect &record : ExportRedirects())
   {
     DWORD oldProtect = 0;

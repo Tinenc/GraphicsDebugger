@@ -94,6 +94,14 @@ static BOOL add_hooks()
 
   LibraryHooks::RegisterHooks();
 
+  // Queue the export redirects and hook the loader's DLL notification.
+  //
+  // At this point the graphics DLLs are usually not loaded yet - measured on Naraka, injected at
+  // +1.1s, all six redirects reported "module not loaded". They have to be installed the moment the
+  // module is mapped, because the caller resolves the export immediately afterwards and keeps the
+  // pointer it got.
+  LibraryHooks::InstallDeferredExportRedirects();
+
   // Hide from loader enumeration. A module-walking watchdog looks for exactly this - a DLL in the
   // process that is not in the PEB list is suspicious on its own, but a DLL that IS in the list and
   // was never part of the original image is equally easy to spot, and this is the step that costs

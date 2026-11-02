@@ -80,9 +80,9 @@ public:
 
     // See the note in d3d12_hooks.cpp: the renderer's resolution path does not go through the IAT
     // slots we patch, so redirect the exports as well.
-    LibraryHooks::RedirectExport("d3d11.dll", "D3D11CreateDevice",
+    LibraryHooks::AddExportRedirectTarget("d3d11.dll", "D3D11CreateDevice",
                                  (void *)&D3D11CreateDevice_hook);
-    LibraryHooks::RedirectExport("d3d11.dll", "D3D11CreateDeviceAndSwapChain",
+    LibraryHooks::AddExportRedirectTarget("d3d11.dll", "D3D11CreateDeviceAndSwapChain",
                                  (void *)&D3D11CreateDeviceAndSwapChain_hook);
   }
 

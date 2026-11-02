@@ -286,9 +286,9 @@ public:
 
     // Naraka's renderer does not resolve these through the import slots we patch, so also redirect
     // the exports. See the note in d3d12_hooks.cpp.
-    LibraryHooks::RedirectExport("dxgi.dll", "CreateDXGIFactory", (void *)&CreateDXGIFactory_hook);
-    LibraryHooks::RedirectExport("dxgi.dll", "CreateDXGIFactory1", (void *)&CreateDXGIFactory1_hook);
-    LibraryHooks::RedirectExport("dxgi.dll", "CreateDXGIFactory2", (void *)&CreateDXGIFactory2_hook);
+    LibraryHooks::AddExportRedirectTarget("dxgi.dll", "CreateDXGIFactory", (void *)&CreateDXGIFactory_hook);
+    LibraryHooks::AddExportRedirectTarget("dxgi.dll", "CreateDXGIFactory1", (void *)&CreateDXGIFactory1_hook);
+    LibraryHooks::AddExportRedirectTarget("dxgi.dll", "CreateDXGIFactory2", (void *)&CreateDXGIFactory2_hook);
   }
 
   void RemoveHooks() override { RestoreNativeDXGIFactoryHooks(); }

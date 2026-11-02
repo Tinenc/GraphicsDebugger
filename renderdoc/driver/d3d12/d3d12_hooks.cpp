@@ -598,7 +598,7 @@ public:
     // renderer does not - measured 2026-11-02: 16 IAT hooks installed on the live game, none of the
     // graphics entry points ever called through them. Redirect the export instead, so any
     // resolution route arrives at our hook.
-    LibraryHooks::RedirectExport("d3d12.dll", "D3D12CreateDevice",
+    LibraryHooks::AddExportRedirectTarget("d3d12.dll", "D3D12CreateDevice",
                                  (void *)&D3D12CreateDevice_hook);
   }
 
