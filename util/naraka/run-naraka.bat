@@ -64,6 +64,7 @@ if /i "%MODE%"=="capture"  goto :capture
 if /i "%MODE%"=="proxy"    goto :proxy
 if /i "%MODE%"=="undeploy" goto :undeploy
 if /i "%MODE%"=="inject"   goto :inject
+if /i "%MODE%"=="gui"      goto :gui
 if /i "%MODE%"=="launch"   goto :preflight
 echo [error] unknown mode: %MODE%
 goto :usage
@@ -263,6 +264,16 @@ if errorlevel 1 (
 )
 echo.
 echo [ok] game directory restored.
+goto :done
+
+rem ---------------------------------------------------------------------------
+:gui
+rem 图形控制中心，等同于双击 Naraka-Launcher.bat
+if not exist "%HERE%Naraka-Launcher.bat" (
+  echo [error] Naraka-Launcher.bat not found next to this file.
+  goto :fail
+)
+call "%HERE%Naraka-Launcher.bat"
 goto :done
 
 rem ---------------------------------------------------------------------------
@@ -466,6 +477,7 @@ goto :eof
 echo.
 echo  TinecmaTool + Naraka: Bladepoint
 echo.
+echo    %~nx0 gui          open the graphical control center
 echo    %~nx0              start the game and watch it come up   [default]
 echo    %~nx0 inject       start, then inject the renderer at first sight
 echo    %~nx0 status       environment report, starts nothing
