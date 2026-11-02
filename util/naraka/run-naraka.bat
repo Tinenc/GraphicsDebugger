@@ -305,36 +305,19 @@ if exist "%TRIGGER%" del /q "%TRIGGER%" >nul 2>&1
 
 call :launchgame
 echo.
-echo [inject] waiting for %TARGET% to appear, then injecting immediately ...
+echo [inject] waiting for %TARGET%, then injecting the moment it appears ...
 call :log "[inject] waiting for target"
 
-set "WAITS=0"
-set "PID="
-:injectwait
-set "PID="
-for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq %TARGET%" /FO CSV /NH 2^>nul ^| findstr /i "%TARGET%"') do (
-  if not defined PID set "PID=%%~P"
-)
-if defined PID goto :doinject
-set /a WAITS+=1
-if !WAITS! geq 300 (
-  echo [warn] gave up after about 5 minutes, %TARGET% never appeared.
-  goto :fail
-)
-ping -n 2 127.0.0.1 >nul
-goto :injectwait
-
-:doinject
-call :log "[inject] found pid=!PID! after ~!WAITS!s"
-echo [inject] %TARGET% pid=!PID!
-echo [inject] injecting now - the device window is roughly 18s from here
-"%TOOL%" inject --PID=!PID! -c "%CAPTURES%\naraka"
-set "RC=!errorlevel!"
-call :log "[inject] rc=!RC!"
-if not "!RC!"=="0" goto :injectfail
+rem The wait lives in wait-and-inject.ps1, not here. A batch loop built from
+rem tasklist plus ping took about ten seconds just to notice the process - by
+rem then the device already existed and the injection was wasted. The script
+rem polls Get-Process every 100ms in a single process and reports its timings.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%HERE%wait-and-inject.ps1" -ProcessName "%TARGET%" -ToolCmd "%TOOL%" -CaptureDir "%CAPTURES%"
+if errorlevel 1 goto :injectfail
+call :log "[inject] injected"
 
 echo.
-echo [ok] injected into pid !PID!
+echo [ok] injected - the layer is inside the renderer now
 echo.
 echo [wait] watching the core log for device wrapping, up to 90s ...
 set "NEWLOG="
@@ -391,7 +374,7 @@ goto :done
 
 :injectfail
 echo.
-echo [fail] injection returned !RC!
+echo [fail] injection did not complete
 echo [hint] usual causes, in order of likelihood:
 echo [hint]  1. the anti-cheat stripped handle rights - OpenProcess works but
 echo [hint]     WriteProcessMemory or CreateRemoteThread return ACCESS_DENIED.
