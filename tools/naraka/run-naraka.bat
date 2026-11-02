@@ -258,10 +258,11 @@ rem ---------------------------------------------------------------------------
 rem Inject the capture core into the renderer as soon as it appears.
 rem
 rem This is the only route that does not put files in the game directory. It also
-rem has to win a race: the renderer appears about 12s after the starter and
-rem creates its D3D12 device a few seconds after that. Miss the window and the
-rem device exists before the layer does - unrecoverable for that session, because
-rem RenderDoc can only wrap a device it saw being created.
+rem has to win a race: the renderer appears 8-12s after the starter, and creates
+rem its D3D12 device some 16s after that (measured 19:08 on 2026-11-02: process
+rem 19:08:38, wrapped device 19:08:54). Miss the window and the device exists
+rem before the layer does - unrecoverable for that session, because RenderDoc can
+rem only wrap a device it saw being created.
 if not exist "%TOOL%" (
   echo [error] toolcmd not found: %TOOL%
   goto :fail

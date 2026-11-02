@@ -3,6 +3,9 @@
 《永劫无间》的 TinecmaTool 抓帧入口。**不往游戏安装目录写任何文件**——启动
 `StartGame.exe`，`NarakaBladepoint.exe` 一出现就注入核心，靠导出表重定向拿到设备创建。
 
+> 完整背景、实现细节、排查表见
+> [`docs/NARAKA_抓帧指南_2026-11-02.md`](../../docs/NARAKA_抓帧指南_2026-11-02.md)。
+
 ## 用法
 
 ```
@@ -37,10 +40,10 @@ run-naraka.bat gui       打开图形界面
 `NarakaBladepoint.exe` 永不出现、`Player.log` 不更新。脚本发现自己被提权时会把启动
 交给 `explorer.exe`，退回中等完整性。GUI 里同一套逻辑。
 
-**抢在设备创建之前注入。** 渲染进程约在 `StartGame` 之后 12 秒出现，设备在其后几秒
-创建。错过就这一局没救——RenderDoc 只能包装它亲眼看到创建的那个设备。所以等待和注入
-放在 `wait-and-inject.ps1` 里，用单进程 100ms 轮询；批处理的 `tasklist` + `ping` 光
-发现进程就要 10 秒。
+**抢在设备创建之前注入。** 渲染进程约在 `StartGame` 之后 8–12 秒出现，设备在其后十几秒
+创建（19:08 实测：进程 19:08:38 → `wrapped device` 19:08:54）。错过就这一局没救——
+RenderDoc 只能包装它亲眼看到创建的那个设备。所以等待和注入放在 `wait-and-inject.ps1`
+里，用单进程 100ms 轮询；批处理的 `tasklist` + `ping` 光发现进程就要 10 秒。
 
 **分析器也必须经 explorer 启动。** 从提权进程直接 `Start-Process qTinecmaTool.exe`，
 窗口会起来几秒后自己消失：日志停在驱动枚举完成那一行，事件日志里没有崩溃记录、退出码

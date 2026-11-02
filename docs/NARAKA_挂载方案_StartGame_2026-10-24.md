@@ -3,6 +3,10 @@
 > 状态：**已实测 —— `unsupported-protected`**（2026-10-24 03:43，见 §9）
 > 分支 `Naraka`，fork 自 `origin/DF研究 @1726b53b4`
 > 目标：`F:\Naraka\program\StartGame.exe`（x64）→ 派生 `NarakaBladepoint.exe`（x64, VMProtect）
+>
+> ⚠️ **本文是历史记录。** 当前可用方案与操作步骤见
+> [`NARAKA_抓帧指南_2026-11-02.md`](NARAKA_抓帧指南_2026-11-02.md)。本文的 §3 前置条件、
+> §6 五级判据、§7 止损表仍然有效，注入方式已被取代。
 
 ## 1. 为什么不是 LauncherGame.exe
 
