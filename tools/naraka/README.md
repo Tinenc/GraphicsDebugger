@@ -15,9 +15,12 @@ Naraka-Launcher.bat      双击，打开图形控制中心（正常用法）
 run-naraka.bat           启动游戏，只观察它起来
 run-naraka.bat inject    启动 + 首次出现即注入（抓帧用这个）
 run-naraka.bat capture   写触发文件，等 .rdc 落盘
+run-naraka.bat tool      只打开 TinecmaTool 分析器
 run-naraka.bat status    环境自检，什么都不启动
 run-naraka.bat gui       打开图形界面
 ```
+
+启动游戏时会把分析器（`qTinecmaTool.exe`）一起拉起来，已经在跑就不重复开。
 
 ## 文件
 
@@ -38,6 +41,11 @@ run-naraka.bat gui       打开图形界面
 创建。错过就这一局没救——RenderDoc 只能包装它亲眼看到创建的那个设备。所以等待和注入
 放在 `wait-and-inject.ps1` 里，用单进程 100ms 轮询；批处理的 `tasklist` + `ping` 光
 发现进程就要 10 秒。
+
+**分析器也必须经 explorer 启动。** 从提权进程直接 `Start-Process qTinecmaTool.exe`，
+窗口会起来几秒后自己消失：日志停在驱动枚举完成那一行，事件日志里没有崩溃记录、退出码
+也不是异常值。同一份 exe 经 explorer 以中等完整性启动就稳定。所以 `Start-Viewer` 在
+检测到提权时会绕一趟 explorer，和启动游戏用同一个办法。
 
 ## 触发目录为什么还叫 proxy
 

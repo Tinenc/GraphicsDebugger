@@ -115,6 +115,56 @@ function Start-Game([string]$dir) {
     }
 }
 
+# 启动游戏时把分析器一起拉起来；也可以带一个 .rdc 让它直接打开抓帧。
+#
+# 两种情况要分开处理：
+#  - 已经在跑就别再开第二个，多开会各占一份 replay 上下文，分不清哪个是哪个。
+#    但带抓帧文件时允许再调一次，让已有窗口去加载它。
+#  - 提权进程里启动的 Qt 主窗口会"起来就退"：日志停在驱动枚举完，没有崩溃记录。
+#    实测同一份 exe 经 explorer 以中等完整性启动就正常，所以这里跟启动游戏用同一招。
+function Start-Viewer([string]$capture = '') {
+    if (-not (Test-Path $GuiViewer)) {
+        Write-Status ('分析器不存在，跳过: ' + $GuiViewer) $ColWarn
+        return
+    }
+    if ($capture -and -not (Test-Path $capture)) {
+        Write-Status ('抓帧文件不存在: ' + $capture) $ColBad
+        return
+    }
+
+    $name = [IO.Path]::GetFileNameWithoutExtension($GuiViewer)
+    if (-not $capture -and (Get-Process -Name $name -ErrorAction SilentlyContinue)) {
+        Write-Status 'TinecmaTool 已经在运行，不重复打开' $ColDim
+        return
+    }
+
+    $argLine = ''
+    if ($capture) { $argLine = ' "' + $capture + '"' }
+
+    try {
+        if (Test-Elevated) {
+            $cmd = Join-Path $Work 'naraka_viewer.cmd'
+            $lines = @(
+                '@echo off',
+                ('start "" "' + $GuiViewer + '"' + $argLine)
+            )
+            Set-Content -Path $cmd -Value $lines -Encoding ASCII
+            Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList $cmd
+        } elseif ($capture) {
+            Start-Process -FilePath $GuiViewer -ArgumentList ('"' + $capture + '"')
+        } else {
+            Start-Process -FilePath $GuiViewer | Out-Null
+        }
+        if ($capture) {
+            Write-Status ('已交给 TinecmaTool 打开: ' + [IO.Path]::GetFileName($capture)) $ColDim
+        } else {
+            Write-Status '已打开 TinecmaTool' $ColDim
+        }
+    } catch {
+        Write-Status ('打开 TinecmaTool 失败: ' + $_.Exception.Message) $ColBad
+    }
+}
+
 # Flat buttons on a dark panel: the stock disabled rendering greys the glyph out
 # against the panel colour and it turns unreadable. So these stay enabled for their
 # whole life and the click handlers do the gating, saying why nothing happened -
@@ -337,11 +387,7 @@ $script:BtnViewer.Add_Click({
     $rdc = Get-ChildItem -Path $Captures -Filter '*.rdc' -ErrorAction SilentlyContinue |
            Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (-not $rdc) { Write-Status '还没有 .rdc 产物' $ColWarn; return }
-    if (Test-Path $GuiViewer) {
-        Start-Process -FilePath $GuiViewer -ArgumentList ('"' + $rdc.FullName + '"')
-    } else {
-        Write-Status ('分析器不存在: ' + $GuiViewer) $ColBad
-    }
+    Start-Viewer $rdc.FullName
 })
 $form.Controls.Add($script:BtnViewer)
 
@@ -355,6 +401,7 @@ $form.CancelButton = $btnClose
 foreach ($pair in @(
     @('核心 TinecmaTool.dll', $CoreDll),
     @('工具 TinecmaToolcmd.exe', $ToolCmd),
+    @('分析器 qTinecmaTool.exe', $GuiViewer),
     @('注入脚本 wait-and-inject.ps1', $InjectPs1)
 )) {
     if (Test-Path $pair[1]) {
@@ -386,6 +433,7 @@ $script:BtnLaunch.Add_Click({
         return
     }
     Start-Game $game
+    Start-Viewer
     Begin-Inject
 })
 

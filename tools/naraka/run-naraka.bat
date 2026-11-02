@@ -8,6 +8,7 @@ rem
 rem    run-naraka.bat             start the game and watch it come up
 rem    run-naraka.bat inject      start, then inject the renderer at first sight
 rem    run-naraka.bat capture     write the capture trigger file
+rem    run-naraka.bat tool        open TinecmaTool (the analyzer) only
 rem    run-naraka.bat status      environment report, starts nothing
 rem    run-naraka.bat gui         open the graphical control center
 rem    run-naraka.bat help        this text
@@ -31,6 +32,7 @@ rem repo root: this file lives in tools\naraka
 for %%i in ("%HERE%..\..") do set "ROOT=%%~fi\"
 set "TOOL=%ROOT%x64\Development\TinecmaToolcmd.exe"
 set "CORE=%ROOT%x64\Development\TinecmaTool.dll"
+set "VIEWER=%ROOT%x64\Development\qTinecmaTool.exe"
 
 set "GAMEDIR=F:\Naraka\program"
 set "STARTER=StartGame.exe"
@@ -56,6 +58,7 @@ if errorlevel 1 (set "ELEVATED=0") else (set "ELEVATED=1")
 if /i "%MODE%"=="help"    goto :usage
 if /i "%MODE%"=="status"  goto :status
 if /i "%MODE%"=="capture" goto :capture
+if /i "%MODE%"=="tool"    goto :tool
 if /i "%MODE%"=="inject"  goto :inject
 if /i "%MODE%"=="gui"     goto :gui
 if /i "%MODE%"=="launch"  goto :preflight
@@ -116,6 +119,7 @@ rem ---------------------------------------------------------------------------
 :launchgame
 echo [launch] %GAMEDIR%\%STARTER%
 call :log "[launch] %STARTER% from %GAMEDIR% elevated=%ELEVATED%"
+call :startviewer
 if "%ELEVATED%"=="1" goto :launch_via_explorer
 
 pushd "%GAMEDIR%"
@@ -134,6 +138,34 @@ set "LAUNCHCMD=%WORK%\naraka_launch.cmd"
 >>"%LAUNCHCMD%" echo cd /d "%GAMEDIR%"
 >>"%LAUNCHCMD%" echo start "" "%GAMEDIR%\%STARTER%"
 explorer.exe "%LAUNCHCMD%"
+goto :eof
+
+:startviewer
+rem Bring the analyzer up with the game. One instance only - a second copy just
+rem gives you two replay contexts and no way to tell which is which.
+rem
+rem When this shell is elevated the viewer has to go through explorer too: a Qt
+rem main window started from a high-integrity process comes up and then disappears
+rem a few seconds later, right after driver enumeration, with nothing in the event
+rem log. Same exe, medium integrity: stays up.
+if not exist "%VIEWER%" (
+  echo [note] analyzer not built, skipping: %VIEWER%
+  goto :eof
+)
+tasklist /FI "IMAGENAME eq qTinecmaTool.exe" /FO CSV /NH 2>nul | findstr /i "qTinecmaTool" >nul
+if not errorlevel 1 (
+  echo [note] TinecmaTool already running
+  goto :eof
+)
+if "%ELEVATED%"=="1" (
+  set "VCMD=%WORK%\naraka_viewer.cmd"
+  >"!VCMD!" echo @echo off
+  >>"!VCMD!" echo start "" "%VIEWER%"
+  explorer.exe "!VCMD!"
+) else (
+  start "" "%VIEWER%"
+)
+echo [ok] opened TinecmaTool
 goto :eof
 
 rem ---------------------------------------------------------------------------
@@ -168,6 +200,13 @@ echo [ok] %TARGET% pid !PID! - the game is up.
 echo.
 echo [state] no capture layer in this run - starting is all this mode does.
 echo [state] to capture, use:  %~nx0 inject
+goto :done
+
+rem ---------------------------------------------------------------------------
+:tool
+rem Just the analyzer, no game. Launched with the game from :launchgame as well.
+call :makedirs
+call :startviewer
 goto :done
 
 rem ---------------------------------------------------------------------------
@@ -382,6 +421,7 @@ echo    %~nx0 gui          open the graphical control center
 echo    %~nx0              start the game and watch it come up   [default]
 echo    %~nx0 inject       start, then inject the renderer at first sight
 echo    %~nx0 capture      write the capture trigger file
+echo    %~nx0 tool         open TinecmaTool (the analyzer) only
 echo    %~nx0 status       environment report, starts nothing
 echo    %~nx0 help         this text
 echo.
