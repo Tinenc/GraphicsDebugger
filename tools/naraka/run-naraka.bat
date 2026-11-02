@@ -264,9 +264,10 @@ echo [capture] pid=%PID%
 >"%TRIGGER%" echo CAPTURE
 echo [capture] trigger written: %TRIGGER%
 echo [capture] waiting for the .rdc ...
-echo [tip] if nothing happens, just press F12 in the game - that is RenderDoc's
-echo [tip] default capture key and needs no rebuild. This file trigger only works
-echo [tip] with a core built after 5c2c7436c.
+echo [tip] if nothing happens, click the game window and press F12 - that is
+echo [tip] RenderDoc's default capture key and needs no rebuild. It only fires
+echo [tip] while the game window is foreground.
+echo [tip] This file trigger needs a core built after 5c2c7436c instead.
 
 rem The trigger only does anything while a capture layer is inside the game, and
 rem only a core built after 5c2c7436c watches for it. If nothing arrives those two
