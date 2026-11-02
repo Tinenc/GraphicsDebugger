@@ -27,11 +27,61 @@
 #include <tchar.h>
 #include <windows.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <intrin.h>
 #include "common/common.h"
 #include "core/core.h"
 #include "hooks/hooks.h"
 #include "strings/string_utils.h"
+
+// Watches for a capture request from outside the process.
+//
+// The proxy layer has its own trigger thread; an injected process has nothing, which is why the
+// first successful injection wrapped both devices, reached first present, and then sat there with
+// no way to ask for a frame. RenderDoc only captures when someone calls TriggerCapture - there is no
+// built-in hotkey - so the thing that watches for F12 or a trigger file has to live in here.
+//
+// Deliberately file-based rather than a socket: the trigger file is one New-Item away, and it does
+// not add a listener that a watchdog might find interesting.
+static DWORD WINAPI CaptureTriggerThread(LPVOID)
+{
+  char localAppData[MAX_PATH] = {0};
+  DWORD len = GetEnvironmentVariableA("LOCALAPPDATA", localAppData, MAX_PATH);
+  if(len == 0 || len >= MAX_PATH)
+    return 0;
+
+  char workDir[MAX_PATH];
+  sprintf_s(workDir, "%s\\Temp\\Naraka\\proxy", localAppData);
+  CreateDirectoryA(workDir, NULL);
+
+  char captureDir[MAX_PATH];
+  sprintf_s(captureDir, "%s\\captures", workDir);
+  CreateDirectoryA(captureDir, NULL);
+
+  char triggerPath[MAX_PATH];
+  sprintf_s(triggerPath, "%s\\trigger_capture_narakabladepoint", captureDir);
+
+  char templatePath[MAX_PATH];
+  sprintf_s(templatePath, "%s\\naraka", captureDir);
+  RenderDoc::Inst().SetCaptureFileTemplate(templatePath);
+
+  RDCLOG("Capture trigger watcher started, template %s", templatePath);
+  RDCLOG("Capture trigger watcher: waiting on %s", triggerPath);
+
+  for(;;)
+  {
+    if(GetFileAttributesA(triggerPath) != INVALID_FILE_ATTRIBUTES)
+    {
+      DeleteFileA(triggerPath);
+      RDCLOG("Capture trigger watcher: capture requested, triggering");
+      RenderDoc::Inst().TriggerCapture(1);
+    }
+
+    Sleep(120);
+  }
+
+  return 0;
+}
 
 static BOOL add_hooks()
 {
@@ -101,6 +151,11 @@ static BOOL add_hooks()
   // module is mapped, because the caller resolves the export immediately afterwards and keeps the
   // pointer it got.
   LibraryHooks::InstallDeferredExportRedirects();
+
+  // Only when this process is ours to drive. Under the proxy layer the proxy already runs its own
+  // trigger thread, and two triggers would race for the same capture.
+  if(!g_SkipGraphicsDriverHooks)
+    CreateThread(NULL, 0, &CaptureTriggerThread, NULL, 0, NULL);
 
   // Hide from loader enumeration. A module-walking watchdog looks for exactly this - a DLL in the
   // process that is not in the PEB list is suspicious on its own, but a DLL that IS in the list and
