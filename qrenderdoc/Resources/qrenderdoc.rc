@@ -1,6 +1,7 @@
 // Microsoft Visual C++ generated resource script.
 //
 #include "version.h"
+#include "../Code/BreadVersion.h"
 
 #define APSTUDIO_READONLY_SYMBOLS
 /////////////////////////////////////////////////////////////////////////////
@@ -67,8 +68,8 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_UK
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION RENDERDOC_VERSION_MAJOR,RENDERDOC_VERSION_MINOR,0,0
- PRODUCTVERSION RENDERDOC_VERSION_MAJOR,RENDERDOC_VERSION_MINOR,0,0
+ FILEVERSION BREAD_FILE_VERSION
+ PRODUCTVERSION BREAD_FILE_VERSION
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -84,13 +85,13 @@ BEGIN
         BLOCK "080904b0"
         BEGIN
             VALUE "CompanyName", "Baldur Karlsson"
-            VALUE "FileDescription", "TinecmaTool"
-            VALUE "FileVersion", MAJOR_MINOR_VERSION_STRING ".0.0"
-            VALUE "InternalName", "qTinecmaTool"
-            VALUE "LegalCopyright", "Copyright ï¿½ 2026 Baldur Karlsson"
-            VALUE "OriginalFilename", "qTinecmaTool.exe"
-            VALUE "ProductName", "TinecmaTool"
-            VALUE "ProductVersion", FULL_VERSION_STRING
+            VALUE "FileDescription", "RenderDocBread"
+            VALUE "FileVersion", BREAD_FILE_VERSION_STRING
+            VALUE "InternalName", "RenderDocBread"
+            VALUE "LegalCopyright", "Copyright © 2026 Baldur Karlsson"
+            VALUE "OriginalFilename", "RenderDocBread.exe"
+            VALUE "ProductName", "RenderDocBread"
+            VALUE "ProductVersion", BREAD_FULL_VERSION_STRING
         END
     END
     BLOCK "VarFileInfo"

@@ -117,7 +117,7 @@ cbuffer MeshVertexCBuffer REG(b0)
   uint vertMeshDisplayFormat;
   uint meshletOffset;
   uint meshletCount;
-  uint padding1;
+  uint componentSelectedVertices;
 
   uint4 meshletColours[12];
 };
@@ -462,6 +462,7 @@ cbuffer DebugSampleOperation REG(b0)
 
 // extra values below
 #define MESHDISPLAY_SECONDARY_ALPHA 0x6
+#define MESHDISPLAY_POINT 0x7
 
 #define MAX_NUM_MESHLETS (512 * 1024)
 

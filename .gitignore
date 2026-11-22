@@ -1,5 +1,5 @@
 Debug/
-Documentation/
+/Documentation/
 Release/
 QTDebug/
 Development/
@@ -7,26 +7,47 @@ Development32/
 Development64/
 Release32/
 Release64/
-build/
-build-*/
+/build/
+
+# Local build/dependency inspection outputs. Keep these root-anchored so similarly named source
+# directories elsewhere in the tree remain visible to Git.
+/x64/
+/qrenderdoc_3rdparty.download.zip
+/qrenderdoc_3rdparty_inspect_*/
+/build-*/
 /compile_commands.json
 .cache/
+.pytest_cache/
+# Pytest scratch belongs in the operating-system temp directory. These exact
+# patterns only protect aborted/legacy runs; test configuration redirects new
+# repository-local --basetemp requests before tmp_path is created.
+**/.pytest-*/
+**/.tmp-pytest-*/
+**/.test-tmp-*/
+**/_pytest_*/
+**/.tmp-test-*/
 /dist/
 /package/
-util/buildscripts/support
-Resources/*.png
-qrenderdoc/Makefile*
+# This directory may contain signing credentials and machine-specific helpers.
+# Its checked-in README remains project documentation.
+/util/buildscripts/support/*
+!/util/buildscripts/support/README.md
+/qrenderdoc/Makefile
+/qrenderdoc/Makefile.Debug
+/qrenderdoc/Makefile.Release
 *.exe
 *.aps
 *.ilk
-*.manifest
+*.intermediate.manifest
+*.embed.manifest
 *.user
-bin
+/bin/
 obj/
 .obj/
 *.opensdf
 *.VC.*db
 .vs/
+.idea/
 .vscode/
 *.pdb
 *.sln.ide/
@@ -37,6 +58,14 @@ obj/
 *.sdf
 *.suo
 *.dll
+*.dylib
+*.pyd
+*.o
+*.obj
+*.res
+*.idb
+*.pch
+*.gch
 *.swp
 *.orig
 symsrv.yes
@@ -44,15 +73,111 @@ ipch/
 renderdoc/driver/vulkan/renderdoc_capture.json
 renderdocui/3rdparty/ironpython/pythonlibs.zip
 qrenderdoc/generated/
-qrenderdoc/3rdparty/pyside
 .DS_Store
-plugins-*/
 __pycache__
+# Shared agent instructions, skills, plugins and settings remain visible.
+/.claude/settings.local.json
+/.claude/cache/
+/.claude/logs/
+/.claude/projects/
+/.codex/auth.json
+/.codex/config.local.toml
+/.codex/sessions/
+/.codex/log/
 
-# 以下为构建依赖例外：允许提交 dbghelp/SWIG/Qt 等 3rdparty 二进制，便于克隆后直接编译
-!renderdoc/3rdparty/dbghelp/**/*.dll
-!renderdoc/3rdparty/dbghelp/**/*.yes
-!qrenderdoc/3rdparty/swig/swig.exe
-!qrenderdoc/3rdparty/qt/**/bin/*.exe
-!qrenderdoc/3rdparty/qt/**/bin/*.dll
+# Vendored build/runtime inputs are not locally generated binaries. Keep these
+# SDKs and project utilities visible while excluding outputs elsewhere.
+!/qrenderdoc/3rdparty/python/**/*.dll
+!/qrenderdoc/3rdparty/python/**/*.lib
+!/qrenderdoc/3rdparty/python/**/*.pyd
+!/qrenderdoc/3rdparty/python/python36.zip
+!/qrenderdoc/3rdparty/qt/**/*.dll
+!/qrenderdoc/3rdparty/qt/**/*.lib
+!/qrenderdoc/3rdparty/qt/**/*.exe
+!/qrenderdoc/3rdparty/pyside/**/*.dll
+!/qrenderdoc/3rdparty/pyside/**/*.lib
+!/qrenderdoc/3rdparty/pyside/**/*.pyd
+!/qrenderdoc/3rdparty/swig/swig.exe
+!/renderdoc/3rdparty/breakpad/dump_syms.exe
+!/renderdoc/3rdparty/dbghelp/**/*.dll
+!/renderdoc/3rdparty/dbghelp/**/symsrv.yes
+!/renderdoc/3rdparty/Detours/lib.X*/detours.lib
+# Vendor debug symbols are supplied with these prebuilt library inputs.
+!/renderdoc/3rdparty/Detours/lib.X*/detours.pdb
+!/util/clangformat/clang-format-15.0.exe
+
+# Build-system and dependency caches. Lockfiles and dependency manifests stay
+# versioned; installed environments and generated project files do not.
+node_modules/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+build.ninja
+.ninja_deps
+.ninja_log
+.qmake.stash
+.qmake.cache
+
+# Generated applications, release archives, local evidence and abandoned scratch.
+# Keep source, .agents/skills, manifests, examples and packaging scripts visible.
+/output/
+/_to_delete/
+/tmp_session_extract/
+/Win32/
+/Claude outputs/
+/drills
+/jumps
+*.pyc
+*.pyo
+*.log
+*.log.*
+# Root downloads/releases and partial archives are generated. Archives stored
+# under source/asset directories may be required plugin or SDK inputs.
+/*.zip
+/*.zip.sha256
+/*.7z
+/*.7z.sha256
+*.zip.partial
+*.7z.partial
+*.rdc
+*.rdc.*
+*.dmp
+*.ipdb
+*.iobj
+*.tlog
+*.lastbuildstate
+*.egg-info/
+.venv/
+venv/
+.ruff_cache/
+*.tmp
+*.bak
+*~
+/host-memory-trace*.jsonl
+/_tmp_*.txt
+# Credentials and machine-specific connections are never release inputs.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+!.env.*.example
+!.env.*.sample
+!.env.*.template
+**/profiles.local.json
+**/agent-tools.local.json
+
+# Checked-in archive parts reconstruct these local build-input caches offline.
+/replaylab/dependencies/*.zip
+/replaylab/dependencies/.assemble-*.lock
+/replaylab/dependencies/.bread-archive-*.partial
+
+# Existing DF build inputs
 !qrenderdoc/3rdparty/pyside/**

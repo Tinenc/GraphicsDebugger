@@ -33,6 +33,7 @@ class RDHeaderView : public QHeaderView
 {
 private:
   Q_OBJECT
+  Q_PROPERTY(int minimumSectionSize READ minimumSectionSize WRITE setMinimumSectionSize)
 public:
   explicit RDHeaderView(Qt::Orientation orient, QWidget *parent = 0);
   ~RDHeaderView();
@@ -60,6 +61,7 @@ public:
   bool hasGroupTitle(int columnIndex) const;
 
   void setColumnStretchHints(const QList<int> &hints);
+  void setMinimumSectionSize(int size);
 
   void setColumnGroupRole(int role) { m_columnGroupRole = role; }
   int columnGroupRole() const { return m_columnGroupRole; }
@@ -79,11 +81,14 @@ protected:
   void mouseMoveEvent(QMouseEvent *event) override;
   void mouseReleaseEvent(QMouseEvent *event) override;
   void paintEvent(QPaintEvent *e) override;
+  bool viewportEvent(QEvent *e) override;
 
   void paintSection(QPainter *painter, const QRect &rect, int section) const override;
   void currentChanged(const QModelIndex &current, const QModelIndex &old) override;
 
   void updateGeometries() override;
+  void showEvent(QShowEvent *event) override;
+  void changeEvent(QEvent *event) override;
 
   enum ResizeType
   {
@@ -99,6 +104,8 @@ protected:
   void cacheSections();
   void resizeSectionsWithHints();
   void cacheSectionMinSizes();
+  void invalidateSectionMinSizes();
+  void queueSectionResize();
 
   struct SectionData
   {
@@ -114,6 +121,10 @@ protected:
 
   bool m_suppressSectionCache = false;
   bool m_customSizing = false;
+  bool m_sectionMinSizesDirty = true;
+  int m_cachedMinimumSectionSize = -1;
+  bool m_sectionResizeQueued = false;
+  QMetaObject::Connection m_sectionDataChangedConnection;
 
   QList<int> m_sectionStretchHints;
   QVector<int> m_sectionMinSizes;

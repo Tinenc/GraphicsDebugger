@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <QMainWindow>
 #include <QMutex>
+#include <QPointer>
 #include <QSemaphore>
 #include <QThread>
 #include <QTimer>
@@ -40,6 +41,7 @@ class MainWindow;
 }
 
 class RDLabel;
+class RDToolButton;
 class RDMenu;
 class LambdaThread;
 class QMimeData;
@@ -48,6 +50,7 @@ class QShortcut;
 class QToolButton;
 class CaptureDialog;
 class LiveCapture;
+class UpdateDialog;
 class QNetworkAccessManager;
 
 class NetworkWorker : public QObject
@@ -83,6 +86,7 @@ public:
   void RegisterShortcut(const rdcstr &shortcut, QWidget *widget, ShortcutCallback callback) override;
   void UnregisterShortcut(const rdcstr &shortcut, QWidget *widget) override;
   void BringToFront() override;
+  bool PromptCloseCapture() override;
 
   // ICaptureViewer
   void OnCaptureLoaded() override;
@@ -95,6 +99,8 @@ public:
   ToolWindowManager::AreaReference leftToolArea();
 
   void LoadInitialLayout();
+  void ResetFactoryLayout();
+  void ClampLayoutGeometry();
 
   bool ErrorReportsAllowed();
   void sendErrorReport(bool forceCaptureInclusion);
@@ -105,29 +111,28 @@ public:
   void captureModified();
   void LoadFromFilename(const QString &filename, bool temporary);
   void LoadCapture(const QString &filename, const ReplayOptions &opts, bool temporary, bool local);
-  void CloseCapture();
   QString GetSavePath(QString title = QString(), QString filter = QString());
 
   void OnCaptureTrigger(const QString &exe, const QString &workingDir, const QString &cmdLine,
                         const rdcarray<EnvironmentModification> &env, CaptureOptions opts,
-                        std::function<void(LiveCapture *)> callback);
+                        std::function<void(ICaptureConnection *)> callback);
   void OnInjectTrigger(uint32_t PID, const rdcarray<EnvironmentModification> &env,
                        const QString &name, CaptureOptions opts,
-                       std::function<void(LiveCapture *)> callback);
+                       std::function<void(ICaptureConnection *)> callback);
 
   void ShowLiveCapture(LiveCapture *live);
   void LiveCaptureClosed(LiveCapture *live);
 
-  bool PromptCloseCapture();
   bool PromptSaveCaptureAs();
   bool SaveCurrentCapture(QString saveFilename);
 
   void RemoveRecentCapture(const QString &filename);
 
-  QMenu *GetBaseMenu(WindowMenu base, rdcstr name);
+  QMenu *GetBaseMenu(WindowMenu base, rdcstr name, bool showExtensionIcon = true);
   QList<QAction *> GetMenuActions();
 
   void showEventBrowser() { on_action_Event_Browser_triggered(); }
+  void showBookmarks() { on_action_Bookmarks_triggered(); }
   void showAPIInspector() { on_action_API_Inspector_triggered(); }
   void showAnnotationViewer() { on_action_Annotation_Viewer_triggered(); }
   void showMeshPreview() { on_action_Mesh_Output_triggered(); }
@@ -140,6 +145,8 @@ public:
   void showStatisticsViewer() { on_action_Statistics_Viewer_triggered(); }
   void showTimelineBar() { on_action_Timeline_triggered(); }
   void showPythonShell() { on_action_Python_Shell_triggered(); }
+  void showApiMonitorWindow() { on_action_API_Monitor_triggered(); }
+  void showAIAssistant();
   void showPerformanceCounterViewer() { on_action_Counter_Viewer_triggered(); }
   void showResourceInspector() { on_action_Resource_Inspector_triggered(); }
   void showExtensionManager() { on_action_Manage_Extensions_triggered(); }
@@ -156,6 +163,7 @@ private slots:
   void on_action_Save_Capture_As_triggered();
   void on_action_Close_Capture_triggered();
   void on_action_Mesh_Output_triggered();
+  void on_action_Bookmarks_triggered();
   void on_action_API_Inspector_triggered();
   void on_action_Annotation_Viewer_triggered();
   void on_action_Event_Browser_triggered();
@@ -167,6 +175,8 @@ private slots:
   void on_action_Statistics_Viewer_triggered();
   void on_action_Timeline_triggered();
   void on_action_Python_Shell_triggered();
+  void on_action_API_Monitor_triggered();
+  void on_action_AI_Assistant_triggered();
   void on_action_Inject_into_Process_triggered();
   void on_action_Resolve_Symbols_triggered();
   void on_action_Recompress_Capture_triggered();
@@ -180,6 +190,7 @@ private slots:
   void on_action_Manage_Remote_Servers_triggered();
   void on_action_Settings_triggered();
   void on_action_View_Documentation_triggered();
+  void on_action_Diagnostic_Log_triggered() { showDiagnosticLogView(); }
   void on_action_Source_on_GitHub_triggered();
   void on_action_Build_Release_Downloads_triggered();
   void on_action_Show_Tips_triggered();
@@ -202,6 +213,8 @@ private slots:
 
   void ClearRecentCaptureFiles();
   void ClearRecentCaptureSettings();
+
+  void PythonStatusUpdate();
 
   void networkRequestFailed(QUrl url, QString error);
   void networkRequestCompleted(QUrl url, QByteArray data);
@@ -226,17 +239,6 @@ private:
   void MakeNetworkRequest(QUrl url, std::function<void(QByteArray)> success,
                           std::function<void(QString)> failure = {});
 
-  enum class UpdateResult
-  {
-    Disabled,
-    Unofficial,
-    Toosoon,
-    Latest,
-    Upgrade,
-  };
-
-  typedef std::function<void(UpdateResult)> UpdateResultMethod;
-
   Ui::MainWindow *ui;
   ICaptureContext &m_Ctx;
 
@@ -248,13 +250,20 @@ private:
 
   RDLabel *statusIcon;
   RDLabel *statusText;
+  RDToolButton *extensionStatus;
+  RDToolButton *extensionReload;
   QProgressBar *statusProgress;
   RDMenu *contextChooserMenu;
   QToolButton *contextChooser;
 
   QAction *updateAction = NULL;
+  QPointer<UpdateDialog> m_UpdateDialog;
 
   QTimer m_MessageTick;
+  // UI-thread owned. Debug message polling is single-flight so a slow replay/remote call cannot
+  // accumulate one command every timer tick. The generation rejects results from a closed capture.
+  bool m_MessageCheckInFlight = false;
+  uint64_t m_MessageCheckGeneration = 0;
   QSemaphore m_RemoteProbeSemaphore;
   QSemaphore m_RemoteInitialProbeReady;
   LambdaThread *m_RemoteProbe;
@@ -275,10 +284,11 @@ private:
 
   QString m_LastSaveCapturePath;
 
-  void CheckUpdates(bool forceCheck = false, UpdateResultMethod callback = UpdateResultMethod());
+  void CheckUpdates(bool forceCheck = false);
+  void ReportUpdateCheckFailure(const QString &error, bool manual);
+  bool m_CheckingForUpdates = false;
   void SetUpdateAvailable();
-  void SetNoUpdate();
-  void UpdatePopup();
+  void UpdatePopup(const QString &version, const QByteArray &response, bool automatic = false);
   bool HandleMismatchedVersions();
   bool IsVersionMismatched();
 

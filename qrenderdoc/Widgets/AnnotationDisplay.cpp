@@ -28,6 +28,7 @@
 #include <QHeaderView>
 #include <QMenu>
 #include <QVBoxLayout>
+#include <memory>
 #include "Code/Interface/QRDInterface.h"
 #include "Code/QRDUtils.h"
 #include "Code/Resources.h"
@@ -360,8 +361,10 @@ void AnnotationDisplay::itemClicked(RDTreeWidgetItem *item, int column)
       if(!refl)
         return;
 
-      GUIInvoke::call(this, [ctx, refl] {
-        IShaderViewer *viewer = ctx->ViewShader(refl, ResourceId());
+      // Replacement resources can be released before the GUI consumes this replay result.
+      const auto reflection = std::make_shared<ShaderReflection>(*refl);
+      GUIInvoke::call(this, [ctx, reflection] {
+        IShaderViewer *viewer = ctx->ViewShader(reflection.get(), ResourceId());
         ctx->AddDockWindow(viewer->Widget(), DockReference::MainToolArea, NULL);
       });
     });

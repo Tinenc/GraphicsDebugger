@@ -1,0 +1,18 @@
+.venv/
+*.egg-info/
+.pytest_cache/
+__pycache__/
+/dist/
+/build/
+/mcp_host/dist/
+/mcp_host/build/
+/output/
+# Only the known downloaded unpacker payloads/source cache are generated.
+# Keep project-owned scripts, patches, licenses and future tool directories
+# visible instead of hiding every new child of unpackers/.
+/third_party/unpackers/_src/
+/third_party/unpackers/assetstudio/
+/third_party/unpackers/uex/
+/third_party/unpackers/umodel/
+# Fetch output records local absolute paths and installation timestamps.
+/third_party/unpackers/manifest.json

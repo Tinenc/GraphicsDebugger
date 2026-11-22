@@ -1,0 +1,237 @@
+{
+  "operationId": "b9a724f0ce1d40cc94779f4967373fe8",
+  "completed": true,
+  "restoreMode": "project-target-inventory",
+  "cache": {
+    "hit": false,
+    "reason": "verified-rdc-cache-miss: validation-policy-changed"
+  },
+  "inventoryCache": {
+    "hit": false,
+    "reason": "target-inventory-capture-session-changed",
+    "written": false
+  },
+  "inventoryScope": "target-raw-sha256",
+  "fullFrame": false,
+  "targetLookup": {
+    "observedTargetRawSha256s": [
+      "3340f49408cb6c4e0b7365cf529143346fb1a6e36e74c3763ed956dbdaa720a5",
+      "3c4afb434934308919e884efa26523f832807f2adc839d3a3754ceb559255205",
+      "96ce183dd38e8c5774101e9e4768fd7e368b5dd73e2f0dd477a6059cf9ee9e77"
+    ],
+    "rawIdentitySearchComplete": true,
+    "targetInventoryComplete": true,
+    "targetRawSha256s": [
+      "3340f49408cb6c4e0b7365cf529143346fb1a6e36e74c3763ed956dbdaa720a5",
+      "3c4afb434934308919e884efa26523f832807f2adc839d3a3754ceb559255205",
+      "96ce183dd38e8c5774101e9e4768fd7e368b5dd73e2f0dd477a6059cf9ee9e77"
+    ],
+    "unobservedTargetRawSha256s": []
+  },
+  "index": {
+    "present": false,
+    "read": true,
+    "warning": null,
+    "written": false
+  },
+  "realizedReceipts": {
+    "adoptedCurrentSession": 0,
+    "idempotentApplyResponses": 0,
+    "loadedFromIndex": 0,
+    "mutationsCreated": 3,
+    "persisted": 3,
+    "produced": 3,
+    "reusedValidation": 2,
+    "validatedForRouting": 0
+  },
+  "warnings": [],
+  "verifiedRdcCache": {
+    "hit": false,
+    "reason": "validated-content-snapshot",
+    "written": true
+  },
+  "editing": {
+    "attempted": 3,
+    "enabled": 3,
+    "failed": 0,
+    "items": [
+      {
+        "captureBinding": {
+          "capturePath": "@CAPTURE@",
+          "captureSessionId": "9c8df46491c8407f90754887cbcfda56",
+          "instanceId": "36996-4d5c2786aa4d43888f9cdcccef50fa44"
+        },
+        "liveEditId": "67556ac1023d4a6dbc2e16bc66c74839",
+        "startTiming": {
+          "failedPhase": "",
+          "phasesMs": {
+            "captureIdentity": 102.013,
+            "capturePreflight": 489.101,
+            "editorPublication": 3.636,
+            "nativeInventory": 101.909,
+            "nativeRecovery": 285.866,
+            "resumeValidation": 177.647,
+            "startAdmission": 1775.864,
+            "statusSnapshot": 757.332,
+            "watcherStart": 227.512,
+            "workspaceIdentity": 492.099
+          },
+          "totalMs": 1877.948
+        },
+        "status": "enabled",
+        "watchId": "63cacf0a78f4462db1389fce61afc9b4",
+        "workspaceId": "30f6037c04cb455bb28d6971c300a1af",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/eb7340d9b492276f9c018e5e4624b718f774e9abf77da6b2dfadc0c1694e3618"
+      },
+      {
+        "captureBinding": {
+          "capturePath": "@CAPTURE@",
+          "captureSessionId": "9c8df46491c8407f90754887cbcfda56",
+          "instanceId": "36996-4d5c2786aa4d43888f9cdcccef50fa44"
+        },
+        "liveEditId": "709c70c60ee94bb7884818dc7509c2b9",
+        "startTiming": {
+          "failedPhase": "",
+          "phasesMs": {
+            "captureIdentity": 203.754,
+            "capturePreflight": 477.96,
+            "editorPublication": 3.961,
+            "nativeInventory": 102.409,
+            "nativeRecovery": 305.751,
+            "resumeValidation": 197.241,
+            "startAdmission": 1789.641,
+            "statusSnapshot": 774.529,
+            "watcherStart": 215.586,
+            "workspaceIdentity": 480.545
+          },
+          "totalMs": 1993.46
+        },
+        "status": "enabled",
+        "watchId": "4e1e5e69e3474ec7be5ac591a5dffeba",
+        "workspaceId": "cfe2cfeab01344e4a1902281388f3633",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/d2e9720e2ab36db6b7e813460d36e9d36021ad04c69c3b34923e3ad0b2ecb48d"
+      },
+      {
+        "captureBinding": {
+          "capturePath": "@CAPTURE@",
+          "captureSessionId": "9c8df46491c8407f90754887cbcfda56",
+          "instanceId": "36996-4d5c2786aa4d43888f9cdcccef50fa44"
+        },
+        "liveEditId": "7705ed8b62814b80ae426bea25d43e12",
+        "startTiming": {
+          "failedPhase": "",
+          "phasesMs": {
+            "captureIdentity": 203.628,
+            "capturePreflight": 582.432,
+            "editorPublication": 3.632,
+            "nativeInventory": 101.597,
+            "nativeRecovery": 156.387,
+            "resumeValidation": 49.372,
+            "startAdmission": 1224.13,
+            "statusSnapshot": 388.807,
+            "watcherStart": 79.012,
+            "workspaceIdentity": 585.515
+          },
+          "totalMs": 1427.821
+        },
+        "status": "enabled",
+        "watchId": "8da6763af3024b26bade2033b447795e",
+        "workspaceId": "b7c10f44d1a24380afcd0e2845b5abb6",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/efbb862efc3b4b0943d8e8c7701955fdd3793f1c776a9a16d4fa5db24fd65aeb"
+      }
+    ]
+  },
+  "shaders": {
+    "applied": 3,
+    "attempted": 3,
+    "failed": 0,
+    "skipped": 0,
+    "supersededLocalEdits": 1,
+    "items": [
+      {
+        "candidateRawSha256": "0d737d575ecf12f80bb5748946876a0b9ef6a1fe93f9de5ffa0c86bdb661a1ca",
+        "candidateRevision": 18,
+        "idempotentlyAdopted": false,
+        "knowledgeId": "71c5ecd044e3e631eae6a1a34237f107",
+        "localValidatedCandidate": false,
+        "pairValidationCache": {
+          "hit": true,
+          "written": true
+        },
+        "projectCandidateRawSha256": "",
+        "projectSourceSha256": "6ddca2a18cb59c313284973b75d9a76b6fd33d942db2664136af4d7532bac68b",
+        "replacementId": "2f859bc4d4a246a89952703afe22cded",
+        "resourceId": 1000000000000000723,
+        "reusedValidation": true,
+        "source": "reuse-plan",
+        "sourcePreparationOnly": true,
+        "sourceSha256": "6ddca2a18cb59c313284973b75d9a76b6fd33d942db2664136af4d7532bac68b",
+        "stage": "fragment",
+        "status": "applied",
+        "supersededLocalEdit": null,
+        "workspaceId": "30f6037c04cb455bb28d6971c300a1af",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/eb7340d9b492276f9c018e5e4624b718f774e9abf77da6b2dfadc0c1694e3618"
+      },
+      {
+        "candidateRawSha256": "041887ef2462805632fdbc1963614a3a1700d26287aee22c94a31f2855f20fc0",
+        "candidateRevision": 22,
+        "idempotentlyAdopted": false,
+        "knowledgeId": "a27522742ad7b1df4bd90314508b9496",
+        "localValidatedCandidate": false,
+        "pairValidationCache": {
+          "hit": false,
+          "written": true
+        },
+        "projectCandidateRawSha256": "",
+        "projectSourceSha256": "57dab1a270acd9c65bb9f874bc435c408a047fa70512d03b75a4bb96b87358a4",
+        "replacementId": "bf52a1231ab643d69ce1c93d8c51c0e5",
+        "resourceId": 1000000000000000755,
+        "reusedValidation": false,
+        "source": "reuse-plan",
+        "sourcePreparationOnly": true,
+        "sourceSha256": "57dab1a270acd9c65bb9f874bc435c408a047fa70512d03b75a4bb96b87358a4",
+        "stage": "fragment",
+        "status": "applied",
+        "supersededLocalEdit": {
+          "backupPath": "@PROJECT@/workspaces/shaders/v2/d2e9720e2ab36db6b7e813460d36e9d36021ad04c69c3b34923e3ad0b2ecb48d/ai/local-edits/20261014T033222Z-b5326791.hlsl",
+          "bytes": 318143,
+          "sourceSha256": "b5326791b21356d35d422c149e44a2fe29e3f1eca9137c62c536ce98b98499c5"
+        },
+        "workspaceId": "cfe2cfeab01344e4a1902281388f3633",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/d2e9720e2ab36db6b7e813460d36e9d36021ad04c69c3b34923e3ad0b2ecb48d"
+      },
+      {
+        "candidateRawSha256": "740adf26008aff2dc7998b1b94decd20b51c0dc028022a9e3e5a743683cc6268",
+        "candidateRevision": 1,
+        "idempotentlyAdopted": false,
+        "knowledgeId": "2cbef5ce749b366d0e37aaf96583b2f0",
+        "localValidatedCandidate": false,
+        "pairValidationCache": {
+          "hit": true,
+          "written": true
+        },
+        "projectCandidateRawSha256": "",
+        "projectSourceSha256": "593cbe25a817b680426e34f3bb1f5551710b0824d26be6157a7fcfdb6433aab9",
+        "replacementId": "3a7ae23a2328431d8f978073b944a0ac",
+        "resourceId": 1000000000000000860,
+        "reusedValidation": true,
+        "source": "reuse-plan",
+        "sourcePreparationOnly": true,
+        "sourceSha256": "593cbe25a817b680426e34f3bb1f5551710b0824d26be6157a7fcfdb6433aab9",
+        "stage": "fragment",
+        "status": "applied",
+        "supersededLocalEdit": null,
+        "workspaceId": "b7c10f44d1a24380afcd0e2845b5abb6",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/efbb862efc3b4b0943d8e8c7701955fdd3793f1c776a9a16d4fa5db24fd65aeb"
+      }
+    ]
+  },
+  "materials": {
+    "attempted": 0,
+    "failed": 0,
+    "restored": 0,
+    "sessionIds": [],
+    "skipped": 0,
+    "items": []
+  }
+}

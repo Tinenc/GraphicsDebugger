@@ -101,6 +101,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ImportLibrary>$(IntDir)renderdoc_python.lib</ImportLibrary>
       <AdditionalDependencies>$(PythonImportLib);%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ProjectReference>

@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <cmath>
+#include <mutex>
 #include "api/replay/renderdoc_replay.h"
 #include "quat.h"
 #include "vec.h"
@@ -34,41 +36,73 @@ class Matrix4f;
 class Camera : public ICamera
 {
 public:
-  Camera(CameraType t) : type(t), dirty(true), pos(), dist(0.0f), angles()
+  Camera(CameraType t) : type(t), dirty(true), pos(), dist(0.0f)
   {
     Camera::ResetArcball();
+    SetFPSRotation(0.0f, 0.0f, 0.0f);
   }
   virtual ~Camera() {}
   void Shutdown() { delete this; }
   void SetPosition(float x, float y, float z)
   {
+    if(!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+      return;
+    std::lock_guard<std::mutex> lock(m_Mutex);
     dirty = true;
     pos = Vec3f(x, y, z);
   }
 
   void SetNearFar(float n, float f)
   {
+    if(!std::isfinite(n) || !std::isfinite(f) || n <= 0 || f <= n)
+      return;
+    std::lock_guard<std::mutex> lock(m_Mutex);
     m_Near = n;
     m_Far = f;
   }
 
-  float GetNear() { return m_Near; }
-  float GetFar() { return m_Far; }
+  void SetFieldOfView(float degrees)
+  {
+    std::lock_guard<std::mutex> lock(m_Mutex);
+    if(std::isfinite(degrees) && degrees > 0 && degrees < 180)
+      m_FieldOfView = degrees;
+  }
+  static Matrix4f MeshProjection(ICamera *camera, float aspect);
+
+  float GetNear() const
+  {
+    std::lock_guard<std::mutex> lock(m_Mutex);
+    return m_Near;
+  }
+  float GetFar()
+  {
+    std::lock_guard<std::mutex> lock(m_Mutex);
+    return m_Far;
+  }
 
   // Arcball functions
   void ResetArcball();
   void SetArcballDistance(float d)
   {
+    if(!std::isfinite(d))
+      return;
+    std::lock_guard<std::mutex> lock(m_Mutex);
     dirty = true;
     dist = d;
   }
   void RotateArcball(float ax, float ay, float bx, float by);
+  void SetTurntableRotation(float yaw, float pitch);
+  void RotateMeshPreviewOrbit(float yaw, float pitch, bool inverted);
 
   // FPS look functions
   void SetFPSRotation(float x, float y, float z)
   {
+    if(!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+      return;
+    std::lock_guard<std::mutex> lock(m_Mutex);
     dirty = true;
-    angles = Vec3f(x, y, z);
+    fpsrot = Quatf::AxisAngle(Vec3f(0, 0, 1), -z) * Quatf::AxisAngle(Vec3f(0, 1, 0), -y) *
+             Quatf::AxisAngle(Vec3f(1, 0, 0), -x);
   }
 
   FloatVector GetPosition();
@@ -78,6 +112,7 @@ public:
   const Matrix4f GetMatrix();
 
 private:
+  mutable std::mutex m_Mutex;
   void Update();
 
   CameraType type;
@@ -85,6 +120,7 @@ private:
   bool dirty;
   Matrix4f mat, basis;
 
+  float m_FieldOfView = 90.0f;
   float m_Near = 0.1f, m_Far = 100000.0f;
 
   Vec3f pos;
@@ -94,5 +130,5 @@ private:
   float dist;
 
   // FPS look
-  Vec3f angles;
+  Quatf fpsrot;
 };

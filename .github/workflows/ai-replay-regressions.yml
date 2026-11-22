@@ -1,0 +1,78 @@
+name: AI replay regression matrix
+
+on:
+  pull_request:
+    branches: [v1.x]
+  push:
+    branches: [v1.x]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: replay-contracts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable-contracts:
+    name: Replay and AI contracts (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -e "./replaylab[test]" -e ./replaylab/mcp_host "setuptools==84.0.0"
+      - name: Test replay evidence and ABI on D3D11, D3D12, Vulkan and OpenGL
+        working-directory: replaylab/mcp_host
+        run: >-
+          python -m pytest -p no:cacheprovider
+          tests/test_ai_blocker_regressions.py tests/test_frame_render_flow_outline.py
+          tests/test_pass_classification.py tests/test_frame_render_flow.py
+          tests/test_shader_abi.py tests/test_mesh_evidence.py
+          tests/test_symbols.py tests/test_shader_multistage_validation.py
+          tests/test_shader_storage_validation.py tests/test_project_source_prepare_platforms.py
+          --junitxml=${{ runner.temp }}/replay-matrix.xml
+      - name: Test model API, Codex and ACP task paths
+        working-directory: replaylab
+        run: >-
+          python -m pytest -p no:cacheprovider
+          tests/test_events.py tests/test_native_engine.py tests/test_deep_engine.py
+          tests/test_native_vendor.py tests/test_acp_transport.py
+          tests/test_acp_connection_boundaries.py tests/test_agent_acp_session.py
+          tests/test_codex_jsonl_transport.py tests/test_task_review.py
+          tests/test_codex_inventory_compatibility.py tests/test_external_connectors_optional.py
+          tests/test_task_mcp_proxy.py tests/test_conversation_cleanup.py
+          --junitxml=${{ runner.temp }}/ai-matrix.xml
+      - name: Check release identity
+        run: python replaylab/packaging/version_policy.py --check
+      - name: Test cache invalidation and portable visual debugging
+        run: >-
+          python -m pytest -p no:cacheprovider
+          replaylab/mcp_host/tests/test_frame_flow_persistence.py
+          replaylab/mcp_host/tests/test_shader_visual_debug_session.py
+          replaylab/mcp_host/tests/test_shader_visual_debug_ui.py
+          replaylab/mcp_host/tests/test_shader_visual_instrument.py
+          replaylab/mcp_host/tests/test_native_shader_compile.py
+          replaylab/mcp_host/tests/test_dxil_access_signature.py
+          replaylab/tests/test_bridge_console_read_throttle.py
+          replaylab/tests/test_instance_manifest_durability.py
+          --junitxml=${{ runner.temp }}/cache-invalidation.xml
+      - name: Test native version output
+        run: python -m pytest -p no:cacheprovider replaylab/packaging/tests/test_version_policy.py
+      - name: Keep matrix results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-replay-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/replay-matrix.xml
+            ${{ runner.temp }}/ai-matrix.xml
+            ${{ runner.temp }}/cache-invalidation.xml

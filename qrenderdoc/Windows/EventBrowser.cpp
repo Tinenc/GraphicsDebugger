@@ -32,10 +32,12 @@
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QMenu>
+#include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QRegularExpressionMatch>
 #include <QScrollBar>
+#include <QScopedValueRollback>
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QSortFilterProxyModel>
@@ -44,6 +46,8 @@
 #include <QTextEdit>
 #include <QTimer>
 #include "Code/QRDUtils.h"
+#include "Code/CaptureContext.h"
+#include "Code/ReplayLab/ReplayLabIntegration.h"
 #include "Code/Resources.h"
 #include "Widgets/CollapseGroupBox.h"
 #include "Widgets/Extended/RDHeaderView.h"
@@ -146,23 +150,93 @@ struct EventBrowserPersistentStorage : public CustomPersistentStorage
       if(SavedFilters.isEmpty())
         AddDefaultSavedFilters();
     }
+
+    // Version 3 changes the stock profile from all actions (which includes copies, clears,
+    // presents, marker bookkeeping, etc.) to the leaf draw/dispatch actions that are most useful
+    // when stepping a frame. Only migrate values which are the old stock expression apart from
+    // surrounding whitespace. Any other current expression or saved filter belongs to the user
+    // and is left untouched.
+    if(loadedVersion < 3)
+    {
+      const QString oldDefault = lit("$action()");
+
+      if(CurrentFilter.trimmed() == oldDefault)
+        SetDefaultCurrentFilter();
+
+      for(QPair<QString, QString> &filter : SavedFilters)
+      {
+        if(filter.first == lit("Default") && filter.second.trimmed() == oldDefault)
+        {
+          filter.first = DrawDispatchFilterName();
+          filter.second = DrawDispatchFilter();
+          break;
+        }
+      }
+
+      EnsureReplayLabSavedFilter(DrawDispatchFilterName(), DrawDispatchFilter(), 0);
+      EnsureReplayLabSavedFilter(OutputAffectingFilterName(), OutputAffectingFilter(), 1);
+      EnsureReplayLabSavedFilter(AllActionsFilterName(), AllActionsFilter(), 2);
+    }
   }
 
-  void SetDefaultCurrentFilter() { CurrentFilter = lit("$action()"); }
+  static QString DrawDispatchFilterName() { return lit("Draw / Dispatch Only"); }
+  static QString OutputAffectingFilterName() { return lit("Output-affecting"); }
+  static QString AllActionsFilterName() { return lit("All Actions"); }
+
+  static QString DrawDispatchFilter()
+  {
+    return lit("$action(flags & Drawcall|MeshDispatch|Dispatch|DispatchRay)");
+  }
+
+  static QString OutputAffectingFilter()
+  {
+    return lit("$action(flags & Drawcall|MeshDispatch|Dispatch|DispatchRay|Clear|Copy|Resolve|"
+               "GenMips|BuildAccStruct|Present)");
+  }
+
+  static QString AllActionsFilter() { return lit("$action()"); }
+
+  void SetDefaultCurrentFilter() { CurrentFilter = DrawDispatchFilter(); }
   void AddDefaultSavedFilters()
   {
-    SavedFilters.push_back(qMakePair(lit("Default"), lit("$action()")));
-    SavedFilters.push_back(qMakePair(lit("Actions and Barriers"), lit("$action() Barrier")));
-    SavedFilters.push_back(qMakePair(lit("Hide Copies & Clears"), lit("$action() -Copy -Clear")));
+    SavedFilters.push_back(qMakePair(DrawDispatchFilterName(), DrawDispatchFilter()));
+    SavedFilters.push_back(qMakePair(OutputAffectingFilterName(), OutputAffectingFilter()));
+    SavedFilters.push_back(qMakePair(AllActionsFilterName(), AllActionsFilter()));
   }
 
-  static const int LatestVersion = 2;
+  void EnsureReplayLabSavedFilter(const QString &name, const QString &expression,
+                                  int preferredIndex)
+  {
+    for(const QPair<QString, QString> &filter : SavedFilters)
+    {
+      if(filter.first.compare(name, Qt::CaseInsensitive) == 0 &&
+         filter.second.trimmed() == expression)
+        return;
+    }
+
+    // Do not overwrite an identically-named user filter. The built-in suffix makes both entries
+    // selectable while preserving the user's name, expression and ordering.
+    QString storedName = name;
+    for(const QPair<QString, QString> &filter : SavedFilters)
+    {
+      if(filter.first.compare(storedName, Qt::CaseInsensitive) == 0)
+      {
+        storedName += lit(" (Built-in)");
+        break;
+      }
+    }
+
+    preferredIndex = qBound(0, preferredIndex, SavedFilters.count());
+    SavedFilters.insert(preferredIndex, qMakePair(storedName, expression));
+  }
+
+  static const int LatestVersion = 3;
   int version;
   QString CurrentFilter;
   QList<QPair<QString, QString>> SavedFilters;
 };
 
-static EventBrowserPersistentStorage persistantStorage("EventBrowser");
+static EventBrowserPersistentStorage persistentStorage("EventBrowser");
 
 enum
 {
@@ -195,6 +269,9 @@ static uint32_t GetEffectiveEID(QModelIndex idx)
 
 struct EventItemModel : public QAbstractItemModel
 {
+  Q_DECLARE_TR_FUNCTIONS(EventItemModel)
+
+public:
   EventItemModel(QAbstractItemView *view, ICaptureContext &ctx) : m_View(view), m_Ctx(ctx)
   {
     UpdateDurationColumn();
@@ -225,10 +302,11 @@ struct EventItemModel : public QAbstractItemModel
                          .arg(paramcol.blue(), 2, 16, QLatin1Char('0'));
   }
 
-  void ResetModel()
+  void ResetModel(bool captureAvailable = true)
   {
     emit beginResetModel();
-    emit endResetModel();
+
+    m_CaptureAvailable = false;
 
     m_Nodes.clear();
     m_RowInParentCache.clear();
@@ -238,10 +316,11 @@ struct EventItemModel : public QAbstractItemModel
     m_Chunks.clear();
     m_Times.clear();
 
-    if(!m_Ctx.CurRootActions().empty())
+    if(captureAvailable && !m_Ctx.CurRootActions().empty())
       m_Nodes[0] = CreateActionNode(NULL);
 
-    m_CurrentEID = createIndex(0, 0, TagCaptureStart);
+    m_CaptureAvailable = captureAvailable && m_Ctx.IsCaptureLoaded();
+    m_CurrentEID = m_CaptureAvailable ? createIndex(0, 0, TagCaptureStart) : QModelIndex();
 
     m_Bookmarks.clear();
     m_BookmarkIndices.clear();
@@ -250,12 +329,13 @@ struct EventItemModel : public QAbstractItemModel
     m_FindString.clear();
     m_FindEIDSearch = false;
 
+    emit endResetModel();
     RefreshCache();
   }
 
   void RefreshCache()
   {
-    if(!m_Ctx.IsCaptureLoaded())
+    if(!m_CaptureAvailable)
       return;
 
     uint32_t eid = m_Ctx.CurSelectedEvent();
@@ -630,7 +710,7 @@ struct EventItemModel : public QAbstractItemModel
 
   QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override
   {
-    if(!m_Ctx.IsCaptureLoaded())
+    if(!m_CaptureAvailable)
       return QModelIndex();
 
     // create fake root if the parent is invalid
@@ -665,7 +745,7 @@ struct EventItemModel : public QAbstractItemModel
 
   QModelIndex parent(const QModelIndex &index) const override
   {
-    if(!m_Ctx.IsCaptureLoaded() || !index.isValid() || index.internalId() == TagRoot)
+    if(!m_CaptureAvailable || !index.isValid() || index.internalId() == TagRoot)
       return QModelIndex();
 
     // Capture Start's parent is the root
@@ -690,7 +770,7 @@ struct EventItemModel : public QAbstractItemModel
 
   int rowCount(const QModelIndex &parent = QModelIndex()) const override
   {
-    if(!m_Ctx.IsCaptureLoaded())
+    if(!m_CaptureAvailable)
       return 0;
 
     // only one root
@@ -742,7 +822,7 @@ struct EventItemModel : public QAbstractItemModel
 
   QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
   {
-    if(!index.isValid())
+    if(!m_CaptureAvailable || !index.isValid())
       return QVariant();
 
     if(role == Qt::DecorationRole)
@@ -972,6 +1052,10 @@ private:
   QString m_ParamColCode;
 
   QMap<uint32_t, int> m_MessageCounts;
+
+  // CaptureContext notifies viewers before freeing its replay-owned action tree.
+  // A closed model must stay empty even while that context still reports loaded.
+  bool m_CaptureAvailable = false;
 
   // captures could have a lot of events, 1 million is high but not unreasonable and certainly not
   // an upper bound. We store only 1 pointer per event which gives us reasonable memory usage (i.e.
@@ -1366,6 +1450,21 @@ void CacheActionFlagsLookup()
       ActionFlagsLookup[str.toLower()] = flag;
     }
 
+    // Keep this lookup complete even when the generic enum stringiser used by an older replay DLL
+    // does not yet expose newer ActionFlags. These names are part of the public filter syntax and
+    // are required by the stock draw/output presets.
+    const auto ensureFlag = [](const QString &name, ActionFlags flag) {
+      const QString key = name.toLower();
+      if(!ActionFlagsLookup.contains(key))
+      {
+        ActionFlagsList.push_back(name);
+        ActionFlagsLookup[key] = flag;
+      }
+    };
+    ensureFlag(lit("MeshDispatch"), ActionFlags::MeshDispatch);
+    ensureFlag(lit("DispatchRay"), ActionFlags::DispatchRay);
+    ensureFlag(lit("BuildAccStruct"), ActionFlags::BuildAccStruct);
+
     ActionFlagsList.sort();
   }
 }
@@ -1474,8 +1573,21 @@ struct BuiltinFilterCallbacks
 
 struct EventFilterModel : public QSortFilterProxyModel
 {
+  Q_DECLARE_TR_FUNCTIONS(EventFilterModel)
+
 public:
-  EventFilterModel(EventItemModel *model, ICaptureContext &ctx) : m_Model(model), m_Ctx(ctx)
+  EventFilterModel(EventItemModel *model, ICaptureContext &ctx) : m_Model(model), m_Ctx(&ctx)
+  {
+    InitialiseBuiltinFilters();
+  }
+
+#if ENABLE_UNIT_TESTS
+  // Parsing stock expressions has no capture dependency. This constructor lets unit tests execute
+  // the real parser and callbacks without fabricating the very large ICaptureContext interface.
+  EventFilterModel() : m_Model(NULL), m_Ctx(NULL) { InitialiseBuiltinFilters(); }
+#endif
+
+  void InitialiseBuiltinFilters()
   {
     setSourceModel(m_Model);
 
@@ -1555,7 +1667,7 @@ public:
     rdcarray<rdcstr> ret;
 
     if(cb)
-      ret = m_BuiltinFilters[filter].completer(&m_Ctx, filter, params);
+      ret = cb(m_Ctx, filter, params);
 
     QStringList qret;
     for(const rdcstr &s : ret)
@@ -1654,12 +1766,12 @@ protected:
       off = name.indexOf(QLatin1Char('<'), off + 1);
     }
 
-    m_VisibleCache[eid] = EvaluateFilterSet(m_Ctx, m_Filters, false, eid, chunk, action, name);
+    m_VisibleCache[eid] = EvaluateFilterSet(*m_Ctx, m_Filters, false, eid, chunk, action, name);
     return m_VisibleCache[eid] > 0;
   }
 
 private:
-  ICaptureContext &m_Ctx;
+  ICaptureContext *m_Ctx = NULL;
 
   // this caches whether a row passes or not, with 0 meaning 'uncached' and 1/-1 being true or
   // false. This means we can resize it and know that we don't pollute with bad data.
@@ -1668,7 +1780,10 @@ private:
 
   EventItemModel *m_Model = NULL;
 
-  bool m_EmptyRegionsVisible = true;
+  // Keep marker/region ancestors for hierarchy, but don't retain branches with no visible leaf
+  // actions. This makes the stock Draw / Dispatch Only profile behave like a compact frame
+  // debugger rather than a list of empty API bookkeeping regions.
+  bool m_EmptyRegionsVisible = false;
   rdcarray<EventFilter> m_Filters;
 
   IEventBrowser::EventFilterCallback MakeLiteralMatcher(QString string) const
@@ -1725,7 +1840,7 @@ private:
 
 <br />
 <table>
-<tr><td><code>$regex(/my regex.*match/i)</code></td>- passes if the specified regex matches the event name.</td></tr>
+<tr><td><code>$regex(/my regex.*match/i)</code></td><td>- passes if the specified regex matches the event name.</td></tr>
 </table>
 
 <p>
@@ -1735,9 +1850,9 @@ after the trailing /:
 </p>
 
 <table>
-<tr><td>/i</td><td>- Case insensitive match</td>
-<tr><td>/x</td><td>- Extended syntax. See regex documentation for more information</td>
-<tr><td>/u</td><td>- Use unicode properties. Character classes like \w and \d match more than ASCII</td>
+<tr><td>/i</td><td>- Case insensitive match</td></tr>
+<tr><td>/x</td><td>- Extended syntax. See regex documentation for more information</td></tr>
+<tr><td>/u</td><td>- Use unicode properties. Character classes like \w and \d match more than ASCII</td></tr>
 </table>
 )EOD",
               "EventFilterModel");
@@ -1750,7 +1865,7 @@ after the trailing /:
 
     if(parameters.size() < 2 || parameters[0] != QLatin1Char('/'))
     {
-      trace.setError(tr("Parameter to to regex() should be /regex/", "EventFilterModel"));
+      trace.setError(tr("Parameter to regex() should be /regex/", "EventFilterModel"));
       return NULL;
     }
 
@@ -1841,7 +1956,7 @@ searched for as a case-insensitive substring.
     if(idx < 0)
     {
       trace.setError(
-          tr("Parameter to to $param() should be name: value or name = value", "EventFilterModel"));
+          tr("Parameter to $param() should be name: value or name = value", "EventFilterModel"));
       return NULL;
     }
 
@@ -1851,7 +1966,7 @@ searched for as a case-insensitive substring.
     if(paramValue.isEmpty())
     {
       trace.setError(
-          tr("Parameter to to $param() should be name: value or name = value", "EventFilterModel"));
+          tr("Parameter to $param() should be name: value or name = value", "EventFilterModel"));
       return NULL;
     }
 
@@ -1898,7 +2013,7 @@ searched for as a case-insensitive substring.
 <p>
 This filter queries the annotations of an event to either exist or match simple conditions. A
 condition may be omitted, but an annotation must be specified. If no condition is given then
-the filter passes if that annotation is exists</code>.
+the filter passes if that annotation exists.
 </p>
 
 <p>
@@ -2185,7 +2300,7 @@ and vice-versa.
 
 <br />
 <table>
-<tr><td><code>$event(condition)</code></td>- passes if an event property matches a condition.</td></tr>
+<tr><td><code>$event(condition)</code></td><td>- passes if an event property matches a condition.</td></tr>
 </table>
 
 <p>
@@ -2343,6 +2458,9 @@ and these can be queried with a filter such as <code>$action(flags & Clear|Clear
 <tr><td>Clear:</td> <td>This is a clear call, clearing all or a subset of a resource.</td></tr>
 <tr><td>Drawcall:</td> <td>This is a graphics pipeline action, rasterizing polygons.</td></tr>
 <tr><td>Dispatch:</td> <td>This is a compute dispatch.</td></tr>
+<tr><td>MeshDispatch:</td> <td>This is a mesh-shader dispatch which rasterizes primitives.</td></tr>
+<tr><td>DispatchRay:</td> <td>This is a ray tracing dispatch.</td></tr>
+<tr><td>BuildAccStruct:</td> <td>This builds or copies an acceleration structure.</td></tr>
 <tr><td>CmdList:</td> <td>This is part of the book-keeping for a command list, secondary command buffer or bundle.</td></tr>
 <tr><td>SetMarker:</td> <td>This is an individual string debug marker, with no children.</td></tr>
 <tr><td>PushMarker:</td> <td>This is a push of a debug marker region, with some child actions</td></tr>
@@ -3070,7 +3188,7 @@ nesting level.
       QString errString;
 
       if(innerParser)
-        errString = innerParser(&m_Ctx, n, p);
+        errString = innerParser(m_Ctx, n, p);
 
       if(!errString.isEmpty())
       {
@@ -3834,6 +3952,11 @@ EventBrowser::EventBrowser(ICaptureContext &ctx, QWidget *parent)
   connect(m_FilterTimeout, &QTimer::timeout, this, &EventBrowser::filter_apply);
 
   QObject::connect(ui->events, &RDTreeView::keyPress, this, &EventBrowser::events_keyPress);
+
+  // Intercept held arrow keys before the tree processes them, so that events_currentChanged (fired
+  // by the tree's own navigation, which runs after this filter) can issue a scrub instead of a
+  // blocking SetEventID. Installed on the tree view itself; key events arrive here while it focuses.
+  ui->events->installEventFilter(this);
   QObject::connect(ui->events->selectionModel(), &QItemSelectionModel::currentChanged, this,
                    &EventBrowser::events_currentChanged);
   ui->find->setChecked(false);
@@ -3938,7 +4061,7 @@ EventBrowser::EventBrowser(ICaptureContext &ctx, QWidget *parent)
   ui->filterExpression->enableCompletion();
   ui->filterExpression->setAcceptRichText(false);
 
-  ui->filterExpression->setText(persistantStorage.CurrentFilter);
+  ui->filterExpression->setText(persistentStorage.CurrentFilter);
 
   m_SavedCompleter = new QCompleter(this);
   m_SavedCompleter->setWidget(ui->filterExpression);
@@ -3951,9 +4074,9 @@ EventBrowser::EventBrowser(ICaptureContext &ctx, QWidget *parent)
   QObject::connect(m_SavedCompleter, OverloadedSlot<const QModelIndex &>::of(&QCompleter::activated),
                    [this](const QModelIndex &idx) {
                      int i = idx.row();
-                     if(i >= 0 && i < persistantStorage.SavedFilters.count())
+                     if(i >= 0 && i < persistentStorage.SavedFilters.count())
                      {
-                       m_CurrentFilterText->setPlainText(persistantStorage.SavedFilters[i].second);
+                       m_CurrentFilterText->setPlainText(persistentStorage.SavedFilters[i].second);
 
                        QTextCursor c = m_CurrentFilterText->textCursor();
                        c.movePosition(QTextCursor::EndOfLine);
@@ -4052,6 +4175,7 @@ void EventBrowser::SetHighlightedAnnotation(const rdcstr &annotationPath)
 
 void EventBrowser::OnCaptureLoaded()
 {
+  ++m_ShaderNavigationGeneration;
   ui->events->setIgnoreBackgroundColors(!m_Ctx.Config().EventBrowser_ColorEventRow);
 
   m_FilterModel->ResetCache();
@@ -4088,6 +4212,12 @@ void EventBrowser::OnCaptureLoaded()
 
 void EventBrowser::OnCaptureClosed()
 {
+  m_NavigationPending = false;
+  m_NavigationEventID = 0;
+  m_NavigationSelectedEventID = 0;
+  ++m_ShaderNavigationGeneration;
+  m_ArrowScrubKeys.clear();
+
   clearBookmarks();
 
   on_HideFind();
@@ -4101,7 +4231,7 @@ void EventBrowser::OnCaptureClosed()
   // older Qt versions lose all the sections when a model resets even if the sections don't change.
   // Manually save/restore them
   QVariant p = persistData();
-  m_Model->ResetModel();
+  m_Model->ResetModel(false);
   setPersistData(p);
 
   ui->find->setEnabled(false);
@@ -4114,13 +4244,66 @@ void EventBrowser::OnCaptureClosed()
 
 void EventBrowser::OnEventChanged(uint32_t eventId)
 {
-  if(!SelectEvent(m_Ctx.CurSelectedEvent()))
+  // Publishing a completed replay can move the row behind a newer pending drag target. Its
+  // selection signal must not turn that publication into new navigation or end a held gesture.
+  QScopedValueRollback<bool> updating(m_UpdatingReplaySelection, true);
+  // While arrow keys are held the selected row is also Qt's cursor for the next key repeat.
+  // Keep that pending input position; the model's current-event marker follows completed replay.
+  if(m_NavigationPending && eventId == m_NavigationEventID &&
+     m_Ctx.CurSelectedEvent() == m_NavigationSelectedEventID)
+    m_NavigationPending = false;
+  if(!m_NavigationPending && m_ArrowScrubKeys.isEmpty() && !SelectEvent(m_Ctx.CurSelectedEvent()))
     ui->events->setCurrentIndex(QModelIndex());
-  repopulateBookmarks();
   highlightBookmarks();
 
   m_Model->RefreshCache();
   m_Breadcrumbs->OnEventChanged(eventId);
+}
+
+void EventBrowser::OnReplayNavigationRequested(uint32_t selectedEventId, uint32_t eventId)
+{
+  m_NavigationPending = true;
+  m_NavigationEventID = eventId;
+  m_NavigationSelectedEventID = selectedEventId;
+  QScopedValueRollback<bool> updating(m_UpdatingReplaySelection, true);
+  // Keep marker-row identity distinct from the effective replay endpoint. This is CPU-only
+  // navigation; resource/pipeline viewers continue to consume completed publications.
+  if(!SelectEvent(selectedEventId))
+    ui->events->setCurrentIndex(QModelIndex());
+}
+
+void EventBrowser::CancelReplayNavigation()
+{
+  if(!m_NavigationPending)
+    return;
+  m_NavigationPending = false;
+  QScopedValueRollback<bool> updating(m_UpdatingReplaySelection, true);
+  // Same-event SetEventID may cancel input without issuing OnEventChanged afterwards.
+  if(!SelectEvent(m_Ctx.CurSelectedEvent()))
+    ui->events->setCurrentIndex(QModelIndex());
+}
+
+void EventBrowser::BookmarksChanged()
+{
+  repopulateBookmarks();
+  highlightBookmarks();
+}
+
+void EventBrowser::JumpToEID(uint32_t EID)
+{
+  if(SelectEvent(EID))
+    return;
+
+  ui->events->setCurrentIndex(QModelIndex());
+
+  // A bookmark can refer to a valid EID hidden by the current filter. It still needs to update the
+  // capture even though there is no proxy-model row to select in the Event Browser.
+  QModelIndex sourceIndex = m_Model->GetIndexForEID(EID);
+  if(sourceIndex.isValid())
+  {
+    m_Ctx.ScrubToSelectedEvent(GetSelectedEID(sourceIndex), GetEffectiveEID(sourceIndex));
+    m_Ctx.EndScrub();
+  }
 }
 
 void EventBrowser::on_find_toggled(bool checked)
@@ -4137,6 +4320,8 @@ void EventBrowser::on_bookmark_clicked()
   if(idx.isValid())
   {
     EventBookmark mark(GetSelectedEID(idx));
+    if(mark.eventId == 0)
+      return;
 
     if(m_Ctx.GetBookmarks().contains(mark))
       m_Ctx.RemoveBookmark(mark.eventId);
@@ -4166,10 +4351,24 @@ void EventBrowser::events_currentChanged(const QModelIndex &current, const QMode
   uint32_t selectedEID = GetSelectedEID(current);
   uint32_t effectiveEID = GetEffectiveEID(current);
 
-  if(selectedEID == m_Ctx.CurSelectedEvent() && effectiveEID == m_Ctx.CurEvent())
-    return;
-
-  m_Ctx.SetEventID({this}, selectedEID, effectiveEID);
+  if(m_UpdatingReplaySelection)
+  {
+    // Only update the event decorations below; CaptureContext already owns this selection.
+  }
+  else if(!m_ArrowScrubKeys.isEmpty())
+  {
+    // Every completed held-arrow replay refreshes the pipeline and panels asynchronously.
+    m_Ctx.ScrubToSelectedEvent(selectedEID, effectiveEID);
+  }
+  else
+  {
+    // A discrete mouse click, step button, bookmark, or search result is still pure navigation.
+    // Run the same real replay and panel update as held-arrow input.
+    // CaptureContext owns deduplication: the committed EID can still match this row while a
+    // different event's asynchronous commit is pending (a quick A -> B -> A sequence).
+    m_Ctx.ScrubToSelectedEvent(selectedEID, effectiveEID);
+    m_Ctx.EndScrub();
+  }
 
   m_Model->RefreshCache();
   m_Breadcrumbs->OnEventChanged(effectiveEID);
@@ -4179,8 +4378,8 @@ void EventBrowser::events_currentChanged(const QModelIndex &current, const QMode
   if(action && action->IsFakeMarker())
     action = &action->children.back();
 
-  ui->stepPrev->setEnabled(action && action->previous);
-  ui->stepNext->setEnabled(action && action->next);
+  ui->stepPrev->setEnabled(action && action->previousAction);
+  ui->stepNext->setEnabled(action && action->nextAction);
 
   // special case for the first action in the frame
   if(selectedEID == 0)
@@ -4215,8 +4414,20 @@ void EventBrowser::FindNext(bool forward)
 
   m_Model->SetFindText(ui->findEvent->text());
 
+  // The tree selection advances immediately, while an asynchronous scrub commit publishes
+  // CaptureContext's EID later. Start from the optimistic selection so repeated F3 presses cannot
+  // keep finding the same row while that commit is pending.
+  QModelIndex findStart = ui->events->currentIndex();
+  if(findStart.isValid())
+  {
+    findStart = findStart.sibling(findStart.row(), COL_NAME);
+    findStart = m_FilterModel->mapToSource(findStart);
+  }
+  if(!findStart.isValid())
+    findStart = m_Model->GetCurrentEID();
+
   // get the first result in this direction
-  QModelIndex firstResult = m_Model->Find(forward, m_Model->GetCurrentEID());
+  QModelIndex firstResult = m_Model->Find(forward, findStart);
 
   bool forceNone = false;
 
@@ -4365,7 +4576,7 @@ void EventBrowser::CreateFilterDialog()
     saveName.setPlaceholderText(tr("Name of filter"));
 
     RDListWidget filters;
-    for(const QPair<QString, QString> &f : persistantStorage.SavedFilters)
+    for(const QPair<QString, QString> &f : persistentStorage.SavedFilters)
       filters.addItem(f.first);
 
     QPushButton saveButton;
@@ -4407,9 +4618,9 @@ void EventBrowser::CreateFilterDialog()
                      [&saveButton](QListWidgetItem *) { saveButton.click(); });
 
     QObject::connect(&saveName, &RDLineEdit::textChanged, [&saveName, &filters]() {
-      for(int i = 0; i < persistantStorage.SavedFilters.count(); i++)
+      for(int i = 0; i < persistentStorage.SavedFilters.count(); i++)
       {
-        if(saveName.text().trimmed().toLower() == persistantStorage.SavedFilters[i].first.toLower())
+        if(saveName.text().trimmed().toLower() == persistentStorage.SavedFilters[i].first.toLower())
         {
           if(filters.currentRow() != i)
             filters.setCurrentRow(i);
@@ -4421,19 +4632,19 @@ void EventBrowser::CreateFilterDialog()
     });
 
     QObject::connect(&filters, &QListWidget::currentRowChanged, [&saveName](int row) {
-      if(row >= 0 && row < persistantStorage.SavedFilters.count())
-        saveName.setText(persistantStorage.SavedFilters[row].first);
+      if(row >= 0 && row < persistentStorage.SavedFilters.count())
+        saveName.setText(persistentStorage.SavedFilters[row].first);
     });
 
     QObject::connect(&saveButton, &QPushButton::clicked, [this, dialog, &saveName, &filters]() {
       QString n = saveName.text().trimmed();
       QString f = m_FilterSettings.Filter->toPlainText();
 
-      for(int i = 0; i < persistantStorage.SavedFilters.count(); i++)
+      for(int i = 0; i < persistentStorage.SavedFilters.count(); i++)
       {
-        if(n.toLower() == persistantStorage.SavedFilters[i].first.toLower())
+        if(n.toLower() == persistentStorage.SavedFilters[i].first.toLower())
         {
-          if(persistantStorage.SavedFilters[i].second.trimmed() == f.trimmed())
+          if(persistentStorage.SavedFilters[i].second.trimmed() == f.trimmed())
           {
             dialog->accept();
             return;
@@ -4442,8 +4653,8 @@ void EventBrowser::CreateFilterDialog()
           QMessageBox::StandardButton res = RDDialog::question(
               dialog, tr("Delete filter?"),
               tr("Are you sure you want to overwrite the %1 filter? From:\n\n%2\n\nTo:\n\n%3")
-                  .arg(persistantStorage.SavedFilters[i].first)
-                  .arg(persistantStorage.SavedFilters[i].second)
+                  .arg(persistentStorage.SavedFilters[i].first)
+                  .arg(persistentStorage.SavedFilters[i].second)
                   .arg(f),
               QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
 
@@ -4451,12 +4662,12 @@ void EventBrowser::CreateFilterDialog()
             return;
 
           delete filters.takeItem(i);
-          persistantStorage.SavedFilters.erase(persistantStorage.SavedFilters.begin() + i);
+          persistentStorage.SavedFilters.erase(persistentStorage.SavedFilters.begin() + i);
           break;
         }
       }
 
-      persistantStorage.SavedFilters.insert(0, {n, f});
+      persistentStorage.SavedFilters.insert(0, {n, f});
 
       dialog->accept();
     });
@@ -4466,21 +4677,21 @@ void EventBrowser::CreateFilterDialog()
       if(!item)
         return;
 
-      for(int i = 0; i < persistantStorage.SavedFilters.count(); i++)
+      for(int i = 0; i < persistentStorage.SavedFilters.count(); i++)
       {
-        if(item->text().trimmed().toLower() == persistantStorage.SavedFilters[i].first.toLower())
+        if(item->text().trimmed().toLower() == persistentStorage.SavedFilters[i].first.toLower())
         {
           QMessageBox::StandardButton res =
               RDDialog::question(dialog, tr("Delete filter?"),
                                  tr("Are you sure you want to delete the %1 filter?\n\n%2")
-                                     .arg(persistantStorage.SavedFilters[i].first)
-                                     .arg(persistantStorage.SavedFilters[i].second),
+                                     .arg(persistentStorage.SavedFilters[i].first)
+                                     .arg(persistentStorage.SavedFilters[i].second),
                                  QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
 
           if(res == QMessageBox::Yes)
           {
             delete filters.takeItem(i);
-            persistantStorage.SavedFilters.erase(persistantStorage.SavedFilters.begin() + i);
+            persistentStorage.SavedFilters.erase(persistentStorage.SavedFilters.begin() + i);
           }
 
           return;
@@ -4535,7 +4746,7 @@ void EventBrowser::CreateFilterDialog()
 
           if(res == QMessageBox::Yes)
           {
-            persistantStorage.SavedFilters = storedFilters.SavedFilters;
+            persistentStorage.SavedFilters = storedFilters.SavedFilters;
           }
         }
         else
@@ -4565,7 +4776,7 @@ void EventBrowser::CreateFilterDialog()
       if(f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
       {
         QVariant v;
-        persistantStorage.save(v);
+        persistentStorage.save(v);
 
         QVariantMap filters = v.toMap();
         SaveToJSON(filters, f, "rdocFilterSet", 1);
@@ -4583,7 +4794,7 @@ void EventBrowser::CreateFilterDialog()
 
   // disable export if there are no filters to export
   QObject::connect(importExportMenu, &QMenu::aboutToShow, [exportAction]() {
-    exportAction->setEnabled(!persistantStorage.SavedFilters.isEmpty());
+    exportAction->setEnabled(!persistentStorage.SavedFilters.isEmpty());
   });
 
   saveFilter->setMenu(importExportMenu);
@@ -4623,7 +4834,7 @@ void EventBrowser::CreateFilterDialog()
 <p>
 Filters loosely follow a general search-term syntax, by default matching an event
 if any of the terms matches. E.g. a filter such as:
-<p>
+</p>
 
 <pre>  Draw Clear Copy</pre>
 
@@ -4640,7 +4851,7 @@ You can also exclude matches with - such as:
 
 <p>
 which will match as in the first example, except exclude any events that match
-<code>Depth<code>.
+<code>Depth</code>.
 </p>
 
 <p>
@@ -4992,7 +5203,7 @@ void EventBrowser::filter_apply()
   ui->events->updateExpansion(m_EventsExpansion, keygen);
 
   QString expression = ui->filterExpression->toPlainText();
-  persistantStorage.CurrentFilter = expression;
+  persistentStorage.CurrentFilter = expression;
 
   rdcarray<EventFilter> filters;
   *m_ParseTrace = m_FilterModel->ParseExpressionToFilters(expression, filters);
@@ -5224,7 +5435,7 @@ void EventBrowser::ShowSavedFilterCompleter(RDTextEdit *filter)
 {
   QStringList strs;
 
-  for(QPair<QString, QString> &f : persistantStorage.SavedFilters)
+  for(QPair<QString, QString> &f : persistentStorage.SavedFilters)
     strs << f.first + lit(": ") + f.second;
 
   m_SavedCompletionModel->setStringList(strs);
@@ -5342,13 +5553,23 @@ void EventBrowser::on_stepNext_clicked()
   if(!m_Ctx.IsCaptureLoaded() || !ui->stepNext->isEnabled())
     return;
 
-  const ActionDescription *action = m_Ctx.CurAction();
+  // Selection moves synchronously, but CurAction changes only after the asynchronous scrub commit.
+  // Use the model's action for the optimistic row so rapid step input advances from each click.
+  const QModelIndex current = ui->events->currentIndex();
+  const ActionDescription *action = current.isValid()
+                                        ? (const ActionDescription *)current
+                                              .data(ROLE_GROUPED_ACTION)
+                                              .toULongLong()
+                                        : m_Ctx.CurAction();
+
+  if(action && action->IsFakeMarker())
+    action = &action->children.back();
 
   if(action)
-    action = action->next;
+    action = action->nextAction;
 
   // special case for the first 'virtual' action at EID 0
-  if(m_Ctx.CurEvent() == 0)
+  if(current.isValid() ? GetEffectiveEID(current) == 0 : m_Ctx.CurEvent() == 0)
     action = m_Ctx.GetFirstAction();
 
   while(action)
@@ -5359,7 +5580,7 @@ void EventBrowser::on_stepNext_clicked()
 
     // if it failed, possibly the next action is filtered out. Step along the list until we find one
     // which isn't
-    action = action->next;
+    action = action->nextAction;
   }
 }
 
@@ -5368,10 +5589,19 @@ void EventBrowser::on_stepPrev_clicked()
   if(!m_Ctx.IsCaptureLoaded() || !ui->stepPrev->isEnabled())
     return;
 
-  const ActionDescription *action = m_Ctx.CurAction();
+  // See on_stepNext_clicked: the UI row is the pending navigation target while commit is queued.
+  const QModelIndex current = ui->events->currentIndex();
+  const ActionDescription *action = current.isValid()
+                                        ? (const ActionDescription *)current
+                                              .data(ROLE_GROUPED_ACTION)
+                                              .toULongLong()
+                                        : m_Ctx.CurAction();
+
+  if(action && action->IsFakeMarker())
+    action = &action->children.back();
 
   if(action)
-    action = action->previous;
+    action = action->previousAction;
 
   while(action)
   {
@@ -5381,7 +5611,7 @@ void EventBrowser::on_stepPrev_clicked()
 
     // if it failed, possibly the previous action is filtered out. Step along the list until we find
     // one which isn't
-    action = action->previous;
+    action = action->previousAction;
   }
 
   // special case for the first 'virtual' action at EID 0
@@ -5593,6 +5823,51 @@ void EventBrowser::setPersistData(const QVariant &persistData)
   }
 }
 
+bool EventBrowser::eventFilter(QObject *watched, QEvent *event)
+{
+  if(watched == ui->events && m_Ctx.IsCaptureLoaded())
+  {
+    if(event->type() == QEvent::KeyPress)
+    {
+      QKeyEvent *ke = (QKeyEvent *)event;
+      const int k = ke->key();
+      if(k == Qt::Key_Up || k == Qt::Key_Down || k == Qt::Key_Left || k == Qt::Key_Right ||
+         k == Qt::Key_PageUp || k == Qt::Key_PageDown)
+      {
+        // The filter runs before the tree changes selection, so mark the very first key press as
+        // interactive. A short tap therefore follows the same non-blocking path as key repeat.
+        m_ArrowScrubKeys.insert(k);
+      }
+    }
+    else if(event->type() == QEvent::KeyRelease)
+    {
+      QKeyEvent *ke = (QKeyEvent *)event;
+      const int k = ke->key();
+      const bool navigationKey = k == Qt::Key_Up || k == Qt::Key_Down || k == Qt::Key_Left ||
+                                 k == Qt::Key_Right || k == Qt::Key_PageUp ||
+                                 k == Qt::Key_PageDown;
+      // Auto-repeat can synthesize release/press pairs. Settle only when every physically held
+      // navigation key has received its final release; unrelated key releases must not commit.
+      if(navigationKey && !ke->isAutoRepeat())
+      {
+        m_ArrowScrubKeys.remove(k);
+        if(m_ArrowScrubKeys.isEmpty() && m_Ctx.IsScrubbing())
+          m_Ctx.EndScrub();
+      }
+    }
+    else if(event->type() == QEvent::FocusOut || event->type() == QEvent::WindowDeactivate)
+    {
+      // Alt-tab/window deactivation can consume the physical KeyRelease. Never leave later mouse
+      // selections stuck on the scrub-only path; commit the last requested event before clearing.
+      m_ArrowScrubKeys.clear();
+      if(m_Ctx.IsScrubbing())
+        m_Ctx.EndScrub();
+    }
+  }
+
+  return QFrame::eventFilter(watched, event);
+}
+
 void EventBrowser::events_keyPress(QKeyEvent *event)
 {
   if(!m_Ctx.IsCaptureLoaded())
@@ -5627,13 +5902,16 @@ void EventBrowser::events_keyPress(QKeyEvent *event)
 
 void EventBrowser::events_contextMenu(const QPoint &pos)
 {
-  QModelIndex index = ui->events->indexAt(pos);
+  const bool headerMenu = QObject::sender() == ui->events->header();
+  QModelIndex index = headerMenu ? QModelIndex() : ui->events->indexAt(pos);
 
   QMenu contextMenu(this);
 
   QAction expandAll(tr("&Expand All"), this);
   QAction collapseAll(tr("&Collapse All"), this);
-  QAction toggleBookmark(tr("Toggle &Bookmark"), this);
+  const uint32_t contextEID = index.isValid() ? GetSelectedEID(index) : 0;
+  const bool bookmarked = m_Ctx.GetBookmarks().contains(EventBookmark(contextEID));
+  QAction toggleBookmark(bookmarked ? tr("Remove &Bookmark") : tr("Add &Bookmark"), this);
   QAction selectCols(tr("&Select Columns..."), this);
   QAction rgpSelect(tr("Select &RGP Event"), this);
   rgpSelect.setIcon(Icons::connect());
@@ -5643,6 +5921,83 @@ void EventBrowser::events_contextMenu(const QPoint &pos)
   contextMenu.addAction(&toggleBookmark);
   contextMenu.addAction(&selectCols);
 
+  if(!headerMenu && contextEID && m_Ctx.IsCaptureLoaded())
+  {
+    QMenu *shaderMenu = contextMenu.addMenu(tr("Go to Shader"));
+    QPointer<QMenu> destination(shaderMenu);
+    QPointer<EventBrowser> owner(this);
+    const uint64_t generation = m_ShaderNavigationGeneration;
+    const ActionDescription *action = m_Ctx.GetAction(contextEID);
+    const bool draw = action && bool(action->flags & (ActionFlags::Drawcall | ActionFlags::MeshDispatch));
+    const bool dispatch = action && !draw && bool(action->flags & ActionFlags::Dispatch);
+    const bool direct3d = m_Ctx.APIProps().pipelineType == GraphicsAPI::D3D11 ||
+                          m_Ctx.APIProps().pipelineType == GraphicsAPI::D3D12;
+    shaderMenu->addAction(tr("Reading Shaders…"))->setEnabled(false);
+    // Replay work is queued and the menu opens immediately. Snapshot the
+    // clicked EID without changing the user's visible selection, then restore
+    // the replay position in the same serialized transaction.
+    QObject::connect(shaderMenu, &QMenu::aboutToShow, shaderMenu,
+        [this, owner, destination, generation, contextEID, draw, dispatch, direct3d]() {
+      if(!owner || !destination || destination->property("breadShaderLookupStarted").toBool())
+        return;
+      destination->setProperty("breadShaderLookupStarted", true); // i18n-ignore: private menu state
+      owner->m_Ctx.Replay().AsyncInvoke([this, owner, destination, generation, contextEID, draw, dispatch, direct3d](IReplayController *replay) {
+      struct ShaderDestination
+      {
+        QString stage, label, resource, entry;
+      };
+      QVector<ShaderDestination> shaders;
+      const uint32_t previous = replay->GetCurrentEventID();
+      if(draw || dispatch)
+      {
+        if(previous != contextEID)
+          replay->SetFrameEvent(contextEID, true);
+        // i18n-ignore: API stage abbreviations and stable stage protocol identifiers.
+        const ShaderStage stages[] = {ShaderStage::Vertex, ShaderStage::Hull, ShaderStage::Domain,
+            ShaderStage::Geometry, ShaderStage::Pixel, ShaderStage::Compute, ShaderStage::Task, ShaderStage::Mesh};
+        const char *tokens[] = {"vertex", "hull", "domain", "geometry", "fragment", "compute", "task", "mesh"};
+        const char *d3dLabels[] = {"VS", "HS", "DS", "GS", "PS", "CS", "AS", "MS"};
+        const char *otherLabels[] = {"VS", "TCS", "TES", "GS", "FS", "CS", "TS", "MS"};
+        for(size_t i = 0; i < sizeof(stages) / sizeof(stages[0]); ++i)
+        {
+          if((stages[i] == ShaderStage::Compute) != dispatch)
+            continue;
+          ResourceId id = replay->GetPipelineState().GetShader(stages[i]);
+          if(id == ResourceId())
+            continue;
+          uint64_t rawId = 0;
+          static_assert(sizeof(rawId) == sizeof(id), "ResourceId wire size changed");
+          memcpy(&rawId, &id, sizeof(rawId));
+          shaders.push_back({QString::fromLatin1(tokens[i]),
+              QString::fromLatin1(direct3d ? d3dLabels[i] : otherLabels[i]), QString::number(rawId),
+              QString(replay->GetPipelineState().GetShaderEntryPoint(stages[i]))});
+        }
+        if(previous != contextEID)
+          replay->SetFrameEvent(previous, true);
+      }
+      GUIInvoke::call(qApp, [this, owner, destination, generation, contextEID, shaders]() {
+        if(!owner || !destination || generation != owner->m_ShaderNavigationGeneration ||
+           !owner->m_Ctx.IsCaptureLoaded())
+          return;
+        destination->clear();
+        if(shaders.empty())
+          destination->addAction(tr("No Shaders are bound to this event."))->setEnabled(false);
+        for(const ShaderDestination &shader : shaders)
+        {
+          QAction *jump = destination->addAction(shader.label);
+          QObject::connect(jump, &QAction::triggered, owner.data(),
+              [owner, generation, contextEID, shader]() {
+            if(!owner || generation != owner->m_ShaderNavigationGeneration)
+              return;
+            CaptureContext &capture = static_cast<CaptureContext &>(owner->m_Ctx);
+            capture.ReplayLab().OpenShaderWorkspace(contextEID, shader.stage, shader.resource, shader.entry);
+          });
+        }
+      });
+      });
+    });
+  }
+
   expandAll.setIcon(Icons::arrow_out());
   collapseAll.setIcon(Icons::arrow_in());
   toggleBookmark.setIcon(Icons::asterisk_orange());
@@ -5650,7 +6005,7 @@ void EventBrowser::events_contextMenu(const QPoint &pos)
 
   expandAll.setEnabled(index.isValid() && ui->events->model()->rowCount(index) > 0);
   collapseAll.setEnabled(expandAll.isEnabled());
-  toggleBookmark.setEnabled(m_Ctx.IsCaptureLoaded());
+  toggleBookmark.setEnabled(m_Ctx.IsCaptureLoaded() && contextEID != 0);
 
   QObject::connect(&expandAll, &QAction::triggered,
                    [this, index]() { ui->events->expandAll(index); });
@@ -5658,7 +6013,13 @@ void EventBrowser::events_contextMenu(const QPoint &pos)
   QObject::connect(&collapseAll, &QAction::triggered,
                    [this, index]() { ui->events->collapseAll(index); });
 
-  QObject::connect(&toggleBookmark, &QAction::triggered, this, &EventBrowser::on_bookmark_clicked);
+  QObject::connect(&toggleBookmark, &QAction::triggered, [this, contextEID]() {
+    EventBookmark mark(contextEID);
+    if(m_Ctx.GetBookmarks().contains(mark))
+      m_Ctx.RemoveBookmark(mark.eventId);
+    else
+      m_Ctx.SetBookmark(mark);
+  });
 
   QObject::connect(&selectCols, &QAction::triggered, this, &EventBrowser::on_colSelect_clicked);
 
@@ -5675,7 +6036,8 @@ void EventBrowser::events_contextMenu(const QPoint &pos)
   m_Ctx.Extensions().MenuDisplaying(ContextMenu::EventBrowser_Event, &contextMenu,
                                     {{"eventId", m_Ctx.CurEvent()}});
 
-  RDDialog::show(&contextMenu, ui->events->viewport()->mapToGlobal(pos));
+  QWidget *menuSource = headerMenu ? (QWidget *)ui->events->header() : ui->events->viewport();
+  RDDialog::show(&contextMenu, menuSource->mapToGlobal(pos));
 }
 
 static QString GetBookmarkDisplayText(const EventBookmark &bookmark)
@@ -5697,46 +6059,29 @@ void EventBrowser::repopulateBookmarks()
 {
   const rdcarray<EventBookmark> bookmarks = m_Ctx.GetBookmarks();
 
-  // add any bookmark markers that we don't have
+  clearBookmarks();
+
   for(const EventBookmark &mark : bookmarks)
   {
-    if(!m_BookmarkButtons.contains(mark.eventId))
-    {
-      uint32_t EID = mark.eventId;
+    const uint32_t EID = mark.eventId;
+    QRClickToolButton *but = new QRClickToolButton(this);
 
-      QRClickToolButton *but = new QRClickToolButton(this);
-
-      but->setText(GetBookmarkDisplayText(mark));
-      but->setCheckable(true);
-      but->setAutoRaise(true);
-      but->setProperty("eid", EID);
-      QObject::connect(but, &QRClickToolButton::clicked, [this, but, EID]() {
-        but->setChecked(true);
-        if(!SelectEvent(EID))
-          ui->events->setCurrentIndex(QModelIndex());
-        highlightBookmarks();
-      });
-      QObject::connect(but, &QRClickToolButton::rightClicked,
-                       [this, but, EID]() { bookmarkContextMenu(but, EID); });
-
-      m_BookmarkButtons[EID] = but;
-
+    but->setText(GetBookmarkDisplayText(mark));
+    but->setCheckable(true);
+    but->setAutoRaise(true);
+    but->setProperty("eid", EID);
+    QObject::connect(but, &QRClickToolButton::clicked, [this, but, EID]() {
+      but->setChecked(true);
+      JumpToEID(EID);
       highlightBookmarks();
+    });
+    QObject::connect(but, &QRClickToolButton::rightClicked,
+                     [this, EID]() { bookmarkContextMenu(EID); });
 
-      m_BookmarkStripLayout->removeItem(m_BookmarkSpacer);
-      m_BookmarkStripLayout->addWidget(but);
-      m_BookmarkStripLayout->addItem(m_BookmarkSpacer);
-    }
-  }
-
-  // remove any bookmark markers we shouldn't have
-  for(uint32_t EID : m_BookmarkButtons.keys())
-  {
-    if(!bookmarks.contains(EventBookmark(EID)))
-    {
-      delete m_BookmarkButtons[EID];
-      m_BookmarkButtons.remove(EID);
-    }
+    m_BookmarkButtons[EID] = but;
+    m_BookmarkStripLayout->removeItem(m_BookmarkSpacer);
+    m_BookmarkStripLayout->addWidget(but);
+    m_BookmarkStripLayout->addItem(m_BookmarkSpacer);
   }
 
   ui->bookmarkStrip->setVisible(!bookmarks.isEmpty());
@@ -5751,8 +6096,7 @@ void EventBrowser::jumpToBookmark(int idx)
     return;
 
   // don't exclude ourselves, so we're updated as normal
-  if(!SelectEvent(bookmarks[idx].eventId))
-    ui->events->setCurrentIndex(QModelIndex());
+  JumpToEID(bookmarks[idx].eventId);
 }
 
 void EventBrowser::highlightBookmarks()
@@ -5766,7 +6110,7 @@ void EventBrowser::highlightBookmarks()
   }
 }
 
-void EventBrowser::bookmarkContextMenu(QRClickToolButton *button, uint32_t EID)
+void EventBrowser::bookmarkContextMenu(uint32_t EID)
 {
   QMenu contextMenu(this);
 
@@ -5779,12 +6123,10 @@ void EventBrowser::bookmarkContextMenu(QRClickToolButton *button, uint32_t EID)
   contextMenu.addAction(&renameBookmark);
   contextMenu.addAction(&deleteBookmark);
 
-  QObject::connect(&deleteBookmark, &QAction::triggered, [this, EID]() {
-    m_Ctx.RemoveBookmark(EID);
-    repopulateBookmarks();
-  });
+  QObject::connect(&deleteBookmark, &QAction::triggered,
+                   [this, EID]() { m_Ctx.RemoveBookmark(EID); });
 
-  QObject::connect(&renameBookmark, &QAction::triggered, [this, button, EID]() {
+  QObject::connect(&renameBookmark, &QAction::triggered, [this, EID]() {
     EventBookmark editedBookmark;
     for(const EventBookmark &bookmark : m_Ctx.GetBookmarks())
     {
@@ -5798,14 +6140,12 @@ void EventBrowser::bookmarkContextMenu(QRClickToolButton *button, uint32_t EID)
     if(editedBookmark.eventId == EID)
     {
       bool ok;
-      editedBookmark.text =
-          QInputDialog::getText(this, lit("Rename"), lit("New name:"), QLineEdit::Normal,
-                                GetBookmarkDisplayText(editedBookmark), &ok);
+      editedBookmark.text = QInputDialog::getText(this, tr("Rename Bookmark"), tr("Name:"),
+                                                  QLineEdit::Normal,
+                                                  (QString)editedBookmark.text, &ok)
+                                .trimmed();
       if(ok)
-      {
-        button->setText(GetBookmarkDisplayText(editedBookmark));
         m_Ctx.SetBookmark(editedBookmark);
-      }
     }
   });
 
@@ -6018,11 +6358,13 @@ void EventBrowser::location_keyPress(QKeyEvent *e)
       uint32_t selectedEID = GetSelectedEID(idx);
       uint32_t effectiveEID = GetEffectiveEID(idx);
 
-      m_Ctx.SetEventID({}, selectedEID, effectiveEID);
+      m_Ctx.ScrubToSelectedEvent(selectedEID, effectiveEID);
+      m_Ctx.EndScrub();
     }
     else
     {
-      m_Ctx.SetEventID({}, 0, 0);
+      m_Ctx.ScrubToSelectedEvent(0, 0);
+      m_Ctx.EndScrub();
     }
   }
 }
@@ -6124,3 +6466,147 @@ void EventBrowser::SetEmptyRegionsVisible(bool show)
 {
   m_FilterModel->SetEmptyRegionsVisible(show);
 }
+
+#if ENABLE_UNIT_TESTS
+
+#include "3rdparty/catch/catch.hpp"
+
+namespace
+{
+QVariantList SavedFilterVariant(std::initializer_list<QPair<QString, QString>> filters)
+{
+  QVariantList ret;
+  for(const QPair<QString, QString> &filter : filters)
+    ret << QVariant(QVariantList({filter.first, filter.second}));
+  return ret;
+}
+
+bool HasSavedEventFilter(const EventBrowserPersistentStorage &storage, const QString &name,
+                         const QString &expression)
+{
+  for(const QPair<QString, QString> &filter : storage.SavedFilters)
+    if(filter.first == name && filter.second == expression)
+      return true;
+  return false;
+}
+};    // namespace
+
+TEST_CASE("Event browser stock expressions parse and match real ActionFlags",
+          "[eventbrowser][filter]")
+{
+  EventFilterModel parser;
+  rdcarray<EventFilter> filters;
+
+  ParseTrace trace = parser.ParseExpressionToFilters(
+      EventBrowserPersistentStorage::DrawDispatchFilter(), filters);
+  INFO(trace.errorText.toStdString());
+  REQUIRE_FALSE(trace.hasErrors());
+  REQUIRE(filters.size() == 1);
+
+  auto matches = [&filters](ActionFlags flags) {
+    ActionDescription action;
+    action.eventId = 123;
+    action.flags = flags;
+    return filters[0].callback(NULL, rdcstr(), rdcstr(), 123, NULL, &action, rdcstr());
+  };
+
+  CHECK(matches(ActionFlags::Drawcall));
+  CHECK(matches(ActionFlags::MeshDispatch));
+  CHECK(matches(ActionFlags::Dispatch));
+  CHECK(matches(ActionFlags::DispatchRay));
+  CHECK_FALSE(matches(ActionFlags::Copy));
+  CHECK_FALSE(matches(ActionFlags::Clear));
+
+  filters.clear();
+  trace = parser.ParseExpressionToFilters(
+      EventBrowserPersistentStorage::OutputAffectingFilter(), filters);
+  INFO(trace.errorText.toStdString());
+  REQUIRE_FALSE(trace.hasErrors());
+  REQUIRE(filters.size() == 1);
+
+  CHECK(matches(ActionFlags::Drawcall));
+  CHECK(matches(ActionFlags::MeshDispatch));
+  CHECK(matches(ActionFlags::Dispatch));
+  CHECK(matches(ActionFlags::DispatchRay));
+  CHECK(matches(ActionFlags::Clear));
+  CHECK(matches(ActionFlags::Copy));
+  CHECK(matches(ActionFlags::Resolve));
+  CHECK(matches(ActionFlags::GenMips));
+  CHECK(matches(ActionFlags::BuildAccStruct));
+  CHECK(matches(ActionFlags::Present));
+  CHECK_FALSE(matches(ActionFlags::PushMarker));
+
+  filters.clear();
+  trace = parser.ParseExpressionToFilters(
+      lit("$action(flags & DefinitelyNotAnActionFlag)"), filters);
+  CHECK(trace.hasErrors());
+}
+
+TEST_CASE("Event browser has draw/dispatch-oriented stock filters", "[eventbrowser][filter]")
+{
+  EventBrowserPersistentStorage storage;
+
+  CHECK(bool(storage.CurrentFilter == EventBrowserPersistentStorage::DrawDispatchFilter()));
+  REQUIRE(storage.SavedFilters.count() == 3);
+  CHECK(bool(storage.SavedFilters[0] ==
+             qMakePair(EventBrowserPersistentStorage::DrawDispatchFilterName(),
+                       EventBrowserPersistentStorage::DrawDispatchFilter())));
+  CHECK(bool(storage.SavedFilters[1] ==
+             qMakePair(EventBrowserPersistentStorage::OutputAffectingFilterName(),
+                       EventBrowserPersistentStorage::OutputAffectingFilter())));
+  CHECK(bool(storage.SavedFilters[2] ==
+             qMakePair(EventBrowserPersistentStorage::AllActionsFilterName(),
+                       EventBrowserPersistentStorage::AllActionsFilter())));
+}
+
+TEST_CASE("Event browser migrates only the old stock action filter", "[eventbrowser][filter]")
+{
+  EventBrowserPersistentStorage storage;
+  QVariantMap oldSettings;
+  oldSettings[lit("version")] = 2;
+  oldSettings[lit("current")] = lit("$action()");
+  oldSettings[lit("filters")] =
+      SavedFilterVariant({
+          {lit("Default"), lit("$action()")},
+          {lit("Actions and Barriers"), lit("$action() Barrier")},
+          {lit("My expensive draws"), lit("$action(numIndices > 10000)")},
+      });
+
+  storage.load(oldSettings);
+
+  CHECK(bool(storage.CurrentFilter == EventBrowserPersistentStorage::DrawDispatchFilter()));
+  CHECK(HasSavedEventFilter(storage, EventBrowserPersistentStorage::DrawDispatchFilterName(),
+                            EventBrowserPersistentStorage::DrawDispatchFilter()));
+  CHECK(HasSavedEventFilter(storage, EventBrowserPersistentStorage::OutputAffectingFilterName(),
+                            EventBrowserPersistentStorage::OutputAffectingFilter()));
+  CHECK(HasSavedEventFilter(storage, EventBrowserPersistentStorage::AllActionsFilterName(),
+                            EventBrowserPersistentStorage::AllActionsFilter()));
+  CHECK(HasSavedEventFilter(storage, lit("My expensive draws"),
+                            lit("$action(numIndices > 10000)")));
+  CHECK(HasSavedEventFilter(storage, lit("Actions and Barriers"), lit("$action() Barrier")));
+}
+
+TEST_CASE("Event browser preserves custom filters during version 3 migration",
+          "[eventbrowser][filter]")
+{
+  EventBrowserPersistentStorage storage;
+  QVariantMap oldSettings;
+  oldSettings[lit("version")] = 2;
+  oldSettings[lit("current")] = lit("$action(flags & Copy)");
+  oldSettings[lit("filters")] =
+      SavedFilterVariant({
+          {lit("Draw / Dispatch Only"), lit("$action(numIndices > 42)")},
+          {lit("My copies"), lit("$action(flags & Copy)")},
+      });
+
+  storage.load(oldSettings);
+
+  CHECK(bool(storage.CurrentFilter == lit("$action(flags & Copy)")));
+  CHECK(HasSavedEventFilter(storage, lit("Draw / Dispatch Only"),
+                            lit("$action(numIndices > 42)")));
+  CHECK(HasSavedEventFilter(storage, lit("Draw / Dispatch Only (Built-in)"),
+                            EventBrowserPersistentStorage::DrawDispatchFilter()));
+  CHECK(HasSavedEventFilter(storage, lit("My copies"), lit("$action(flags & Copy)")));
+}
+
+#endif    // ENABLE_UNIT_TESTS

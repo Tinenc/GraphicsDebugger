@@ -23,7 +23,9 @@
  ******************************************************************************/
 
 #include "ScintillaSyntax.h"
+#include <QApplication>
 #include "Code/QRDUtils.h"
+#include "Styles/RDStyle/RDStyle.h"
 #include "scintilla/include/SciLexer.h"
 #include "scintilla/include/qt/ScintillaEdit.h"
 
@@ -335,10 +337,12 @@ row_major column_major unsigned signed rgb
 
 void ConfigureSyntax(ScintillaEdit *scintilla, int language)
 {
+  // Preserve RenderDoc's pseudo-lexer value rather than querying Scintilla after HLSL, GLSL, or
+  // buffer formats have been mapped to the shared C++ lexer.
+  ((QObject *)scintilla)->setProperty("_renderdoc_syntax_language", language);
+
   scintilla->setCodePage(SC_CP_UTF8);
 
-  bool hlsl = false;
-  bool glsl = false;
   int lexLang = language;
 
   if(lexLang == SCLEX_HLSL || lexLang == SCLEX_GLSL || lexLang == SCLEX_BUFFER)
@@ -348,56 +352,116 @@ void ConfigureSyntax(ScintillaEdit *scintilla, int language)
 
 #define SC_COL(qcol) SCINTILLA_COLOUR(qcol.red(), qcol.green(), qcol.blue())
 
-  // set the default style to base/text
-  QColor base = scintilla->palette().color(QPalette::Base);
-  QColor text = scintilla->palette().color(QPalette::Text);
+  // The editor scheme is a separate layer from general dark-mode detection: only Ultra opts into
+  // RiderDark, while the existing RenderDoc themes retain their palette-derived editor colours.
+  const RDStyle *rdStyle = qobject_cast<const RDStyle *>(QApplication::style());
+  const bool riderEditor = rdStyle && rdStyle->colorScheme() == RDStyle::Ultra;
+  const bool darkTheme = IsDarkTheme();
+  QColor base =
+      riderEditor ? QColor(38, 38, 38) : scintilla->palette().color(QPalette::Base);
+  QColor text =
+      riderEditor ? QColor(208, 208, 208) : scintilla->palette().color(QPalette::Text);
+  QColor caret = riderEditor ? QColor(240, 240, 240) : text;
+  QColor caretLine = riderEditor ? QColor(32, 36, 36)
+                                 : scintilla->palette().color(QPalette::AlternateBase);
+  QColor whitespace = riderEditor ? QColor(104, 104, 104)
+                                  : scintilla->palette().color(QPalette::Mid);
   scintilla->styleSetBack(STYLE_DEFAULT, SC_COL(base));
   scintilla->styleSetFore(STYLE_DEFAULT, SC_COL(text));
+  scintilla->styleClearAll();
 
-  scintilla->setCaretFore(SC_COL(text));
-
-  // default all lexer styles up to STYLE_DEFAULT as the same, then override per-colour below
-  for(sptr_t i = 0; i < STYLE_DEFAULT; i++)
-  {
-    scintilla->styleSetBack(i, SC_COL(base));
-    scintilla->styleSetFore(i, SC_COL(text));
-  }
+  scintilla->setCaretFore(SC_COL(caret));
+  scintilla->setCaretLineVisible(riderEditor);
+  scintilla->setCaretLineBack(SC_COL(caretLine));
+  // Scintilla draws a caret-line colour with an alpha value after the glyphs. An opaque alpha of
+  // 255 therefore covers the complete line of text. SC_ALPHA_NOALPHA uses the normal background
+  // drawing path, which keeps the Rider current-line colour behind the syntax-highlighted glyphs.
+  scintilla->setCaretLineBackAlpha(SC_ALPHA_NOALPHA);
+  scintilla->setWhitespaceFore(riderEditor, SC_COL(whitespace));
+  scintilla->setExtraAscent(riderEditor ? 2 : 0);
+  scintilla->setExtraDescent(riderEditor ? 2 : 0);
 
   // set highlight text colour
-  QColor highlight = scintilla->palette().color(QPalette::Highlight);
-  QColor highlightedText = scintilla->palette().color(QPalette::HighlightedText);
+  QColor highlight = riderEditor ? QColor(8, 51, 94)
+                                : scintilla->palette().color(QPalette::Highlight);
+  QColor highlightedText =
+      riderEditor ? text : scintilla->palette().color(QPalette::HighlightedText);
   scintilla->setSelBack(true, SC_COL(highlight));
   scintilla->setSelFore(true, SC_COL(highlightedText));
 
   // set margin colours
-  QColor window = scintilla->palette().color(QPalette::Window);
-  QColor windowText = scintilla->palette().color(QPalette::WindowText);
+  QColor window =
+      riderEditor ? QColor(40, 40, 40) : scintilla->palette().color(QPalette::Window);
+  QColor windowText =
+      riderEditor ? QColor(128, 128, 128) : scintilla->palette().color(QPalette::WindowText);
   for(sptr_t i = 0; i < 5; i++)
     scintilla->setMarginBackN(i, SC_COL(window));
   scintilla->styleSetBack(STYLE_LINENUMBER, SC_COL(window));
   scintilla->styleSetFore(STYLE_LINENUMBER, SC_COL(windowText));
 
-  sptr_t blue = IsDarkTheme() ? SCINTILLA_COLOUR(105, 105, 255) : SCINTILLA_COLOUR(0, 0, 150);
-  sptr_t magenta = IsDarkTheme() ? SCINTILLA_COLOUR(255, 105, 255) : SCINTILLA_COLOUR(150, 0, 150);
-  sptr_t rouge = IsDarkTheme() ? SCINTILLA_COLOUR(255, 150, 150) : SCINTILLA_COLOUR(175, 70, 70);
-
-  // works for either dark or light
-  sptr_t green = SCINTILLA_COLOUR(0, 150, 0);
-  sptr_t teal = SCINTILLA_COLOUR(0, 150, 150);
-  sptr_t olive = SCINTILLA_COLOUR(150, 150, 0);
+  // RiderDark syntax colours. The light variants preserve the existing high-contrast colours.
+  sptr_t keyword = riderEditor ? SCINTILLA_COLOUR(108, 149, 235)
+                               : (darkTheme ? SCINTILLA_COLOUR(105, 105, 255)
+                                            : SCINTILLA_COLOUR(0, 0, 150));
+  sptr_t string = riderEditor ? SCINTILLA_COLOUR(201, 162, 109)
+                              : (darkTheme ? SCINTILLA_COLOUR(255, 105, 255)
+                                           : SCINTILLA_COLOUR(150, 0, 150));
+  sptr_t number = riderEditor ? SCINTILLA_COLOUR(237, 148, 192)
+                              : SCINTILLA_COLOUR(0, 150, 150);
+  sptr_t comment = riderEditor ? SCINTILLA_COLOUR(133, 196, 108)
+                               : SCINTILLA_COLOUR(0, 150, 0);
+  sptr_t docComment = comment;
+  sptr_t preprocessor = keyword;
+  sptr_t function =
+      riderEditor ? SCINTILLA_COLOUR(57, 204, 155) : SCINTILLA_COLOUR(150, 150, 0);
+  sptr_t invalid = riderEditor ? SCINTILLA_COLOUR(255, 86, 71)
+                               : (darkTheme ? SCINTILLA_COLOUR(255, 150, 150)
+                                            : SCINTILLA_COLOUR(175, 70, 70));
 
   if(lexLang == SCLEX_CPP)
   {
     scintilla->setProperty("lexer.cpp.track.preprocessor", "0");
     scintilla->setProperty("styling.within.preprocessor", "1");
 
-    scintilla->styleSetFore(SCE_C_COMMENT, green);
-    scintilla->styleSetFore(SCE_C_COMMENTDOC, green);
-    scintilla->styleSetFore(SCE_C_COMMENTLINE, green);
-    scintilla->styleSetFore(SCE_C_WORD, blue);
-    scintilla->styleSetFore(SCE_C_WORD2, blue);
-    scintilla->styleSetFore(SCE_C_PREPROCESSOR, blue);
-    scintilla->styleSetBold(SCE_C_PREPROCESSOR, true);
+    if(riderEditor)
+    {
+      scintilla->styleSetFore(SCE_C_COMMENT, comment);
+      scintilla->styleSetFore(SCE_C_COMMENTDOC, docComment);
+      scintilla->styleSetFore(SCE_C_COMMENTLINE, comment);
+      scintilla->styleSetFore(SCE_C_COMMENTLINEDOC, docComment);
+      scintilla->styleSetFore(SCE_C_PREPROCESSORCOMMENT, comment);
+      scintilla->styleSetFore(SCE_C_PREPROCESSORCOMMENTDOC, docComment);
+      scintilla->styleSetFore(SCE_C_COMMENTDOCKEYWORD, docComment);
+      scintilla->styleSetFore(SCE_C_COMMENTDOCKEYWORDERROR, invalid);
+      scintilla->styleSetFore(SCE_C_NUMBER, number);
+      scintilla->styleSetFore(SCE_C_STRING, string);
+      scintilla->styleSetFore(SCE_C_CHARACTER, string);
+      scintilla->styleSetFore(SCE_C_STRINGEOL, invalid);
+      scintilla->styleSetFore(SCE_C_VERBATIM, string);
+      scintilla->styleSetFore(SCE_C_REGEX, string);
+      scintilla->styleSetFore(SCE_C_STRINGRAW, string);
+      scintilla->styleSetFore(SCE_C_HASHQUOTEDSTRING, string);
+      scintilla->styleSetFore(SCE_C_WORD, keyword);
+      scintilla->styleSetFore(SCE_C_WORD2, keyword);
+      scintilla->styleSetFore(SCE_C_PREPROCESSOR, preprocessor);
+      scintilla->styleSetBold(SCE_C_PREPROCESSOR, false);
+      // Colour distinguishes comments; upright text keeps long explanations readable.
+      scintilla->styleSetItalic(SCE_C_COMMENT, false);
+      scintilla->styleSetItalic(SCE_C_COMMENTDOC, false);
+      scintilla->styleSetItalic(SCE_C_COMMENTLINE, false);
+      scintilla->styleSetItalic(SCE_C_COMMENTLINEDOC, false);
+    }
+    else
+    {
+      // Preserve the established RenderDoc editor styling for every non-Ultra theme.
+      scintilla->styleSetFore(SCE_C_COMMENT, comment);
+      scintilla->styleSetFore(SCE_C_COMMENTDOC, comment);
+      scintilla->styleSetFore(SCE_C_COMMENTLINE, comment);
+      scintilla->styleSetFore(SCE_C_WORD, keyword);
+      scintilla->styleSetFore(SCE_C_WORD2, keyword);
+      scintilla->styleSetFore(SCE_C_PREPROCESSOR, keyword);
+      scintilla->styleSetBold(SCE_C_PREPROCESSOR, true);
+    }
 
     if(language == SCLEX_HLSL)
     {
@@ -422,18 +486,61 @@ void ConfigureSyntax(ScintillaEdit *scintilla, int language)
 
     scintilla->setKeyWords(0, python_keywords);
 
-    scintilla->styleSetFore(SCE_P_COMMENTLINE, green);
-    scintilla->styleSetFore(SCE_P_COMMENTBLOCK, green);
-    scintilla->styleSetFore(SCE_P_NUMBER, teal);
-    scintilla->styleSetFore(SCE_P_STRING, magenta);
-    scintilla->styleSetFore(SCE_P_TRIPLE, rouge);
-    scintilla->styleSetFore(SCE_P_TRIPLEDOUBLE, rouge);
-    scintilla->styleSetFore(SCE_P_CHARACTER, magenta);
-    scintilla->styleSetFore(SCE_P_DEFNAME, olive);
-    scintilla->styleSetFore(SCE_P_CLASSNAME, magenta);
-    scintilla->styleSetFore(SCE_P_WORD, blue);
-    scintilla->styleSetFore(SCE_P_WORD2, blue);
-    scintilla->styleSetBold(SCE_P_WORD, true);
-    scintilla->styleSetBold(SCE_P_WORD2, true);
+    if(riderEditor)
+    {
+      scintilla->styleSetFore(SCE_P_COMMENTLINE, comment);
+      scintilla->styleSetFore(SCE_P_COMMENTBLOCK, comment);
+      scintilla->styleSetFore(SCE_P_NUMBER, number);
+      scintilla->styleSetFore(SCE_P_STRING, string);
+      scintilla->styleSetFore(SCE_P_TRIPLE, string);
+      scintilla->styleSetFore(SCE_P_TRIPLEDOUBLE, string);
+      scintilla->styleSetFore(SCE_P_CHARACTER, string);
+      scintilla->styleSetFore(SCE_P_STRINGEOL, invalid);
+      scintilla->styleSetFore(SCE_P_DECORATOR, preprocessor);
+      scintilla->styleSetFore(SCE_P_DEFNAME, function);
+      scintilla->styleSetFore(SCE_P_CLASSNAME, function);
+      scintilla->styleSetFore(SCE_P_WORD, keyword);
+      scintilla->styleSetFore(SCE_P_WORD2, keyword);
+      scintilla->styleSetBold(SCE_P_WORD, false);
+      scintilla->styleSetBold(SCE_P_WORD2, false);
+      scintilla->styleSetItalic(SCE_P_COMMENTLINE, false);
+      scintilla->styleSetItalic(SCE_P_COMMENTBLOCK, false);
+    }
+    else
+    {
+      // Keep the original Python palette and emphasis outside Ultra.
+      scintilla->styleSetFore(SCE_P_COMMENTLINE, comment);
+      scintilla->styleSetFore(SCE_P_COMMENTBLOCK, comment);
+      scintilla->styleSetFore(SCE_P_NUMBER, number);
+      scintilla->styleSetFore(SCE_P_STRING, string);
+      scintilla->styleSetFore(SCE_P_TRIPLE, invalid);
+      scintilla->styleSetFore(SCE_P_TRIPLEDOUBLE, invalid);
+      scintilla->styleSetFore(SCE_P_CHARACTER, string);
+      scintilla->styleSetFore(SCE_P_DEFNAME, function);
+      scintilla->styleSetFore(SCE_P_CLASSNAME, string);
+      scintilla->styleSetFore(SCE_P_WORD, keyword);
+      scintilla->styleSetFore(SCE_P_WORD2, keyword);
+      scintilla->styleSetBold(SCE_P_WORD, true);
+      scintilla->styleSetBold(SCE_P_WORD2, true);
+    }
+  }
+}
+
+void RefreshSyntaxEditors()
+{
+  for(QWidget *widget : QApplication::allWidgets())
+  {
+    ScintillaEdit *scintilla = qobject_cast<ScintillaEdit *>(widget);
+    if(!scintilla)
+      continue;
+
+    const QVariant language = ((QObject *)scintilla)->property("_renderdoc_syntax_language");
+    if(!language.isValid())
+      continue;
+
+    scintilla->styleSetFont(STYLE_DEFAULT, Formatter::FixedFont().family().toUtf8().data());
+    scintilla->styleSetSize(STYLE_DEFAULT, Formatter::FixedFont().pointSize());
+    ConfigureSyntax(scintilla, language.toInt());
+    scintilla->colourise(0, -1);
   }
 }

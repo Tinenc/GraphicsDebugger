@@ -166,6 +166,8 @@ struct DescUpdateTemplateApplication
   rdcarray<VkWriteDescriptorSet> writes;
 };
 
+DECLARE_DESERIALISE_TYPE(DescUpdateTemplateApplication);
+
 struct DescUpdateTemplate
 {
   void Init(VulkanResourceManager *resourceMan, VulkanCreationInfo &info,
@@ -409,6 +411,10 @@ struct VulkanCreationInfo
     uint32_t stippleFactor;
     uint16_t stipplePattern;
 
+    // VkDepthBiasRepresentationInfoEXT
+    VkDepthBiasRepresentationEXT depthBiasRepresentation;
+    VkBool32 depthBiasExact;
+
     // VkPipelineMultisampleStateCreateInfo
     VkSampleCountFlagBits rasterizationSamples;
     bool sampleShadingEnable;
@@ -455,6 +461,10 @@ struct VulkanCreationInfo
       uint8_t channelWriteMask;
     };
     rdcarray<CBAttachment> attachments;
+
+    // Keep the enable separate from the channel mask: either can be dynamic.
+    // Empty means that VkPipelineColorWriteCreateInfoEXT was not supplied.
+    rdcarray<VkBool32> colorWriteEnables;
 
     // VkPipelineDynamicStateCreateInfo
     bool dynamicStates[VkDynamicCount];
@@ -649,8 +659,19 @@ struct VulkanCreationInfo
     uint64_t size;
     uint64_t gpuAddress;
     bool external;
+    bool sparse = false;
+
+    // Replay binding evidence for persistent byte-range edits. Do not infer aliases from usage:
+    // two views of the same allocation may never be accessed by the original shader.
+    ResourceId replayMemory;
+    uint64_t replayMemoryOffset = 0;
+    uint64_t replayMemorySize = 0;
+    bool replayPatchProtected = false;
 
     VkMemoryRequirements mrq;
+
+    ResourceId boundMemory;
+    uint64_t boundMemoryOffset;
 
     ResourceId inlineDescriptorId;
   };
@@ -681,6 +702,7 @@ struct VulkanCreationInfo
 
     bool linear;
     bool external;
+    bool sparse = false;
     bool cube;
     TextureCategory creationFlags;
 
@@ -766,6 +788,9 @@ struct VulkanCreationInfo
     VkFormat format;
     VkImageSubresourceRange range;
     VkComponentMapping componentMapping;
+
+    uint32_t storageSliceOffset;
+    uint32_t storageSliceCount;
 
     bool isDepthImage;
 

@@ -58,6 +58,8 @@ public:
 
   void SelectPipelineStage(PipelineStage stage);
   ResourceId GetResource(RDTreeWidgetItem *item);
+  bool GetTextureHistoryDetails(RDTreeWidgetItem *item, Subresource &subresource,
+                                CompType &typeCast);
 
 private slots:
   // automatic slots
@@ -118,6 +120,7 @@ private:
   bool showNode(bool usedSlot, bool filledSlot);
 
   bool m_ShowUnused = false;
+  uint64_t m_UpdateSerial = 0;
   bool m_ShowEmpty = false;
 
   QVariantList exportViewHTML(const Descriptor &descriptor, bool rw,

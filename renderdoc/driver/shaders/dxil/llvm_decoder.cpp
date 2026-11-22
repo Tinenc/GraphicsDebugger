@@ -72,6 +72,7 @@ BlockOrRecord BitcodeReader::ReadToplevelBlock()
   // should hit ENTER_SUBBLOCK first for top-level block
   uint32_t abbrevID = b.fixed<uint32_t>(abbrevSize);
   RDCASSERT(abbrevID == ENTER_SUBBLOCK);
+  m_Error |= abbrevID != ENTER_SUBBLOCK;
 
   ReadBlockContents(ret);
 
@@ -92,6 +93,8 @@ void BitcodeReader::ReadBlockContents(BlockOrRecord &block)
 
   b.align32bits();
   block.blockDwordLength = b.Read<uint32_t>();
+  const size_t expectedEnd = b.ByteOffset() + size_t(block.blockDwordLength) * sizeof(uint32_t);
+  m_Error |= expectedEnd > b.ByteLength();
 
   // used for blockinfo only
   BlockInfo *curBlockInfo = NULL;
@@ -203,6 +206,7 @@ void BitcodeReader::ReadBlockContents(BlockOrRecord &block)
 
       // should have at least one param for the code itself
       RDCASSERT(!a.params.empty());
+      m_Error |= a.params.empty();
 
       r.id = (uint32_t)decodeAbbrevParam(a.params[0]);
 
@@ -218,6 +222,7 @@ void BitcodeReader::ReadBlockContents(BlockOrRecord &block)
         {
           // must be another param to specify the value type, and it must be the last
           RDCASSERT(i + 1 == a.params.size() - 1);
+          m_Error |= i + 1 != a.params.size() - 1;
           const AbbrevParam &elType = a.params[i + 1];
 
           size_t arrayLen = b.vbr<size_t>(6);
@@ -231,6 +236,7 @@ void BitcodeReader::ReadBlockContents(BlockOrRecord &block)
         {
           // blob must be the last value
           RDCASSERT(i == a.params.size() - 1);
+          m_Error |= i != a.params.size() - 1;
           b.ReadBlob(r.blob, r.blobLength);
 
           break;
@@ -244,6 +250,7 @@ void BitcodeReader::ReadBlockContents(BlockOrRecord &block)
       block.children.push_back(r);
     }
   } while(abbrevID != END_BLOCK);
+  m_Error |= b.ByteOffset() != expectedEnd;
 
   delete blockStack.back();
   blockStack.erase(blockStack.size() - 1);
@@ -262,8 +269,15 @@ uint64_t BitcodeReader::decodeAbbrevParam(const AbbrevParam &param)
     case AbbrevEncoding::Char6: return b.c6();
     case AbbrevEncoding::Literal: return param.value;
     case AbbrevEncoding::Array:
-    case AbbrevEncoding::Blob: RDCERR("Array and blob types must be decoded specially"); break;
-    case AbbrevEncoding::Unknown: RDCERR("Unexpected abbrev encoding"); break;
+    case AbbrevEncoding::Blob:
+      m_Error = true;
+      RDCERR("Array and blob types must be decoded specially");
+      break;
+    case AbbrevEncoding::Unknown:
+      m_Error = true;
+      RDCERR("Unexpected abbrev encoding");
+      break;
+    default: m_Error = true; break;
   }
 
   return 0;

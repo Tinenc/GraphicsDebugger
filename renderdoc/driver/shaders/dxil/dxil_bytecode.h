@@ -81,6 +81,7 @@ struct BumpAllocator
   BumpAllocator(size_t totalSize);
   ~BumpAllocator();
   void *alloc(size_t sz);
+  uint64_t GetAllocatedBytes() const;
 
   template <typename T>
   T *alloc()
@@ -93,6 +94,7 @@ private:
   byte *base, *cur;
   rdcarray<byte *> storage;
   size_t m_BlockSize;
+  size_t m_LargeAllocationExtra = 0;
 };
 
 struct ProgramHeader
@@ -603,7 +605,41 @@ enum class DXOp : uint32_t
   SampleCmpBias = 255,
   StartVertexLocation = 256,
   StartInstanceLocation = 257,
-  NumOpCodes = 258,
+  AllocateRayQuery2 = 258,
+  HitObject_TraceRay = 262,
+  HitObject_FromRayQuery = 263,
+  HitObject_FromRayQueryWithAttrs = 264,
+  HitObject_MakeMiss = 265,
+  HitObject_MakeNop = 266,
+  HitObject_Invoke = 267,
+  MaybeReorderThread = 268,
+  HitObject_IsMiss = 269,
+  HitObject_IsHit = 270,
+  HitObject_IsNop = 271,
+  HitObject_RayFlags = 272,
+  HitObject_RayTMin = 273,
+  HitObject_RayTCurrent = 274,
+  HitObject_WorldRayOrigin = 275,
+  HitObject_WorldRayDirection = 276,
+  HitObject_ObjectRayOrigin = 277,
+  HitObject_ObjectRayDirection = 278,
+  HitObject_ObjectToWorld3x4 = 279,
+  HitObject_WorldToObject3x4 = 280,
+  HitObject_GeometryIndex = 281,
+  HitObject_InstanceIndex = 282,
+  HitObject_InstanceID = 283,
+  HitObject_PrimitiveIndex = 284,
+  HitObject_HitKind = 285,
+  HitObject_ShaderTableIndex = 286,
+  HitObject_SetShaderTableIndex = 287,
+  HitObject_LoadLocalRootTableConstant = 288,
+  HitObject_Attributes = 289,
+  RawBufferVectorLoad = 303,
+  RawBufferVectorStore = 304,
+  VectorReduceAnd = 309,
+  VectorReduceOr = 310,
+  FDot = 311,
+  NumOpCodes,
 };
 
 enum class AtomicBinOpCode : uint32_t
@@ -1613,6 +1649,14 @@ struct EntryPointInterface
   rdcarray<ResourceBase> samplers;
 };
 
+// A complete, finite binding declared by an original executable. This is independent of
+// debugger resource-use discovery and never represents a selected dynamic array element.
+struct ReplayRootBinding
+{
+  ResourceClass resourceClass = ResourceClass::Invalid;
+  uint32_t space = 0, first = 0, count = 0;
+};
+
 struct ResourceReference
 {
   ResourceReference(const rdcstr &handleStr, const EntryPointInterface::ResourceBase &resBase,
@@ -1683,6 +1727,7 @@ public:
   rdcstr GetCompilerSig() const override { return m_CompilerSig; }
   rdcstr GetEntryFunction() const override { return m_EntryPoint; }
   rdcstr GetShaderProfile() const override { return m_Profile; }
+  bool HasSourceDebugInfo() const override { return m_SourceInfo; }
   ShaderCompileFlags GetShaderCompileFlags() const override { return m_CompileFlags; }
   void GetLineInfo(size_t instruction, uintptr_t offset, LineColumnInfo &lineInfo) const override;
   void GetCallstack(size_t instruction, uintptr_t offset, rdcarray<rdcstr> &callstack) const override;
@@ -1697,8 +1742,15 @@ public:
 
   const Metadata *GetMetadataByName(const rdcstr &name) const;
   uint32_t GetDirectHeapAcessCount() const { return m_directHeapAccessCount; }
+  // SM6.6 only. NULL means every resource handle has a proven finite root-binding origin.
+  // Otherwise returns a static diagnostic and leaves bindings empty. Does not mutate the IR.
+  const char *GetReplayFiniteRootBindings(rdcarray<ReplayRootBinding> &bindings) const;
 
   static char GetDXILIdentifier(const bool dxcStyle) { return dxcStyle ? '%' : '_'; }
+  uint64_t GetRetainedStorageBytes() const
+  {
+    return alloc.GetAllocatedBytes() + m_Bytes.capacity() + m_Disassembly.capacity();
+  }
 protected:
   void Parse(const DXBC::Reflection *reflection);
   void SettleIDs();
@@ -1759,6 +1811,7 @@ protected:
   uint32_t m_DXILVersion;
 
   rdcstr m_CompilerSig, m_EntryPoint, m_Profile;
+  bool m_SourceInfo = false;
   ShaderCompileFlags m_CompileFlags;
   DXBC::ThreadScope m_Threadscope = DXBC::ThreadScope::Thread;
 
@@ -1770,6 +1823,9 @@ protected:
   rdcarray<rdcstr> m_Sections;
   rdcarray<rdcpair<uint64_t, rdcstr>> m_Comdats;
   uint32_t m_directHeapAccessCount = 0;
+  // Replay's finite binding proof must not treat a skipped/unknown parser record as absence
+  // of resource access. This veto does not change the normal parser or debugger behaviour.
+  bool m_ReplayParseComplete = true;
 
   rdcarray<rdcstr> m_Kinds;
 

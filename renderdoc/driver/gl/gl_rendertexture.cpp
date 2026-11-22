@@ -31,6 +31,48 @@
 #define OPENGL 1
 #include "data/glsl/glsl_ubos_cpp.h"
 
+namespace
+{
+// Texture objects are shared with the replay context. Display must restore their parameters on
+// failure as well as success, otherwise the next live forward replay inherits display-only state.
+template <typename Driver, typename RestoreSampler>
+struct GLTextureDisplayResources
+{
+  Driver &driver;
+  RestoreSampler &restoreSampler;
+  GLuint texture, castTexture = 0, customProgram = 0;
+  GLenum target;
+  GLint baseLevel[4] = {-1}, maxLevel[4] = {-1};
+  GLint depthMode = eGL_DEPTH_COMPONENT;
+  bool restoreDepth = false, restoreSampling = false, succeeded = false;
+
+  GLTextureDisplayResources(Driver &d, RestoreSampler &restore, GLuint tex, GLenum type)
+      : driver(d), restoreSampler(restore), texture(tex), target(type)
+  {
+  }
+  GLTextureDisplayResources(const GLTextureDisplayResources &) = delete;
+  GLTextureDisplayResources &operator=(const GLTextureDisplayResources &) = delete;
+
+  ~GLTextureDisplayResources()
+  {
+    if(baseLevel[0] >= 0)
+      driver.glTextureParameterivEXT(texture, target, eGL_TEXTURE_BASE_LEVEL, baseLevel);
+    if(maxLevel[0] >= 0)
+      driver.glTextureParameterivEXT(texture, target, eGL_TEXTURE_MAX_LEVEL, maxLevel);
+    restoreSampler(texture, restoreSampling, !succeeded);
+    if(customProgram)
+    {
+      driver.glUseProgram(0);
+      driver.glDeleteProgram(customProgram);
+    }
+    if(restoreDepth)
+      driver.glTextureParameteriEXT(texture, target, eGL_DEPTH_STENCIL_TEXTURE_MODE, depthMode);
+    if(castTexture)
+      driver.glDeleteTextures(1, &castTexture);
+  }
+};
+}
+
 bool GLReplay::RenderTexture(TextureDisplay cfg)
 {
   return RenderTextureInternal(cfg, TexDisplayFlags(eTexDisplay_BlendAlpha | eTexDisplay_MipShift));
@@ -116,7 +158,17 @@ bool GLReplay::RenderTextureInternal(TextureDisplay cfg, TexDisplayFlags flags)
 
   uint32_t numMips = m_CachedTextures[cfg.resourceId].mips;
 
-  GLuint castTexture = 0;
+  TextureSamplerState previousSampler;
+  const auto restoreSampler = [this, target, &previousSampler](GLuint texture, bool sampling,
+                                                              bool failed) {
+    if(sampling)
+      RestoreSamplerParams(target, texture, previousSampler);
+    if(failed)
+      InvalidateLiveForward();
+  };
+  GLTextureDisplayResources<WrappedOpenGL, decltype(restoreSampler)> temporary(
+      drv, restoreSampler, texname, target);
+  GLuint &castTexture = temporary.castTexture;
 
   GLenum displayFormat = texDetails.internalFormat;
 
@@ -147,9 +199,11 @@ bool GLReplay::RenderTextureInternal(TextureDisplay cfg, TexDisplayFlags flags)
       float fvalues[4] = {};
 
       // ensure source texture is complete
-      GL.glGetTextureParameterivEXT(texname, target, eGL_TEXTURE_MAX_LEVEL, values);
-
-      int prevMaxLevel = values[0];
+      GLTextureDisplayResources<GLDispatchTable, decltype(restoreSampler)> sourceParameters(
+          GL, restoreSampler, texname, target);
+      sourceParameters.succeeded = true;
+      GL.glGetTextureParameterivEXT(texname, target, eGL_TEXTURE_MAX_LEVEL,
+                                    sourceParameters.maxLevel);
 
       int maxlevel = numMips - 1;
       GL.glTextureParameterivEXT(texname, target, eGL_TEXTURE_MAX_LEVEL, (GLint *)&maxlevel);
@@ -292,9 +346,8 @@ bool GLReplay::RenderTextureInternal(TextureDisplay cfg, TexDisplayFlags flags)
         }
       }
 
-      GL.glTextureParameterivEXT(texname, target, eGL_TEXTURE_MAX_LEVEL, (GLint *)&prevMaxLevel);
-
       texname = castTexture;
+      temporary.texture = texname;
     }
   }
 
@@ -368,7 +421,7 @@ bool GLReplay::RenderTextureInternal(TextureDisplay cfg, TexDisplayFlags flags)
   else
     drv.glUseProgram(DebugData.texDisplayProg[intIdx]);
 
-  GLuint customProgram = 0;
+  GLuint &customProgram = temporary.customProgram;
 
   if(cfg.customShaderId != ResourceId() && drv.GetResourceManager()->HasResource(cfg.customShaderId))
   {
@@ -450,17 +503,18 @@ bool GLReplay::RenderTextureInternal(TextureDisplay cfg, TexDisplayFlags flags)
   drv.glActiveTexture((RDCGLenum)(eGL_TEXTURE0 + resType));
   drv.glBindTexture(target, texname);
 
-  GLint origDSTexMode = eGL_DEPTH_COMPONENT;
   if(dsTexMode != eGL_NONE && HasExt[ARB_stencil_texturing])
   {
-    drv.glGetTextureParameterivEXT(texname, target, eGL_DEPTH_STENCIL_TEXTURE_MODE, &origDSTexMode);
+    drv.glGetTextureParameterivEXT(texname, target, eGL_DEPTH_STENCIL_TEXTURE_MODE,
+                                   &temporary.depthMode);
+    temporary.restoreDepth = true;
     drv.glTextureParameteriEXT(texname, target, eGL_DEPTH_STENCIL_TEXTURE_MODE, dsTexMode);
   }
 
   // defined as arrays mostly for Coverity code analysis to stay calm about passing
   // them to the *TexParameter* functions
-  GLint baseLevel[4] = {-1};
-  GLint maxlevel[4] = {-1};
+  GLint (&baseLevel)[4] = temporary.baseLevel;
+  GLint (&maxlevel)[4] = temporary.maxLevel;
   GLint forcedparam[4] = {};
 
   bool levelsTex = (target != eGL_TEXTURE_BUFFER && target != eGL_TEXTURE_2D_MULTISAMPLE &&
@@ -669,7 +723,8 @@ bool GLReplay::RenderTextureInternal(TextureDisplay cfg, TexDisplayFlags flags)
 
   drv.glUnmapBuffer(eGL_UNIFORM_BUFFER);
 
-  TextureSamplerState prevSampState = SetSamplerParams(target, texname, mode);
+  previousSampler = SetSamplerParams(target, texname, mode);
+  temporary.restoreSampling = true;
 
   HeatmapData heatmapData = {};
 
@@ -728,25 +783,125 @@ bool GLReplay::RenderTextureInternal(TextureDisplay cfg, TexDisplayFlags flags)
   drv.glBindVertexArray(DebugData.emptyVAO);
   drv.glDrawArrays(eGL_TRIANGLE_STRIP, 0, 4);
 
-  if(baseLevel[0] >= 0)
-    drv.glTextureParameterivEXT(texname, target, eGL_TEXTURE_BASE_LEVEL, baseLevel);
-
-  if(maxlevel[0] >= 0)
-    drv.glTextureParameterivEXT(texname, target, eGL_TEXTURE_MAX_LEVEL, maxlevel);
-
-  RestoreSamplerParams(target, texname, prevSampState);
-
-  if(customProgram)
-  {
-    drv.glUseProgram(0);
-    drv.glDeleteProgram(customProgram);
-  }
-
-  if(dsTexMode != eGL_NONE && HasExt[ARB_stencil_texturing])
-    drv.glTextureParameteriEXT(texname, target, eGL_DEPTH_STENCIL_TEXTURE_MODE, origDSTexMode);
-
-  if(castTexture)
-    drv.glDeleteTextures(1, &castTexture);
-
+  temporary.succeeded = true;
   return true;
 }
+
+#if ENABLED(ENABLE_UNIT_TESTS)
+#include "catch/catch.hpp"
+
+namespace
+{
+struct GLTextureDisplayTestDriver
+{
+  std::map<GLuint, std::map<GLenum, GLint>> parameters;
+  rdcarray<GLuint> deletedTextures, deletedPrograms;
+  GLuint program = 0;
+  void glTextureParameterivEXT(GLuint texture, GLenum, GLenum parameter, const GLint *value)
+  {
+    parameters[texture][parameter] = *value;
+  }
+  void glTextureParameteriEXT(GLuint texture, GLenum target, GLenum parameter, GLint value)
+  {
+    glTextureParameterivEXT(texture, target, parameter, &value);
+  }
+  void glUseProgram(GLuint value) { program = value; }
+  void glDeleteProgram(GLuint value) { deletedPrograms.push_back(value); }
+  void glDeleteTextures(GLsizei count, const GLuint *textures)
+  {
+    for(GLsizei i = 0; i < count; ++i)
+      deletedTextures.push_back(textures[i]);
+  }
+};
+}
+
+TEST_CASE("GL texture display restores shared parameters on either upload failure",
+          "[gl][replay][live-forward]")
+{
+  // Use the production cleanup object with a fake native driver. The first upload fails before
+  // changing sampling, the second fails afterwards; both must preserve the original texture.
+  for(uint32_t stop = 0; stop < 3; ++stop)
+  {
+    CAPTURE(stop);
+    GLTextureDisplayTestDriver driver;
+    uint32_t samplingRestores = 0, invalidations = 0;
+    const auto restore = [&](GLuint texture, bool sampling, bool failed) {
+      if(sampling)
+      {
+        driver.parameters[texture][eGL_TEXTURE_MIN_FILTER] = eGL_NEAREST;
+        ++samplingRestores;
+      }
+      if(failed)
+        ++invalidations;
+    };
+    const auto render = [&]() {
+      GLTextureDisplayResources<GLTextureDisplayTestDriver, decltype(restore)> temporary(
+          driver, restore, 3, eGL_TEXTURE_2D);
+      temporary.baseLevel[0] = 2;
+      temporary.maxLevel[0] = 5;
+      temporary.depthMode = eGL_STENCIL_INDEX;
+      temporary.restoreDepth = true;
+      temporary.customProgram = driver.program = 11;
+      driver.parameters[3][eGL_TEXTURE_BASE_LEVEL] = 0;
+      driver.parameters[3][eGL_TEXTURE_MAX_LEVEL] = 12;
+      driver.parameters[3][eGL_DEPTH_STENCIL_TEXTURE_MODE] = eGL_DEPTH_COMPONENT;
+      driver.parameters[3][eGL_TEXTURE_MIN_FILTER] = eGL_NEAREST;
+      if(stop == 0)
+        return false;
+      temporary.restoreSampling = true;
+      driver.parameters[3][eGL_TEXTURE_MIN_FILTER] = eGL_LINEAR;
+      if(stop == 1)
+        return false;
+      temporary.succeeded = true;
+      return true;
+    };
+    CHECK(render() == (stop == 2));
+    CHECK(driver.parameters[3][eGL_TEXTURE_BASE_LEVEL] == 2);
+    CHECK(driver.parameters[3][eGL_TEXTURE_MAX_LEVEL] == 5);
+    CHECK(driver.parameters[3][eGL_DEPTH_STENCIL_TEXTURE_MODE] == GLint(eGL_STENCIL_INDEX));
+    CHECK(driver.parameters[3][eGL_TEXTURE_MIN_FILTER] == GLint(eGL_NEAREST));
+    CHECK(samplingRestores == (stop == 0 ? 0U : 1U));
+    CHECK(invalidations == (stop == 2 ? 0U : 1U));
+    CHECK(driver.program == 0);
+    REQUIRE(driver.deletedPrograms.size() == 1);
+    CHECK(driver.deletedPrograms[0] == 11);
+    CHECK(driver.deletedTextures.empty());
+  }
+}
+
+TEST_CASE("GL texture display restores cast source separately and frees only temporary objects",
+          "[gl][replay][live-forward]")
+{
+  GLTextureDisplayTestDriver driver;
+  uint32_t invalidations = 0;
+  const auto restore = [&](GLuint, bool, bool failed) {
+    if(failed)
+      ++invalidations;
+  };
+  {
+    GLTextureDisplayResources<GLTextureDisplayTestDriver, decltype(restore)> temporary(
+        driver, restore, 3, eGL_TEXTURE_2D);
+    temporary.castTexture = 7;
+    {
+      GLTextureDisplayResources<GLTextureDisplayTestDriver, decltype(restore)> source(
+          driver, restore, 3, eGL_TEXTURE_2D);
+      source.maxLevel[0] = 9;
+      source.succeeded = true;
+      driver.parameters[3][eGL_TEXTURE_MAX_LEVEL] = 12;
+      temporary.texture = 7;
+    }
+    CHECK(driver.parameters[3][eGL_TEXTURE_MAX_LEVEL] == 9);
+    CHECK(invalidations == 0);
+    temporary.maxLevel[0] = 5;
+    driver.parameters[7][eGL_TEXTURE_MAX_LEVEL] = 12;
+    // Simulate a failed upload after converting the selected texture. The source must not
+    // acquire the cast object's parameters, and its resource must never be deleted.
+  }
+  CHECK(driver.parameters[3][eGL_TEXTURE_MAX_LEVEL] == 9);
+  CHECK(driver.parameters[7][eGL_TEXTURE_MAX_LEVEL] == 5);
+  CHECK(invalidations == 1);
+  REQUIRE(driver.deletedTextures.size() == 1);
+  CHECK(driver.deletedTextures[0] == 7);
+  CHECK(driver.deletedPrograms.empty());
+}
+#endif

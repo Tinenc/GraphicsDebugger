@@ -29,6 +29,17 @@
 #include "core/core.h"
 #include "maths/vec.h"
 
+class Matrix4f;
+
+struct MeshComponentHighlight
+{
+  Matrix4f DepthBiasedTransform(const Matrix4f &mvp, const ICamera *camera) const;
+
+  rdcarray<FloatVector> vertices;
+  uint32_t selectedVertices = 0;
+  Topology topology = Topology::TriangleList;
+};
+
 template <typename T, BucketRecordType bucketType = T::BucketType>
 struct BucketForRecord
 {
@@ -62,6 +73,45 @@ struct BucketForRecord<T, BucketRecordType::Pow2>
   }
 };
 
+// Event overlays do not alter resource mappings. Keys bind cached derived pipelines to the
+// exact live base pipeline (which may itself be a user's shared replacement).
+struct EventShaderOverrideBinding
+{
+  ResourceId original;
+  ResourceId replacement;
+  uint32_t outputTarget = ~0U;
+  bool independentFloatOutput = false;
+};
+
+struct EventShaderPipelineKey
+{
+  ResourceId pipeline;
+  uint32_t eventId = 0;
+  ResourceId replacements[8] = {};
+  uint32_t outputTarget = ~0U;
+  bool independentFloatOutput = false;
+  bool operator<(const EventShaderPipelineKey &other) const
+  {
+    if(pipeline != other.pipeline)
+      return pipeline < other.pipeline;
+    if(eventId != other.eventId)
+      return eventId < other.eventId;
+    for(size_t i = 0; i < ARRAY_COUNT(replacements); i++)
+      if(replacements[i] != other.replacements[i])
+        return replacements[i] < other.replacements[i];
+    if(outputTarget != other.outputTarget)
+      return outputTarget < other.outputTarget;
+    return independentFloatOutput < other.independentFloatOutput;
+  }
+  bool Uses(ResourceId target) const
+  {
+    for(ResourceId replacement : replacements)
+      if(replacement == target)
+        return true;
+    return false;
+  }
+};
+
 struct FrameRecord
 {
   FrameDescription frameInfo;
@@ -70,6 +120,139 @@ struct FrameRecord
 };
 
 DECLARE_REFLECTION_STRUCT(FrameRecord);
+
+// Checkpoints are replay-device state, never presentation images. The shared controller proposes
+// useful module boundaries; each backend must validate an actual resumable boundary and owns all
+// resource versions, command positions and synchronization needed to restore it.
+struct ReplayCheckpointConfig
+{
+  bool enabled = true;
+  uint64_t byteBudget = 2ULL * 1024 * 1024 * 1024;
+  uint32_t maxCheckpoints = 3;
+  uint32_t minEventGap = 128;
+};
+
+struct ReplayCheckpointCandidate
+{
+  // State AFTER this event. A backend may choose an earlier safe boundary within this module.
+  uint32_t eventId = 0;
+  uint32_t moduleId = 0;
+  uint32_t priority = 0;
+  uint64_t estimatedWritableBytes = 0;
+};
+
+// Candidate changes under the same storage policy must preserve still-selected native versions.
+// Shrinking storage or explicitly disabling remains a full configuration change.
+inline bool ReplayCheckpointStorageCompatible(const ReplayCheckpointConfig &previous,
+                                               const ReplayCheckpointConfig &next)
+{
+  return previous.enabled && next.enabled && previous.byteBudget == next.byteBudget &&
+         next.byteBudget > 0 && previous.minEventGap == next.minEventGap &&
+         next.maxCheckpoints >= previous.maxCheckpoints && previous.maxCheckpoints > 0;
+}
+
+inline bool ReplayCheckpointCandidateContains(const rdcarray<ReplayCheckpointCandidate> &candidates,
+                                               uint32_t eventId)
+{
+  for(const ReplayCheckpointCandidate &candidate : candidates)
+    if(candidate.eventId == eventId)
+      return true;
+  return false;
+}
+
+struct ReplayCheckpointStats
+{
+  bool supported = false;
+  bool enabled = false;
+  // Event zero is a real saved post-initialisation state only when this flag is set.
+  // A default lastResumeEvent of zero alone is never evidence of a checkpoint hit.
+  bool hasInitialCheckpoint = false;
+  uint32_t checkpointCount = 0;
+  uint64_t allocatedBytes = 0;
+  uint64_t sharedBytes = 0;
+  uint64_t builds = 0;
+  uint64_t hits = 0;
+  uint64_t misses = 0;
+  uint64_t invalidations = 0;
+  uint64_t rejected = 0;
+  uint32_t lastResumeEvent = 0;
+  uint32_t lastSaveEvent = 0;
+  rdcarray<uint32_t> events;
+  // Optional native planning proof, separate from materialized GPU checkpoints. Controllers can
+  // avoid a replay when no new boundary was admitted, and try another bounded idle candidate.
+  bool candidatePlanKnown = false;
+  bool canTryOtherCandidates = false;
+  rdcarray<uint32_t> candidateEvents;
+  // Optional local capability: native planning was stopped solely by a measured zero memory
+  // budget. Old remote peers leave this false; a missing plan is not evidence of memory pressure.
+  bool memoryBudgetBlocked = false;
+  // Internal diagnostic, not a translated UI status. Empty means no current rejection.
+  rdcstr reason;
+};
+
+// Persistent edits address captured storage, independently of an event, stage or API binding slot.
+// The driver receives a sorted, non-overlapping array and must replace its configuration atomically.
+// Initial contents remain immutable; captured writes must not silently remove an active patch.
+struct ReplayBufferPatch
+{
+  ResourceId buffer;
+  uint64_t byteOffset = 0;
+  bytebuf data;
+};
+
+DECLARE_REFLECTION_STRUCT(ReplayBufferPatch);
+
+rdcstr ValidateReplayBufferPatches(const rdcarray<ReplayBufferPatch> &patches);
+
+// A half-open byte range in original captured buffer storage, independent of API binding slots.
+struct ReplayBufferPatchRange
+{
+  ResourceId buffer;
+  uint64_t byteOffset = 0;
+  uint64_t byteLength = 0;
+};
+
+// Layout compatibility is intentionally false for empty or invalid configurations. It does not
+// compare values, and split/merged representations of the same coverage have different layouts.
+bool SameReplayBufferPatchLayout(const rdcarray<ReplayBufferPatch> &previous,
+                                 const rdcarray<ReplayBufferPatch> &next);
+
+// Compare validated, sorted, non-overlapping configurations by absolute byte address. An added or
+// removed override is a change even when its value might equal the unknown original captured byte.
+// Adjacent changed bytes are merged; equal bytes are excluded even across different patch layouts.
+// Invalid input or excessive fragmentation returns an error and clears changes. Callers must then
+// conservatively invalidate, not treat an empty result as proof of no changes or reject the edit.
+rdcstr GetReplayBufferPatchChanges(const rdcarray<ReplayBufferPatch> &previous,
+                                   const rdcarray<ReplayBufferPatch> &next,
+                                   rdcarray<ReplayBufferPatchRange> &changes,
+                                   uint32_t maxRanges = 4096);
+
+void ApplyReplayBufferPatches(const rdcarray<ReplayBufferPatch> &patches, ResourceId buffer,
+                              uint64_t byteOffset, void *data, uint64_t byteLength);
+
+// Keep edit identities separately from the native disjoint ranges. Removing an overlapping edit
+// reveals an earlier edit, rather than losing its bytes or depending on map traversal order.
+class ReplayBufferPatchSet
+{
+public:
+  rdcstr Set(ResourceId buffer, uint64_t byteOffset, const bytebuf &data);
+  bool Remove(ResourceId buffer, uint64_t byteOffset, uint64_t byteLength);
+  // Remove every layer covering these bytes, retaining other bytes and exact undo identities.
+  bool ResetRange(ResourceId buffer, uint64_t byteOffset, uint64_t byteLength);
+  void Clear() { m_Layers.clear(); }
+  bool Empty() const { return m_Layers.empty(); }
+  rdcarray<ReplayBufferPatch> Flatten() const;
+
+private:
+  struct Layer
+  {
+    ResourceId buffer;
+    uint64_t byteOffset = 0;
+    uint64_t byteLength = 0;
+    rdcarray<ReplayBufferPatch> ranges;
+  };
+  rdcarray<Layer> m_Layers;
+};
 
 enum class RemapTexture : uint32_t
 {
@@ -135,6 +318,29 @@ class IRemoteDriver
 {
 public:
   virtual void Shutdown() = 0;
+
+  // Replay state belongs to the device, including when the UI is using a remote proxy.
+  virtual uint32_t GetReplayControlVersion() const { return 0; }
+  virtual bool ExchangeReplayCheckpointBypass(bool bypass) { return false; }
+  virtual bool ExchangeReplayCheckpointNaturalReference(bool reference) { return false; }
+  virtual bool ExchangeReplayCheckpointPrefixOnly(bool prefixOnly) { return false; }
+  virtual void ConfigureReplayCheckpoints(const ReplayCheckpointConfig &config,
+                                           const rdcarray<ReplayCheckpointCandidate> &candidates)
+  {
+  }
+  virtual void InvalidateReplayCheckpoints(uint32_t firstAffectedEvent = 0) {}
+  virtual ReplayCheckpointStats GetReplayCheckpointStats() { return {}; }
+  // Idle-only, CPU-only probe. True means a previously measured zero budget became positive;
+  // it does not admit a candidate or build/restore resources. Unsupported drivers return false.
+  virtual bool RefreshReplayCheckpointMemoryBudget() { return false; }
+  virtual rdcstr SetReplayBufferPatches(const rdcarray<ReplayBufferPatch> &patches)
+  {
+    return patches.empty() ? rdcstr() : rdcstr("Persistent buffer edits are not supported by this replay driver");
+  }
+  // Cutoff certified by the last successful Set. Zero requires canonical replay. A positive
+  // value permits restoring a complete prefix strictly before this first possible consumer.
+  // Only identical active byte ranges with new values can reuse old patched prefixes.
+  virtual uint32_t GetReplayBufferPatchFirstAffectedEvent() const { return 0; }
 
   virtual APIProperties GetAPIProperties() = 0;
 
@@ -204,15 +410,65 @@ public:
   virtual void GetTextureData(ResourceId tex, const Subresource &sub,
                               const GetTextureDataParams &params, bytebuf &data) = 0;
 
+  virtual ShaderPairComparison ComparePixelShaderPair(uint32_t eventId, ResourceId expectedOriginal,
+                                                       ResourceId baseline, ResourceId candidate)
+  {
+    ShaderPairComparison result;
+    result.eventId = eventId;
+    result.reason = "Single-prefix pixel Shader comparison is not supported by this replay driver";
+    return result;
+  }
+
   virtual void BuildTargetShader(ShaderEncoding sourceEncoding, const bytebuf &source,
                                  const rdcstr &entry, const ShaderCompileFlags &compileFlags,
                                  ShaderStage type, ResourceId &id, rdcstr &errors) = 0;
   virtual rdcarray<ShaderEncoding> GetTargetShaderEncodings() = 0;
   virtual void ReplaceResource(ResourceId from, ResourceId to) = 0;
   virtual void RemoveReplacement(ResourceId id) = 0;
+  virtual rdcstr ReplaceTargetShaderChecked(ResourceId from, ResourceId to)
+  {
+    return "Checked target-shader replacement is not supported by this replay driver";
+  }
+  virtual rdcstr RemoveTargetShaderReplacementChecked(ResourceId id)
+  {
+    return "Checked target-shader replacement is not supported by this replay driver";
+  }
   virtual void FreeTargetResource(ResourceId id) = 0;
   virtual void ClearReplayCache() = 0;
   virtual void ReloadShaderDebugInformation() = 0;
+
+  // Event-scoped shader overrides are deliberately implemented below the resource replacement
+  // layer. Unsupported drivers keep these no-op defaults, while a local driver can temporarily
+  // bind configured shaders around ReplayController's eReplay_OnlyDraw call.
+  virtual rdcstr SetEventShaderOverride(uint32_t eventId, ShaderStage stage,
+                                        ResourceId expectedOriginal, ResourceId replacement,
+                                        uint32_t outputTarget = ~0U,
+                                        bool independentFloatOutput = false)
+  {
+    return "Event-scoped shader overrides are not supported by this replay driver";
+  }
+  virtual void ClearEventShaderOverride(uint32_t eventId, ShaderStage stage) {}
+  virtual void ClearEventShaderOverrides() {}
+  virtual void ClearEventShaderOverridesForResource(ResourceId id) {}
+  virtual rdcstr ApplyEventShaderOverrides(uint32_t eventId) { return {}; }
+  virtual void RestoreEventShaderOverrides() {}
+  virtual TextureDescription GetEventShaderPreviewTexture(uint32_t eventId, ShaderStage stage)
+  { return {}; }
+
+  virtual rdcstr SetEventCBufferOverride(uint32_t eventId, ShaderStage stage, uint32_t slot,
+                                         ResourceId expectedShader, ResourceId expectedBuffer,
+                                         uint64_t expectedByteOffset, uint64_t expectedByteSize,
+                                         const bytebuf &data, uint32_t registerSpace = 0)
+  {
+    return "Event-scoped constant-buffer overrides are not supported by this replay driver";
+  }
+  virtual void ClearEventCBufferOverride(uint32_t eventId, ShaderStage stage, uint32_t slot,
+                                         uint32_t registerSpace = 0)
+  {
+  }
+  virtual void ClearEventCBufferOverrides() {}
+  virtual rdcstr ApplyEventCBufferOverrides(uint32_t eventId) { return {}; }
+  virtual void RestoreEventCBufferOverrides() {}
 
   virtual rdcarray<GPUCounter> EnumerateCounters() = 0;
   virtual CounterDescription DescribeCounter(GPUCounter counterID) = 0;
@@ -252,9 +508,73 @@ public:
   virtual rdcarray<GPUDevice> GetAvailableGPUs() = 0;
 };
 
+// Event-scoped CBuffer ownership includes the register space. D3D11 accepts only space 0, while
+// D3D12 may legally bind the same b-register in several spaces at one stage.
+struct EventCBufferOverrideKey
+{
+  uint32_t eventId = 0;
+  ShaderStage stage = ShaderStage::Count;
+  uint32_t slot = 0;
+  uint32_t registerSpace = 0;
+
+  bool operator<(const EventCBufferOverrideKey &other) const
+  {
+    if(eventId != other.eventId)
+      return eventId < other.eventId;
+    if(stage != other.stage)
+      return stage < other.stage;
+    if(slot != other.slot)
+      return slot < other.slot;
+    return registerSpace < other.registerSpace;
+  }
+};
+
 class IReplayDriver : public IRemoteDriver
 {
 public:
+  // Canonical forced replay and temporary analysis mutations must not restore or create a
+  // checkpoint. This flag does not discard existing checkpoints or change their budget.
+  bool m_ReplayCheckpointBypass = false;
+  // An automatic reference disables checkpoint reuse while retaining ordinary replay work
+  // reduction (for example proven-clean initial resources). Force and analysis never set this.
+  // This belongs to the private replay driver contract, not the public replay/bindings ABI.
+  bool m_ReplayCheckpointNaturalReference = false;
+  // A foreground shared-buffer edit may save its necessary pre-consumer anchor, but leaves
+  // downstream rebuilding to idle maintenance. Ordinary event navigation keeps its full policy.
+  // Bypass always takes precedence over this request-local restriction.
+  bool m_ReplayCheckpointPrefixOnly = false;
+  // A controller-owned persistent buffer edit can rebuild an original-pipeline write proof
+  // even when its first forced replay deliberately bypasses result checkpoints. Analysis
+  // scopes clear this provenance; it does not authorise cached output or native-list reuse.
+  bool m_ReplayBufferMutationRoot = false;
+  // Checked Shader replacement replay only. A backend must independently prove unchanged
+  // read/write envelopes before retaining dirty-content evidence; this never permits checkpoints.
+  bool m_ReplayShaderMutationRoot = false;
+  uint32_t GetReplayControlVersion() const override { return 1; }
+  bool ExchangeReplayCheckpointBypass(bool bypass) override
+  {
+    const bool previous = m_ReplayCheckpointBypass;
+    m_ReplayCheckpointBypass = bypass;
+    return previous;
+  }
+  bool ExchangeReplayCheckpointNaturalReference(bool reference) override
+  {
+    const bool previous = m_ReplayCheckpointNaturalReference;
+    m_ReplayCheckpointNaturalReference = reference;
+    return previous;
+  }
+  bool ExchangeReplayCheckpointPrefixOnly(bool prefixOnly) override
+  {
+    const bool previous = m_ReplayCheckpointPrefixOnly;
+    m_ReplayCheckpointPrefixOnly = prefixOnly;
+    return previous;
+  }
+
+  // When non-empty, overlay backends should render wireframe/drawcall for all listed child EIDs
+  // instead of just the current eventId. Set by ReplayOutput::RefreshOverlay when user selects
+  // a MultiAction parent node.
+  rdcarray<uint32_t> m_OverlayMultiActionEvents;
+
   virtual bool IsRemoteProxy() = 0;
 
   virtual IReplayDriver *MakeDummyDriver() = 0;
@@ -283,15 +603,41 @@ public:
                          CompType typeCast, float pixel[4]) = 0;
 
   virtual ResourceId CreateProxyTexture(const TextureDescription &templateTex) = 0;
+  // Create a CPU-uploadable proxy whose lifetime is managed by the texture snapshot cache.
+  virtual ResourceId CreateProxyTextureSnapshot(const TextureDescription &templateTex)
+  {
+    return CreateProxyTexture(templateTex);
+  }
+  // Query before beginning the portable CPU readback fallback. Drivers that do not have a
+  // replay-owned upload proxy must return false so an unsupported native snapshot fails closed
+  // without first copying a full texture through CPU memory.
+  virtual bool SupportsProxyTextureSnapshots() { return false; }
   virtual void SetProxyTextureData(ResourceId texid, const Subresource &sub, byte *data,
                                    size_t dataSize) = 0;
+  // Create a replay-owned GPU copy of one texture subresource. The returned resource must remain
+  // valid across subsequent ReplayLog()/ApplyInitialContents() calls. Drivers may preserve more of
+  // the source topology than requested and describe the corresponding selection in snapshotSub.
+  // Returning a null ResourceId asks the caller to use its portable readback fallback.
+  virtual ResourceId CreateTextureSnapshot(ResourceId source, const Subresource &sourceSub,
+                                           CompType typeCast, Subresource &snapshotSub)
+  {
+    return ResourceId();
+  }
+  // Release a resource returned by either snapshot creation method. Implementations must ignore
+  // unknown or already-freed IDs so bounded controller caches can safely discard stale entries.
+  virtual void FreeTextureSnapshot(ResourceId snapshot) {}
+  virtual void FreeTextureSnapshots(const rdcarray<ResourceId> &snapshots)
+  {
+    for(ResourceId snapshot : snapshots)
+      FreeTextureSnapshot(snapshot);
+  }
   virtual bool IsTextureSupported(const TextureDescription &tex) = 0;
 
   virtual ResourceId CreateProxyBuffer(const BufferDescription &templateBuf) = 0;
   virtual void SetProxyBufferData(ResourceId bufid, byte *data, size_t dataSize) = 0;
 
   virtual void RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secondaryDraws,
-                          const MeshDisplay &cfg) = 0;
+                          const MeshDisplay &cfg, const MeshComponentHighlight &components) = 0;
   virtual bool RenderTexture(TextureDisplay cfg) = 0;
 
   virtual void SetCustomShaderIncludes(const rdcarray<rdcstr> &directories) = 0;

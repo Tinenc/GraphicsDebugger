@@ -23,7 +23,11 @@
  ******************************************************************************/
 
 #include "QRDInterface.h"
+#include <cstdlib>
+#include <QDebug>
 #include <QDir>
+#include <QFileInfo>
+#include <QProcessEnvironment>
 #include <QStandardPaths>
 #include "Code/QRDUtils.h"
 
@@ -75,7 +79,6 @@ CaptureSettings::CaptureSettings()
   autoStart = false;
   queuedFrameCap = 0;
   numQueuedFrames = 0;
-  RENDERDOC_GetDefaultCaptureOptions(&options);
 }
 
 CaptureSettings::operator QVariant() const
@@ -111,6 +114,7 @@ CaptureSettings::operator QVariant() const
 
   ret[lit("queuedFrameCap")] = queuedFrameCap;
   ret[lit("numQueuedFrames")] = numQueuedFrames;
+  ret[lit("monitorScriptPath")] = monitorScriptPath;
 
   return ret;
 }
@@ -160,10 +164,83 @@ CaptureSettings::CaptureSettings(const QVariant &v)
     numQueuedFrames = data[lit("numQueuedFrames")].toUInt();
   else
     numQueuedFrames = 0;
+
+  if(data.contains(lit("monitorScriptPath")))
+    monitorScriptPath = data[lit("monitorScriptPath")].toString();
 }
 
 rdcstr ConfigFilePath(const rdcstr &filename)
 {
+  // QProcessEnvironment preserves the native Unicode environment on Windows. qgetenv's local
+  // encoding conversion must not redirect a non-ASCII isolation directory to a different path.
+  // i18n-ignore: Process-owner environment key, not user-visible UI text.
+  QString isolated = QProcessEnvironment::systemEnvironment().value(lit("RENDERDOC_CONFIG_DIR"));
+  if(!isolated.isEmpty())
+  {
+    QString leaf = filename;
+#if defined(Q_OS_WIN)
+    isolated.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    leaf.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    const QChar driveLetter = isolated[0].toLower();
+    const bool drive = isolated.size() >= 3 && driveLetter >= QLatin1Char('a') &&
+                       driveLetter <= QLatin1Char('z') && isolated[1] == QLatin1Char(':') &&
+                       isolated[2] == QLatin1Char('/');
+    const int share = isolated.indexOf(QLatin1Char('/'), 2);
+    const bool unc = isolated.size() > 4 && isolated[0] == QLatin1Char('/') &&
+                     isolated[1] == QLatin1Char('/') && isolated[2] != QLatin1Char('/') &&
+                     isolated[2] != QLatin1Char('?') && isolated[2] != QLatin1Char('.') &&
+                     share > 2 && share + 1 < isolated.size() &&
+                     isolated[share + 1] != QLatin1Char('/');
+    bool valid = drive || unc;
+#else
+    bool valid = isolated.startsWith(QLatin1Char('/'));
+#endif
+    // Only this function's root-directory callers may pass an empty leaf. All actual files and
+    // subdirectories must remain relative to the explicitly supplied root, before normalization.
+    valid = valid && !leaf.startsWith(QLatin1Char('/')) && !leaf.contains(QLatin1Char(':'));
+    for(const QString &component : isolated.split(QLatin1Char('/')))
+    {
+      valid = valid && component != QLatin1String(".") && component != QLatin1String("..");
+#if defined(Q_OS_WIN)
+      // Win32 strips trailing dots/spaces; do not allow normalization to introduce traversal.
+      valid = valid && !component.endsWith(QLatin1Char('.')) &&
+              !component.endsWith(QLatin1Char(' '));
+#endif
+    }
+    if(!leaf.isEmpty())
+      for(const QString &component : leaf.split(QLatin1Char('/')))
+      {
+        valid = valid && !component.isEmpty() && component != QLatin1String(".") &&
+                component != QLatin1String("..");
+#if defined(Q_OS_WIN)
+        valid = valid && !component.endsWith(QLatin1Char('.')) &&
+                !component.endsWith(QLatin1Char(' '));
+#endif
+      }
+    for(QChar c : isolated + leaf)
+      valid = valid && c.unicode() >= 32 && c != QLatin1Char('"') && c != QLatin1Char('*') &&
+              c != QLatin1Char('?') && c != QLatin1Char('<') && c != QLatin1Char('>') &&
+              c != QLatin1Char('|');
+
+    if(!valid)
+    {
+      // i18n-ignore: Startup log diagnostic for an invalid process-owner isolation request.
+      qCritical("RENDERDOC_CONFIG_DIR requires an absolute directory and a contained config path; "
+                "refusing user-directory fallback");
+      std::exit(2);
+    }
+
+    isolated = QDir::cleanPath(isolated);
+    if(!QDir().mkpath(isolated) || !QFileInfo(isolated).isDir())
+    {
+      // i18n-ignore: Startup log diagnostic; no translated UI has been initialized on this path.
+      qCritical("Cannot create RENDERDOC_CONFIG_DIR; refusing user-directory fallback");
+      std::exit(2);
+    }
+
+    return QDir::cleanPath(QDir(isolated).absoluteFilePath(leaf));
+  }
+
   QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 
   QDir dir(path);

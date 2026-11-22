@@ -1,0 +1,49 @@
+using System.Linq;
+using Bread;
+using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
+
+// Opt-in URP 14+ diagnostic adapter. Add to each effective RendererData used by
+// the requested Scene/Game views. It never presents one camera's color in another.
+public sealed class BreadViewEvidenceUrpFeature : ScriptableRendererFeature
+{
+    Probe pass;
+    public override void Create() { pass?.Dispose(); pass=new Probe { renderPassEvent=(RenderPassEvent)((int)RenderPassEvent.AfterRendering+100) }; }
+    public override void AddRenderPasses(ScriptableRenderer renderer,ref RenderingData data)
+    {
+        if(data.cameraData.cameraType!=CameraType.Game && data.cameraData.cameraType!=CameraType.SceneView)return;
+        if(BreadPassCapture.Pending().Contains(data.cameraData.camera.GetInstanceID()+"|Bread.View.Final"))renderer.EnqueuePass(pass);
+    }
+    protected override void Dispose(bool disposing) { pass?.Dispose(); }
+    sealed class Probe : ScriptableRenderPass
+    {
+        readonly BreadCameraResources<RenderTexture> copies=new BreadCameraResources<RenderTexture>(rt=>{rt.Release();CoreUtils.Destroy(rt);});
+        public override void Execute(ScriptableRenderContext context,ref RenderingData data)
+        {
+            var camera=data.cameraData.camera;
+            // After final presentation, use this camera's final target extent,
+            // rather than the internal render-scale descriptor or Game window.
+            var descriptor=camera.targetTexture ? camera.targetTexture.descriptor : data.cameraData.cameraTargetDescriptor;
+            if(!camera.targetTexture){descriptor.width=camera.pixelWidth;descriptor.height=camera.pixelHeight;}
+            descriptor.graphicsFormat=UnityEngine.Experimental.Rendering.GraphicsFormat.R32G32B32A32_SFloat;
+            descriptor.depthBufferBits=0;descriptor.depthStencilFormat=UnityEngine.Experimental.Rendering.GraphicsFormat.None;
+            descriptor.msaaSamples=1;descriptor.useDynamicScale=false;descriptor.useMipMap=false;descriptor.autoGenerateMips=false;
+            var state=copies.Acquire(camera,descriptor,d=>{var rt=new RenderTexture(d);rt.Create();return rt;},settingsKey:"final-linear-float");
+            var source=camera.targetTexture ? new RenderTargetIdentifier(camera.targetTexture) : new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget);
+            var cmd=CommandBufferPool.Get("Bread final view target observation");
+            try
+            {
+                cmd.Blit(source,state.Data);
+                BreadPassCapture.Record(cmd,state.Data,"Bread.View.Final","URP after final blit/UI; native final target converted by sampling to float; verify display encoding",camera,true);
+                // The diagnostic conversion is last, but still restore target,
+                // viewport and camera matrices for later user extension points.
+                cmd.SetRenderTarget(source);cmd.SetViewport(camera.pixelRect);
+                RenderingUtils.SetViewAndProjectionMatrices(cmd,data.cameraData.GetViewMatrix(),data.cameraData.GetGPUProjectionMatrix(),true);
+                context.ExecuteCommandBuffer(cmd);
+            }
+            finally {CommandBufferPool.Release(cmd);}
+        }
+        public void Dispose(){copies.Dispose();}
+    }
+}

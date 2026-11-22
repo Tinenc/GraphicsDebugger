@@ -1,0 +1,50 @@
+[
+  {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "5",
+    "skipped": "13",
+    "tests": "1965",
+    "time": "190.810",
+    "timestamp": "2026-11-16T04:52:09.164582+08:00",
+    "hostname": "CHINAMI-I7GI560",
+    "suite": "bread-agent-tests-20261116",
+    "xmlSha256": "12e23f901b8614f66f848b5998ebbf6198c5ee7962c0fd0203ddaf6234b75dc2"
+  },
+  {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "5",
+    "time": "26.660",
+    "timestamp": "2026-11-16T04:57:54.398520+08:00",
+    "hostname": "CHINAMI-I7GI560",
+    "suite": "bread-agent-native-retest-20261116",
+    "xmlSha256": "27dd3d19d6ef7ee477da46bfab81eeaaada70f6d6c1e31bc653d21dd8a97f1f2"
+  },
+  {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "65",
+    "skipped": "334",
+    "tests": "10641",
+    "time": "1278.799",
+    "timestamp": "2026-11-16T04:56:20.395243+08:00",
+    "hostname": "CHINAMI-I7GI560",
+    "suite": "bread-mcp-tests-20261116",
+    "xmlSha256": "5d7bceb80ff670b9774f4f39e7200ee8b646965fe1c297dba8b29990c54577cf"
+  },
+  {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "4",
+    "tests": "206",
+    "time": "26.956",
+    "timestamp": "2026-11-16T05:22:36.640692+08:00",
+    "hostname": "CHINAMI-I7GI560",
+    "suite": "bread-mcp-retest-20261116",
+    "xmlSha256": "51533d1080804edc9040ee98e782b3f8eb21cc754c6239d45fe69b06e539b848"
+  }
+]

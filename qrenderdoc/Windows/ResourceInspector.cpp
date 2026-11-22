@@ -26,6 +26,7 @@
 #include <QCollator>
 #include <QKeyEvent>
 #include <QMenu>
+#include <memory>
 #include "Code/Resources.h"
 #include "Widgets/AnnotationDisplay.h"
 #include "Widgets/Extended/RDHeaderView.h"
@@ -692,8 +693,10 @@ void ResourceInspector::on_viewContents_clicked()
       if(!refl)
         return;
 
-      GUIInvoke::call(this, [ctx, refl] {
-        IShaderViewer *viewer = ctx->ViewShader(refl, ResourceId());
+      // Own the metadata until the GUI has created its viewer, even if the shader is replaced.
+      const auto reflection = std::make_shared<ShaderReflection>(*refl);
+      GUIInvoke::call(this, [ctx, reflection] {
+        IShaderViewer *viewer = ctx->ViewShader(reflection.get(), ResourceId());
 
         ctx->AddDockWindow(viewer->Widget(), DockReference::MainToolArea, NULL);
       });

@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "toolCount": 271,
+  "instance": "65680-90dc4b0212bc4805b9bb97cf1b2b9beb",
+  "results": {
+    "ping": [
+      "{\"status\": \"ok\", \"server\": \"replaylab\", \"extensionVersion\": \"1.13.121\", \"integrationVersion\": \"1.13.121\", \"protocolVersion\": 2, \"ipc_dir\": \"C:\\\\Users\\\\Administrator\\\\AppData\\\\Local\\\\ReplayLab\\\\ipc-v2\\\\instances\\\\65680-90dc4b0212bc4805b9bb97cf1b2b9beb\", \"capabilities\": [\"request-mailbox-v2\", \"capture-symbol-catalog-v1\", \"async-shader-catalog-export-v1\", \"unique-shader-resource-inventory-v2\", \"capture-bound-symbol-aliases-v1\", \"shader-search-v1\", \"resource-usage-v1\", \"pixel-object-inspector-v1\", \"d3d11-event-shader-override-v1\", \"d3d11-event-cbuffer-override-v1\", \"d3d11-event-cbuffer-clear-all-v1\", \"current-renderdoc-context-v1\", \"resource-export-capture-v1\"], \"schemas\": {\"captureSymbols\": \"renderdoc-ultra-capture-symbols/v1\", \"shaderCatalogExportJob\": \"replaylab-shader-catalog-export-job/v1\", \"projectShaderResourceIndex\": \"replaylab-project-shader-resource-index/v2\", \"rdcProjectIndex\": \"replaylab-rdc-project-reuse-index/v3\", \"symbolAliases\": \"renderdoc-ultra-aliases/v1\", \"eventCBufferSnapshot\": \"renderdoc-ultra-event-cbuffer-snapshot/v1\", \"eventCBufferOverride\": \"renderdoc-ultra-event-cbuffer-override/v1\", \"eventCBufferClearAll\": \"renderdoc-ultra-event-cbuffer-clear-all/v1\", \"currentContext\": \"renderdoc-ultra-current-context/v1\", \"resourceExportInspect\": \"replaylab-resource-export-inspect/v1\", \"resourceExportCapture\": \"replaylab-resource-export-capture/v1\", \"resourceExportBundle\": \"replaylab-resource-export-bundle/v1\"}}"
+    ],
+    "get_capture_status": [
+      "{\"loaded\": true, \"api\": \"GraphicsAPI.D3D12\", \"renderer\": \"GraphicsAPI.D3D12\", \"frameNumber\": 11641, \"capturePath\": \"c:\\\\users\\\\administrator\\\\desktop\\\\df-wen4.rdc\", \"captureSessionId\": \"214f1e02f4ae454980479e1dc5909c4a\", \"restoreValidationPolicySha256\": \"72f846128ae4de34df8ed950b88cd62487e852c12104c5888f36fc49de9962e5\", \"restoreValidationCompatiblePolicySha256s\": [\"bd70877a13f227040e7708ae26d7aeefc903132fee76be52ab51d62afb84e963\"], \"captureId\": \"\", \"knownCatalogCaptureIds\": [], \"knownCatalogIdentityPairs\": [], \"knownCatalogStablePairs\": [], \"draws\": \"<Swig Object of type 'DrawcallStats *' at 0x000001AC91C038B0>\", \"dispatches\": \"<Swig Object of type 'DispatchStats *' at 0x000001AC91C03130>\", \"stats_note\": \"Stats not available in this RenderDoc version\"}"
+    ]
+  }
+}

@@ -25,6 +25,7 @@
 #pragma once
 
 #include <QWidget>
+#include <atomic>
 #include "Code/Interface/QRDInterface.h"
 
 class CustomPaintWidget;
@@ -80,8 +81,14 @@ public:
 
   WindowingData GetWidgetWindowingData();
   void SetOutput(IReplayOutput *out);
+  // Shared-output previews let their owner bind the whole visible batch before drawing.
+  void SetAutomaticDisplay(bool enabled) { m_AutomaticDisplay = enabled; }
+  // Texture viewers bind their resource after publishing an event. Suppress native paints until
+  // that binding is valid for the replay controller's current event; other outputs remain ungated.
+  void SetOutputEventId(uint32_t eventId) { m_OutputEventId.store(eventId); }
   void SetBackCol(QColor col) { m_BackCol = col; }
 signals:
+  void displayRequested();
   void clicked(QMouseEvent *e);
   void unclicked(QMouseEvent *e);
   void doubleClicked(QMouseEvent *e);
@@ -103,6 +110,7 @@ private:
   CustomPaintWidgetInternal *m_Internal = NULL;
 
   bool m_Rendering = false;
+  bool m_AutomaticDisplay = true;
 
   void RecreateInternalWidget();
   void renderInternal(QPaintEvent *e);
@@ -110,6 +118,7 @@ private:
 
   ICaptureContext *m_Ctx = NULL;
   IReplayOutput *m_Output = NULL;
+  std::atomic<uint32_t> m_OutputEventId = {~0U};
   QString m_Tag;
   QColor m_Dark;
   QColor m_Light;

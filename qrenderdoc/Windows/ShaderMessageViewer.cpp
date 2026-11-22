@@ -239,12 +239,22 @@ ShaderMessageViewer::ShaderMessageViewer(ICaptureContext &ctx, ShaderStageMask s
     else
       return;
 
-    const ShaderMessage &msg = m_Messages[msgIdx];
+    const ShaderMessage msg = m_Messages[msgIdx];
 
     const ShaderReflection *refl = m_Ctx.CurPipelineState().GetShaderReflection(msg.stage);
 
+    if(!refl)
+      return;
+
     if(refl->debugInfo.debuggable)
     {
+      // Both the message list and published reflection may change in the progress event loop.
+      const ShaderReflection shaderSnapshot(*refl);
+      refl = &shaderSnapshot;
+      const ResourceId pipeline = msg.stage == ShaderStage::Compute
+                                      ? m_Ctx.CurPipelineState().GetComputePipelineObject()
+                                      : m_Ctx.CurPipelineState().GetGraphicsPipelineObject();
+
       bool done = false;
       ShaderDebugTrace *trace = NULL;
 
@@ -355,10 +365,6 @@ ShaderMessageViewer::ShaderMessageViewer(ICaptureContext &ctx, ShaderStageMask s
         RDDialog::critical(this, tr("Debug Error"), tr("Error debugging pixel."));
         return;
       }
-
-      ResourceId pipeline = msg.stage == ShaderStage::Compute
-                                ? m_Ctx.CurPipelineState().GetComputePipelineObject()
-                                : m_Ctx.CurPipelineState().GetGraphicsPipelineObject();
 
       // viewer takes ownership of the trace
       IShaderViewer *s = m_Ctx.DebugShader(refl, pipeline, trace, debugContext);

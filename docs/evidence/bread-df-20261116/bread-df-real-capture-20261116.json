@@ -1,0 +1,64 @@
+{
+  "open": {
+    "opened": "C:\\Users\\Administrator\\Desktop\\DF-Wen4.rdc",
+    "captureSessionId": "caab3a56ae7041d3a1a6824522897b33"
+  },
+  "status": {
+    "loaded": true,
+    "api": "GraphicsAPI.D3D12",
+    "renderer": "GraphicsAPI.D3D12",
+    "frameNumber": 11641,
+    "capturePath": "c:\\users\\administrator\\desktop\\df-wen4.rdc",
+    "captureSessionId": "caab3a56ae7041d3a1a6824522897b33",
+    "restoreValidationPolicySha256": "72f846128ae4de34df8ed950b88cd62487e852c12104c5888f36fc49de9962e5",
+    "restoreValidationCompatiblePolicySha256s": [
+      "bd70877a13f227040e7708ae26d7aeefc903132fee76be52ab51d62afb84e963"
+    ],
+    "captureId": "",
+    "knownCatalogCaptureIds": [],
+    "knownCatalogIdentityPairs": [],
+    "knownCatalogStablePairs": [],
+    "draws": "<Swig Object of type 'DrawcallStats *' at 0x000001DE010D5830>",
+    "dispatches": "<Swig Object of type 'DispatchStats *' at 0x000001DE010D59F0>",
+    "stats_note": "Stats not available in this RenderDoc version"
+  },
+  "drawCount": 823,
+  "firstActions": [
+    {
+      "eventId": 201,
+      "name": "Action 2",
+      "flags": 4,
+      "numIndices": 0,
+      "numInstances": 0,
+      "depth": 1,
+      "markerPath": [
+        "Compute Pass #1"
+      ],
+      "outputs": []
+    },
+    {
+      "eventId": 206,
+      "name": "Action 3",
+      "flags": 4,
+      "numIndices": 0,
+      "numInstances": 0,
+      "depth": 1,
+      "markerPath": [
+        "Compute Pass #1"
+      ],
+      "outputs": []
+    },
+    {
+      "eventId": 211,
+      "name": "Action 4",
+      "flags": 4,
+      "numIndices": 0,
+      "numInstances": 0,
+      "depth": 1,
+      "markerPath": [
+        "Compute Pass #1"
+      ],
+      "outputs": []
+    }
+  ]
+}

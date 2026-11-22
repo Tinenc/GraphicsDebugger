@@ -1197,7 +1197,11 @@ bool CopyProgramAttribBindings(GLuint progsrc, GLuint progdst, const ShaderRefle
   if(refl->encoding == ShaderEncoding::OpenGLSPIRV)
     return false;
 
-  // copy over attrib bindings
+  GLint linked = GL_FALSE;
+  GL.glGetProgramiv(progdst, eGL_LINK_STATUS, &linked);
+  bool changed = false;
+  // Restore pending bindings too: an identical linked executable may still have a
+  // different pending BindAttribLocation that would affect its next link.
   for(const SigParameter &sig : refl->inputSignature)
   {
     // skip built-ins
@@ -1210,10 +1214,13 @@ bool CopyProgramAttribBindings(GLuint progsrc, GLuint progdst, const ShaderRefle
 
     GLint idx = GL.glGetAttribLocation(progsrc, name.c_str());
     if(idx >= 0)
+    {
+      changed |= !linked || GL.glGetAttribLocation(progdst, name.c_str()) != idx;
       GL.glBindAttribLocation(progdst, (GLuint)idx, name.c_str());
+    }
   }
 
-  return !refl->inputSignature.empty();
+  return changed;
 }
 
 bool CopyProgramFragDataBindings(GLuint progsrc, GLuint progdst, const ShaderReflection *refl)
@@ -1224,6 +1231,9 @@ bool CopyProgramFragDataBindings(GLuint progsrc, GLuint progdst, const ShaderRef
     return false;
 
   uint64_t used = 0;
+  GLint linked = GL_FALSE;
+  GL.glGetProgramiv(progdst, eGL_LINK_STATUS, &linked);
+  bool changed = false;
 
   // copy over fragdata bindings
   for(size_t i = 0; i < refl->outputSignature.size(); i++)
@@ -1253,13 +1263,122 @@ bool CopyProgramFragDataBindings(GLuint progsrc, GLuint progdst, const ShaderRef
       // user must have explicitly specified locations so we don't need to set them.
       if(!IsGLES && GL.glBindFragDataLocation)
       {
+        changed |= !linked || GL.glGetFragDataLocation(
+                                  progdst, refl->outputSignature[i].varName.c_str()) != idx;
+        // Preserve the old relink path for indexed outputs: the non-indexed
+        // binding call below also changes the output index to zero.
+        if(linked && GLCoreVersion >= 33 && GL.glGetFragDataIndex)
+          changed |= GL.glGetFragDataIndex(progdst, refl->outputSignature[i].varName.c_str()) != 0;
+        else if(linked)
+          changed = true;
         GL.glBindFragDataLocation(progdst, (GLuint)idx, refl->outputSignature[i].varName.c_str());
       }
     }
   }
 
-  return !refl->outputSignature.empty();
+  return changed;
 }
+
+#if ENABLED(ENABLE_UNIT_TESTS)
+#include "catch/catch.hpp"
+namespace
+{
+struct InitialProgramBindingMock
+{
+  bool linked = true;
+  GLint sourceAttrib = 3, destinationAttrib = 3;
+  GLint sourceColor = 0, destinationColor = 0, destinationIndex = 0;
+  uint32_t bindings = 0, destinationQueries = 0;
+};
+InitialProgramBindingMock initialProgramBindingMock;
+void APIENTRY MockInitialProgramStatus(GLuint, GLenum, GLint *value)
+{
+  *value = initialProgramBindingMock.linked ? GL_TRUE : GL_FALSE;
+}
+GLint APIENTRY MockInitialAttribLocation(GLuint program, const GLchar *)
+{
+  if(program == 2)
+    ++initialProgramBindingMock.destinationQueries;
+  return program == 1 ? initialProgramBindingMock.sourceAttrib
+                      : initialProgramBindingMock.destinationAttrib;
+}
+GLint APIENTRY MockInitialColorLocation(GLuint program, const GLchar *)
+{
+  if(program == 2)
+    ++initialProgramBindingMock.destinationQueries;
+  return program == 1 ? initialProgramBindingMock.sourceColor
+                      : initialProgramBindingMock.destinationColor;
+}
+GLint APIENTRY MockInitialColorIndex(GLuint, const GLchar *)
+{
+  return initialProgramBindingMock.destinationIndex;
+}
+void APIENTRY MockInitialBinding(GLuint, GLuint, const GLchar *)
+{
+  ++initialProgramBindingMock.bindings;
+}
+}
+
+TEST_CASE(
+    "GL initial program bindings avoid relinking identical executables but restore pending state",
+    "[gl][replay][initial-program]")
+{
+  struct RestoreDispatch
+  {
+    GLDispatchTable dispatch = GL;
+    bool gles = IsGLES;
+    int coreVersion = GLCoreVersion;
+    ~RestoreDispatch()
+    {
+      GL = dispatch;
+      IsGLES = gles;
+      GLCoreVersion = coreVersion;
+    }
+  } restore;
+  initialProgramBindingMock = InitialProgramBindingMock();
+  IsGLES = false;
+  GLCoreVersion = 46;
+  GL.glGetProgramiv = &MockInitialProgramStatus;
+  GL.glGetAttribLocation = &MockInitialAttribLocation;
+  GL.glGetFragDataLocation = &MockInitialColorLocation;
+  GL.glGetFragDataIndex = &MockInitialColorIndex;
+  GL.glBindAttribLocation = &MockInitialBinding;
+  GL.glBindFragDataLocation = &MockInitialBinding;
+  ShaderReflection reflection;
+  reflection.encoding = ShaderEncoding::GLSL;
+  SigParameter input, output;
+  input.varName = "inPosition";
+  input.systemValue = ShaderBuiltin::Undefined;
+  output.varName = "outColor";
+  output.systemValue = ShaderBuiltin::ColorOutput;
+  reflection.inputSignature.push_back(input);
+  reflection.outputSignature.push_back(output);
+
+  CHECK_FALSE(CopyProgramAttribBindings(1, 2, &reflection));
+  CHECK_FALSE(CopyProgramFragDataBindings(1, 2, &reflection));
+  CHECK(initialProgramBindingMock.bindings == 2);
+  initialProgramBindingMock.destinationAttrib = 4;
+  initialProgramBindingMock.destinationColor = 1;
+  CHECK(CopyProgramAttribBindings(1, 2, &reflection));
+  CHECK(CopyProgramFragDataBindings(1, 2, &reflection));
+  initialProgramBindingMock.destinationColor = 0;
+  initialProgramBindingMock.destinationIndex = 1;
+  CHECK(CopyProgramFragDataBindings(1, 2, &reflection));
+  initialProgramBindingMock.linked = false;
+  initialProgramBindingMock.destinationQueries = 0;
+  CHECK(CopyProgramAttribBindings(1, 2, &reflection));
+  CHECK(CopyProgramFragDataBindings(1, 2, &reflection));
+  CHECK(initialProgramBindingMock.destinationQueries == 0);
+  IsGLES = true;
+  const uint32_t before = initialProgramBindingMock.bindings;
+  CHECK_FALSE(CopyProgramFragDataBindings(1, 2, &reflection));
+  CHECK(initialProgramBindingMock.bindings == before);
+  reflection.encoding = ShaderEncoding::OpenGLSPIRV;
+  CHECK_FALSE(CopyProgramAttribBindings(1, 2, &reflection));
+  CHECK_FALSE(CopyProgramFragDataBindings(1, 2, &reflection));
+  CHECK(initialProgramBindingMock.bindings == before);
+}
+#endif
 
 template <typename SerialiserType>
 bool SerialiseProgramBindings(SerialiserType &ser, CaptureState state,

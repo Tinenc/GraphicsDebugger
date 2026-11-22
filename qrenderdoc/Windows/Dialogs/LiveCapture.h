@@ -47,7 +47,7 @@ class MainWindow;
 class QKeyEvent;
 class NameEditOnlyDelegate;
 
-class LiveCapture : public QFrame
+class LiveCapture : public QFrame, public ICaptureConnection
 {
   Q_OBJECT
 
@@ -55,9 +55,35 @@ public:
   explicit LiveCapture(ICaptureContext &ctx, const QString &hostname, const QString &friendlyname,
                        uint32_t ident, MainWindow *main, QWidget *parent = 0);
 
-  ~LiveCapture();
+  virtual ~LiveCapture();
 
-  void QueueCapture(int frameNumber, int numFrames);
+  // implement ICaptureConnection
+  QWidget *Widget() override { return this; }
+  void RegisterClosedCallback(ClosedCallback method) override
+  {
+    m_CloseCallbacks.push_back(method);
+  }
+  bool IsConnected() override;
+  void PreventAutoClose() override { m_SelfClosing = false; }
+  rdcarray<rdcstr> GetAPIs() override;
+  void QueueCapture(int frameNumber, int numFrames) override;
+  void TimedCapture(float secondsDelay, int numFrames) override;
+  void CycleActiveWindow() override;
+  rdcstr Target() override { return m_Target; }
+  rdcstr Hostname() override { return m_Hostname; }
+  rdcstr FriendlyHostname() override { return m_HostFriendlyname; }
+  void Close(bool discardUnsaved) override;
+  rdcarray<ConnectedTempCapture> GetCaptures() override;
+  void OpenCapture(uint32_t ID) override;
+  void DeleteCapture(uint32_t ID, bool promptForSave) override;
+  void SaveCapture(uint32_t ID, rdcstr filename) override;
+  rdcarray<uint32_t> GetChildProcesses() override;
+  ICaptureConnection *ConnectToChild(uint32_t pid) override;
+
+  void SetMonitorScriptPath(const QString &path);
+  void SendMonitorScript(const QString &scriptSource);
+  void SendMonitorControl(const QString &command);
+  QStringList GetMonitorLogCache();
   const QString &hostname() { return m_Hostname; }
   void cleanItems();
   void fileSaved(QString from, QString to);
@@ -66,6 +92,10 @@ public:
 
 public slots:
   bool checkAllowClose();
+
+signals:
+  void monitorLogsReceived(QStringList logs);
+  void monitorStatusReceived(QString status);
 
 private slots:
   void on_captures_itemSelectionChanged();
@@ -89,6 +119,7 @@ private slots:
   void openNewWindow_triggered();
   void saveCapture_triggered();
   void deleteCapture_triggered();
+
   void previewToggle_toggled(bool);
 
   void preview_mouseClick(QMouseEvent *e);
@@ -154,8 +185,8 @@ private:
   void setTitle(const QString &title);
   void openCapture(Capture *cap);
   bool saveCapture(Capture *cap, QString path);
+  void deleteCapture(Capture *cap);
   bool checkAllowDelete();
-  void deleteCaptureUnprompted(QListWidgetItem *item);
 
   bool isLocal() const;
 
@@ -185,6 +216,8 @@ private:
   bool m_IgnoreThreadClosed = false;
   bool m_IgnorePreviewToggle = false;
 
+  bool m_SelfClosing = true;
+
   QMenu *m_ContextMenu = NULL;
 
   QAction *previewToggle;
@@ -197,7 +230,24 @@ private:
 
   QPoint previewDragStart;
 
+  QString m_Target;
+
+  QList<Capture *> m_Captures;
+
   QMutex m_ChildrenLock;
   QList<ChildProcess> m_Children;
   QMap<QString, APIStatus> m_APIs;
+
+  // API Monitor support
+  QString m_MonitorScriptPath;
+  QSemaphore m_SendMonitorScript;
+  QString m_PendingScriptSource;
+  QMutex m_PendingScriptLock;
+  QSemaphore m_SendMonitorControl;
+  QString m_PendingControlCmd;
+  QMutex m_PendingControlLock;
+  QMutex m_MonitorLogCacheLock;
+  QStringList m_MonitorLogCache;
+  static const int MAX_CACHED_LOGS = 10000;
+  QList<ClosedCallback> m_CloseCallbacks;
 };

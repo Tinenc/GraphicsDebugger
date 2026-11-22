@@ -5,8 +5,10 @@ mkdir -p "${REPO_ROOT}/dist"
 # pushd into the git checkout
 pushd "${REPO_ROOT}"
 
+echo Using ${PYTHON_ROOT} and ${QT_ROOT} for build
+
 # Build 32-bit Release
-MSYS2_ARG_CONV_EXCL="*" msbuild.exe /nologo /m /fl4 /flp4':Verbosity=minimal;Encoding=ASCII;logfile=dist/build32.log' renderdoc.sln /t:Rebuild /p:'Configuration=Release;Platform=x86'
+MSYS2_ARG_CONV_EXCL="*" msbuild.exe /p:VSPythonOverridePath="$(native_path "${PYTHON_ROOT}")" /p:QtOverridePath="$(native_path "${QT_ROOT}")" /nologo /m /fl4 /flp4':Verbosity=minimal;Encoding=ASCII;logfile=dist/build32.log' renderdoc.sln /t:Rebuild /p:'Configuration=Release;Platform=x86'
 
 if [ ! -f ./Win32/Release/TinecmaTool.dll ] || [ ! -f ./Win32/Release/qTinecmaTool.exe ] || [ ! -f ./Win32/Release/TinecmaToolcmd.exe ] ; then
 	echo "Failed to build 32-bit release mode.";
@@ -14,7 +16,7 @@ if [ ! -f ./Win32/Release/TinecmaTool.dll ] || [ ! -f ./Win32/Release/qTinecmaTo
 fi
 
 # Build 64-bit Release
-MSYS2_ARG_CONV_EXCL="*" msbuild.exe /nologo /m /fl4 /flp4':Verbosity=minimal;Encoding=ASCII;logfile=dist/build64.log' renderdoc.sln /t:Rebuild /p:'Configuration=Release;Platform=x64'
+MSYS2_ARG_CONV_EXCL="*" msbuild.exe /p:VSPythonOverridePath="$(native_path "${PYTHON_ROOT}")" /p:QtOverridePath="$(native_path "${QT_ROOT}")" /nologo /m /fl4 /flp4':Verbosity=minimal;Encoding=ASCII;logfile=dist/build64.log' renderdoc.sln /t:Rebuild /p:'Configuration=Release;Platform=x64'
 
 if [ ! -f ./x64/Release/TinecmaTool.dll ] || [ ! -f ./x64/Release/qTinecmaTool.exe ] || [ ! -f ./x64/Release/TinecmaToolcmd.exe ] ; then
 	echo "Failed to build 64-bit release mode.";

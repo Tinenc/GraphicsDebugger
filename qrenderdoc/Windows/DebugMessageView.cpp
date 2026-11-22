@@ -74,12 +74,13 @@ public:
     {
       switch(section)
       {
-        case 0: return lit("EID");
-        case 1: return lit("Source");
-        case 2: return lit("Severity");
-        case 3: return lit("Category");
-        case 4: return lit("ID");
-        case 5: return lit("Description");
+        // EID and ID are established RenderDoc/API abbreviations and intentionally remain intact.
+        case 0: return QCoreApplication::translate("DebugMessageView", "EID");
+        case 1: return QCoreApplication::translate("DebugMessageView", "Source");
+        case 2: return QCoreApplication::translate("DebugMessageView", "Severity");
+        case 3: return QCoreApplication::translate("DebugMessageView", "Category");
+        case 4: return QCoreApplication::translate("DebugMessageView", "ID");
+        case 5: return QCoreApplication::translate("DebugMessageView", "Description");
         default: break;
       }
     }
@@ -103,9 +104,11 @@ public:
         switch(col)
         {
           case 0: return msg.eventId;
-          case 1: return ToQStr(msg.source);
-          case 2: return sort ? QVariant((uint32_t)msg.severity) : QVariant(ToQStr(msg.severity));
-          case 3: return ToQStr(msg.category);
+          case 1: return ToQDisplayStr(msg.source);
+          case 2:
+            return sort ? QVariant((uint32_t)msg.severity)
+                        : QVariant(ToQDisplayStr(msg.severity));
+          case 3: return ToQDisplayStr(msg.category);
           case 4: return msg.messageID;
           case 5:
           {
@@ -372,15 +375,16 @@ void DebugMessageView::messages_contextMenu(const QPoint &pos)
     QString show = tr("Show");
 
     bool hidden = m_FilterModel->m_HiddenSources.contains(msg.source);
-    m_ToggleSource->setText(tr("%1 Source: %2").arg(hidden ? show : hide).arg(ToQStr(msg.source)));
+    m_ToggleSource->setText(
+        tr("%1 Source: %2").arg(hidden ? show : hide).arg(ToQDisplayStr(msg.source)));
 
     hidden = m_FilterModel->m_HiddenSeverities.contains(msg.severity);
     m_ToggleSeverity->setText(
-        tr("%1 Severity: %2").arg(hidden ? show : hide).arg(ToQStr(msg.severity)));
+        tr("%1 Severity: %2").arg(hidden ? show : hide).arg(ToQDisplayStr(msg.severity)));
 
     hidden = m_FilterModel->m_HiddenCategories.contains(msg.category);
     m_ToggleCategory->setText(
-        tr("%1 Category: %2").arg(hidden ? show : hide).arg(ToQStr(msg.category)));
+        tr("%1 Category: %2").arg(hidden ? show : hide).arg(ToQDisplayStr(msg.category)));
 
     hidden = m_FilterModel->m_HiddenTypes.contains(DebugMessageFilterModel::makeType(msg));
     m_ToggleMessageType->setText(tr("%1 Message Type").arg(hidden ? show : hide));

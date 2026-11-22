@@ -227,7 +227,7 @@ enum InitPolicy
 // Return the initialization/reset requirements for a FrameRefType
 inline InitReqType InitReq(FrameRefType refType, InitPolicy policy, bool initialized)
 {
-  if(eFrameRef_Minimum > refType || refType > eFrameRef_Maximum)
+  if(refType > eFrameRef_Maximum)
     return eInitReq_Copy;
 #define COPY_ONCE (initialized ? eInitReq_None : eInitReq_Copy)
 #define CLEAR_ONCE (initialized ? eInitReq_None : eInitReq_Clear)
@@ -580,6 +580,10 @@ public:
   void AddResource(ResourceId id, WrappedResourceType res);
   bool HasResource(ResourceId id);
   WrappedResourceType GetResource(ResourceId id, bool optional = false);
+  // Resolve exactly the resource registered under ``id`` without following a
+  // replay replacement. Checked replacement code uses this to validate the
+  // canonical captured object's type/ABI independently from an active target.
+  WrappedResourceType GetResourceWithoutReplacement(ResourceId id, bool optional = false);
   void ReleaseResource(ResourceId id);
 
   // insert the chunks for the resources referenced in the frame
@@ -654,7 +658,8 @@ public:
   bool AddWrapper(WrappedResourceType wrap, RealResourceType real);
   bool HasWrapper(RealResourceType real);
   WrappedResourceType GetWrapper(RealResourceType real);
-  void RemoveWrapper(RealResourceType real);
+  void RemoveWrapper(WrappedResourceType wrapped, RealResourceType real);
+  void OverrideWrapper(RealResourceType real);
 
   void ResetLastWriteTimes();
   void ResetCaptureStartTime();
@@ -1784,18 +1789,38 @@ bool ResourceManager<Configuration>::AddWrapper(WrappedResourceType wrap, RealRe
 }
 
 template <typename Configuration>
-void ResourceManager<Configuration>::RemoveWrapper(RealResourceType real)
+void ResourceManager<Configuration>::RemoveWrapper(WrappedResourceType wrapped, RealResourceType real)
 {
   SCOPED_LOCK_OPTIONAL(m_Lock, m_Capturing);
 
-  if(real == (RealResourceType)RecordType::NullResource || !HasWrapper(real))
+  if(real == (RealResourceType)RecordType::NullResource)
   {
-    RDCERR(
-        "Invalid state removing resource wrapper - real resource is NULL or doesn't have wrapper");
+    RDCERR("Invalid state removing resource wrapper - real resource is NULL");
     return;
   }
 
-  m_WrapperMap.erase(m_WrapperMap.find(real));
+  auto it = m_WrapperMap.find(real);
+
+  // silently ignore/drop removals of non-canonical wrappers. This handles the case where we have
+  // multiple wrappers for the same object on replay, due to API deduplication between an internal
+  // object and an application-created object. Backends are expected to deduplicate during capture
+  // (See OverrideWrapper below)
+  if(it != m_WrapperMap.end() && it->second == wrapped)
+    m_WrapperMap.erase(it);
+}
+
+template <typename Configuration>
+void ResourceManager<Configuration>::OverrideWrapper(RealResourceType real)
+{
+  SCOPED_LOCK_OPTIONAL(m_Lock, m_Capturing);
+
+  // during replay we may find that we have extra duplicate wrappers because of internal resources,
+  // even though we trid to deduplicate on capture. For this case we remove the old wrapper and
+  // allow the new wrapper to become canonical.
+  auto it = m_WrapperMap.find(real);
+
+  if(it != m_WrapperMap.end())
+    m_WrapperMap.erase(it);
 }
 
 template <typename Configuration>
@@ -1855,6 +1880,27 @@ typename Configuration::WrappedResourceType ResourceManager<Configuration>::GetR
     if(it != m_ResourceMap.end())
       return it->second;
   }
+
+  return (WrappedResourceType)RecordType::NullResource;
+}
+
+template <typename Configuration>
+typename Configuration::WrappedResourceType
+ResourceManager<Configuration>::GetResourceWithoutReplacement(ResourceId id, bool optional)
+{
+  SCOPED_LOCK_OPTIONAL(m_Lock, m_Capturing);
+
+  if(id == ResourceId())
+    return (WrappedResourceType)RecordType::NullResource;
+
+#if DISABLED(RDOC_RELEASE)
+  if(!optional)
+    RDCASSERT(m_ResourceMap.find(id) != m_ResourceMap.end(), id);
+#endif
+
+  auto it = m_ResourceMap.find(id);
+  if(it != m_ResourceMap.end())
+    return it->second;
 
   return (WrappedResourceType)RecordType::NullResource;
 }

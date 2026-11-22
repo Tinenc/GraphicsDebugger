@@ -69,7 +69,7 @@
       <MinimalRebuild>false</MinimalRebuild>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <AdditionalIncludeDirectories>$(SolutionDir)renderdoc\;$(SolutionDir)renderdoc\3rdparty\</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>RDOC_BASE_NAME=$(ProjectName);RENDERDOC_EXPORTS;RENDERDOC_PLATFORM_WIN32;WIN32;NDEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>RDOC_BASE_NAME=$(ProjectName);RENDERDOC_EXPORTS;RENDERDOC_PLATFORM_WIN32;WIN32;NDEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
       <DisableSpecificWarnings>4100</DisableSpecificWarnings>
@@ -80,7 +80,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>ws2_32.lib;kernel32.lib;user32.lib;shlwapi.lib;setupapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;kernel32.lib;user32.lib;shlwapi.lib;setupapi.lib;detours.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ModuleDefinitionFile>$(ProjectDir)os\win32\comexport.def</ModuleDefinitionFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
@@ -92,6 +92,12 @@
     <ClCompile>
       <Optimization>Disabled</Optimization>
     </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)|$(Platform)'=='Development|x64'">$(SolutionDir)renderdoc\3rdparty\Detours\lib.X64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+    <Link>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)|$(Platform)'=='Development|Win32'">$(SolutionDir)renderdoc\3rdparty\Detours\lib.X86</AdditionalLibraryDirectories>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
@@ -103,6 +109,8 @@
       <AdditionalDependencies>$(SolutionDir)$(Platform)\$(Configuration)\breakpad_common.lib;$(SolutionDir)$(Platform)\$(Configuration)\crash_generation_client.lib;$(SolutionDir)$(Platform)\$(Configuration)\exception_handler.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)renderdoc\3rdparty\Detours\lib.X64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(SolutionDir)renderdoc\3rdparty\Detours\lib.X86</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -217,6 +225,8 @@
     <ClInclude Include="core\replay_proxy.h" />
     <ClInclude Include="core\resource_manager.h" />
     <ClInclude Include="core\sparse_page_table.h" />
+    <ClInclude Include="core\python_loader.h" />
+    <ClInclude Include="core\api_monitor.h" />
     <ClInclude Include="data\embedded_files.h" />
     <ClInclude Include="data\glsl\glsl_ubos.h" />
     <ClInclude Include="data\glsl\glsl_ubos_cpp.h" />
@@ -247,6 +257,7 @@
     <ClInclude Include="replay\common\var_dispatch_helpers.h" />
     <ClInclude Include="replay\dummy_driver.h" />
     <ClInclude Include="replay\replay_driver.h" />
+    <ClInclude Include="replay\replay_resource_versions.h" />
     <ClInclude Include="replay\replay_controller.h" />
     <ClInclude Include="serialise\lz4io.h" />
     <ClInclude Include="serialise\rdcfile.h" />
@@ -554,6 +565,10 @@
     <ClCompile Include="core\remote_server.cpp" />
     <ClCompile Include="core\replay_proxy.cpp" />
     <ClCompile Include="core\resource_manager.cpp" />
+    <ClCompile Include="core\python_loader.cpp" />
+    <ClCompile Include="core\api_monitor.cpp" />
+    <ClCompile Include="core\api_monitor_pymodule.cpp" />
+    <ClCompile Include="core\api_monitor_export.cpp" />
     <ClCompile Include="data\glsl_shaders.cpp" />
     <ClCompile Include="hooks\hooks.cpp" />
     <ClCompile Include="maths\camera.cpp" />
@@ -635,6 +650,7 @@
     <ClCompile Include="os\win32\win32_hook.cpp" />
     <ClCompile Include="os\win32\win32_libentry.cpp" />
     <ClCompile Include="os\win32\win32_network.cpp" />
+    <ClCompile Include="os\win32\win32_pe_parse.cpp" />
     <ClCompile Include="os\win32\win32_process.cpp" />
     <ClCompile Include="os\win32\win32_shellext.cpp" />
     <ClCompile Include="os\win32\win32_stringio.cpp" />
@@ -646,6 +662,7 @@
     <ClCompile Include="replay\dummy_driver.cpp" />
     <ClCompile Include="replay\entry_points.cpp" />
     <ClCompile Include="replay\replay_driver.cpp" />
+    <ClCompile Include="replay\replay_resource_versions.cpp" />
     <ClCompile Include="replay\replay_output.cpp" />
     <ClCompile Include="replay\replay_controller.cpp" />
     <ClCompile Include="serialise\codecs\chrome_json_codec.cpp" />

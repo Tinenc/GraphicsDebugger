@@ -43,9 +43,19 @@ void VulkanReplay::CreateTexImageView(VkImage liveIm, const VulkanCreationInfo::
   {
     // if the type hint has changed, recreate the image views
 
-    // flush any pending commands that might use the old views
-    m_pDriver->SubmitCmds();
-    m_pDriver->FlushQ();
+    // A value-initialised TextureDisplayViews has no GPU objects to protect. In particular event
+    // snapshots normally arrive here with a normalised type cast, so unconditionally draining the
+    // queue would turn every first thumbnail presentation into a device-wide wait.
+    bool hasOldViews = false;
+    for(VkImageView view : views.views)
+      hasOldViews |= view != VK_NULL_HANDLE;
+
+    if(hasOldViews)
+    {
+      // flush any pending commands that might use the old views
+      m_pDriver->SubmitCmds();
+      m_pDriver->FlushQ();
+    }
 
     for(size_t i = 0; i < ARRAY_COUNT(views.views); i++)
     {

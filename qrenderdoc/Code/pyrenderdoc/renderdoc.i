@@ -98,6 +98,13 @@ VA_IGNORE_REST_OF_FILE
   PyDateTime_IMPORT;
 %}
 
+%typemap(out) const SWIGTYPE & {
+  static_assert(false, "Const ref types must be explicitly allowed, to ensure proper copy semantics. " \
+                       "Consider returning by copy if reasonable, or explicitly set up copy typemap.");
+  //$ltype owned = new std::remove_pointer<$ltype>::type(indirect($1));
+  //$result = SWIG_NewPointerObj(SWIG_as_voidptr(owned), $descriptor, SWIG_POINTER_OWN |  0 );
+}
+
 %include "pyconversion.i"
 
 // typemaps for windowing data
@@ -125,13 +132,7 @@ VA_IGNORE_REST_OF_FILE
 %ignore rdhalf;
 %ignore bytebuf;
 
-// special handling for RENDERDOC_GetDefaultCaptureOptions to transform output parameter to a return value
-%typemap(in, numinputs=0) CaptureOptions *defaultOpts { $1 = new CaptureOptions; }
-%typemap(argout) CaptureOptions *defaultOpts {
-  $result = SWIG_NewPointerObj($1, $descriptor(struct CaptureOptions*), SWIG_POINTER_OWN);
-}
-
-// same for RENDERDOC_GetSupportedDeviceProtocols
+// special handling for RENDERDOC_GetSupportedDeviceProtocols to transform output parameter to a return value
 %typemap(in, numinputs=0) rdcarray<rdcstr> *supportedProtocols { $1 = new rdcarray<rdcstr>; }
 %typemap(argout) rdcarray<rdcstr> *supportedProtocols {
   $result = ConvertToPy(*$1);
@@ -232,6 +233,17 @@ VA_IGNORE_REST_OF_FILE
   $1.assign(*$input);
 }
 
+// this is fine to return directly as it offers no mutable members
+%typemap(out) const PipeState & {
+  $result = SWIG_NewPointerObj(SWIG_as_voidptr($1), $descriptor, 0 );
+}
+
+// this is returned directly due to the size of the data contained in the type.
+// it's mostly "pythonic" to have an object returned that is considered mutable
+%typemap(out) const SDFile & {
+  $result = SWIG_NewPointerObj(SWIG_as_voidptr($1), $descriptor, 0 );
+}
+
 %typemap(ret) const ActionDescription * {
   // for ActionDescription pointers don't apply parent tracking, since these are preserved
   // in other ways and the linked-list nature of walking them can produce absurdly long
@@ -276,6 +288,77 @@ TEMPLATE_FIXEDARRAY_DECLARE(rdcfixedarray);
 // Actually include header files here. Note that swig is configured not to recurse, so we
 // need to list all headers in include order that we want to process
 
+// A replay callback enters Python with the GIL held. BlockInvoke only releases it while
+// waiting for that callback. Shader inspection/build, GPU readback/debug and replacement can hold
+// it for seconds, preventing Qt's Python timers from entering and freezing the GUI thread.
+// In particular, checked replacement/removal call SetFrameEvent internally in native C++:
+// an exception feature on the Python SetFrameEvent entry point cannot cover those replays.
+// Release only around these native actions. Argument/result conversion and SWIG ownership
+// run with the GIL. These methods keep their existing replay-thread contract; the thread check
+// is not a lock and this does not permit concurrent mutation of their borrowed input objects.
+%define REPLAY_NATIVE_GIL_RELEASE(Method)
+%exception IReplayController::Method {
+  struct ScopedReplayGILRelease
+  {
+    ScopedReplayGILRelease() : state(PyEval_SaveThread()) {}
+    ~ScopedReplayGILRelease() noexcept { PyEval_RestoreThread(state); }
+    PyThreadState *state;
+  };
+  {
+    // Restore on both normal return and native C++ stack unwinding.
+    ScopedReplayGILRelease release;
+    $action
+  }
+}
+%enddef
+
+REPLAY_NATIVE_GIL_RELEASE(SetFrameEvent)
+REPLAY_NATIVE_GIL_RELEASE(ReplayFrameEventForAnalysis)
+REPLAY_NATIVE_GIL_RELEASE(RestoreFrameEventAfterAnalysis)
+REPLAY_NATIVE_GIL_RELEASE(ComparePixelShaderPair)
+REPLAY_NATIVE_GIL_RELEASE(GetShaderEntryPoints)
+REPLAY_NATIVE_GIL_RELEASE(GetShader)
+REPLAY_NATIVE_GIL_RELEASE(DisassembleShader)
+REPLAY_NATIVE_GIL_RELEASE(BuildTargetShader)
+REPLAY_NATIVE_GIL_RELEASE(GetTextureData)
+REPLAY_NATIVE_GIL_RELEASE(GetBufferData)
+REPLAY_NATIVE_GIL_RELEASE(SaveTexture)
+REPLAY_NATIVE_GIL_RELEASE(GetCBufferVariableContents)
+REPLAY_NATIVE_GIL_RELEASE(GetPostVSData)
+REPLAY_NATIVE_GIL_RELEASE(PixelHistory)
+REPLAY_NATIVE_GIL_RELEASE(GetMinMax)
+REPLAY_NATIVE_GIL_RELEASE(FetchCounters)
+REPLAY_NATIVE_GIL_RELEASE(DebugVertex)
+REPLAY_NATIVE_GIL_RELEASE(DebugPixel)
+REPLAY_NATIVE_GIL_RELEASE(ContinueDebug)
+REPLAY_NATIVE_GIL_RELEASE(FreeTrace)
+REPLAY_NATIVE_GIL_RELEASE(ReplaceResource)
+REPLAY_NATIVE_GIL_RELEASE(ReplaceTargetShaderChecked)
+REPLAY_NATIVE_GIL_RELEASE(GetTargetShaderReplacement)
+REPLAY_NATIVE_GIL_RELEASE(RemoveReplacement)
+REPLAY_NATIVE_GIL_RELEASE(RemoveTargetShaderReplacementChecked)
+// Event overrides and persistent buffer edits also replay internally, including rollback.
+REPLAY_NATIVE_GIL_RELEASE(SetEventShaderOverride)
+REPLAY_NATIVE_GIL_RELEASE(ClearEventShaderOverride)
+REPLAY_NATIVE_GIL_RELEASE(ClearEventShaderOverrides)
+REPLAY_NATIVE_GIL_RELEASE(SetEventCBufferOverride)
+REPLAY_NATIVE_GIL_RELEASE(ClearEventCBufferOverride)
+REPLAY_NATIVE_GIL_RELEASE(ClearEventCBufferOverrides)
+REPLAY_NATIVE_GIL_RELEASE(SetSharedBufferPatch)
+REPLAY_NATIVE_GIL_RELEASE(ClearSharedBufferPatch)
+REPLAY_NATIVE_GIL_RELEASE(ResetSharedBufferRange)
+REPLAY_NATIVE_GIL_RELEASE(ClearSharedBufferPatches)
+REPLAY_NATIVE_GIL_RELEASE(ClearReplayCache)
+REPLAY_NATIVE_GIL_RELEASE(FreeTargetResource)
+
+// This bounded result may still own 192 MiB of readback bytes. Transfer its buffers to the
+// Python-owned result instead of making another full copy after reacquiring the GIL.
+%typemap(out) ShaderPairComparison {
+  $result = SWIG_NewPointerObj(
+      new ShaderPairComparison(static_cast<ShaderPairComparison &&>($1)),
+      $descriptor(ShaderPairComparison *), SWIG_POINTER_OWN);
+}
+
 %include <stdint.i>
 
 %include "apidefs.h"
@@ -307,8 +390,8 @@ TEMPLATE_FIXEDARRAY_DECLARE(rdcfixedarray);
 }
 
   %feature("docstring") R"(Returns a string representation of an object. This is quite similar to
-the built-in repr() function but it iterates over struct members and prints them out, where normally
-repr() would stop and say something like 'Swig Object of type ...'.
+the built-in ``repr()`` function but it iterates over struct members and prints them out, where normally
+``repr()`` would stop and say something like 'Swig Object of type ...'.
 
 :param Any obj: The object to dump
 :return: The string representation of the object.
@@ -365,6 +448,7 @@ EXTEND_ARRAY_CLASS_METHODS(StructuredBufferList)
 // or in qrenderdoc.i, depending on which one is appropriate
 TEMPLATE_FIXEDARRAY_INSTANTIATE(rdcfixedarray, float, 2)
 TEMPLATE_FIXEDARRAY_INSTANTIATE(rdcfixedarray, float, 4)
+TEMPLATE_FIXEDARRAY_INSTANTIATE(rdcfixedarray, uint32_t, 2)
 TEMPLATE_FIXEDARRAY_INSTANTIATE(rdcfixedarray, uint32_t, 3)
 TEMPLATE_FIXEDARRAY_INSTANTIATE(rdcfixedarray, uint32_t, 4)
 TEMPLATE_FIXEDARRAY_INSTANTIATE(rdcfixedarray, uint64_t, 4)
@@ -393,6 +477,7 @@ TEMPLATE_ARRAY_INSTANTIATE(rdcarray, float)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, uint32_t)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, uint64_t)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, rdcstr)
+TEMPLATE_ARRAY_INSTANTIATE(rdcarray, bytebuf)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, WindowingSystem)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ActionDescription)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, GPUCounter)
@@ -428,6 +513,7 @@ TEMPLATE_ARRAY_INSTANTIATE(rdcarray, DebugVariableReference)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, SourceVariableMapping)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, SigParameter)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, TextureDescription)
+TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ShaderPairSnapshot)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ShaderEntryPoint)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, Viewport)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, Scissor)

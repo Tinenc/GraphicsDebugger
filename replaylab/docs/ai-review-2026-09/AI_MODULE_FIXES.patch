@@ -1,0 +1,365 @@
+--- a/replaylab/src/replaylab_agent/shader_routing.py	2026-09-02 04:07:17.932975082 +0000
++++ b/replaylab/src/replaylab_agent/shader_routing.py	2026-09-02 04:12:57.132995245 +0000
+@@ -2948,13 +2948,26 @@
+         # at explanatory IR.
+         mode = "readable-reconstruction"
+         required_outcomes.append("organized-source")
+-    else:
+-        # Every other capture-bound Shader task gets a usable deliverable by
+-        # default: reconstruct, organize, compile and validate the captured ABI.
+-        # Missing original HLSL is the normal entry condition for this route,
+-        # never a reason to ask the user whether reconstruction should start.
++    elif compile_requested or organized_reconstruction_requested:
++        # The user explicitly asked to compile, build, validate the ABI, or do a
++        # full reconstruct-and-compile.  Only then produce a compiled,
++        # ABI-validated candidate.
+         mode = "compile-only"
+         required_outcomes.append("organized-source")
++    else:
++        # Default for a bare capture-bound Shader request such as "反编译这个
++        # shader": produce a readable, organized HLSL reconstruction.  Compilation
++        # and replay-ABI validation are deliberately NOT part of the default
++        # deliverable and are added only when the user explicitly asks to compile,
++        # validate, or replace (handled by the branch above).  A plain decompile
++        # therefore stays in a workspace-only readable lane the child can actually
++        # satisfy, instead of being upgraded to compile-only and then failed for
++        # missing compiled-candidate / replay-abi-fresh receipts it was never
++        # asked to produce.  Missing original HLSL is the normal entry condition
++        # for this route, never a reason to ask the user whether reconstruction
++        # should start.
++        mode = "readable-reconstruction"
++        required_outcomes.append("organized-source")
+ 
+     replacement_scope: ShaderReplacementScope | None = None
+     if mode in {"compile-replace", "full-lifecycle"}:
+@@ -3267,6 +3280,61 @@
+         candidate.model_copy(update={"rank": None}) for candidate in legacy.candidates
+     )
+     if legacy.status == "blocked":
++        # The Host must not hard-fail the child on a route-planning artifact.
++        # ``select_shader_route`` reports ``blocked`` whenever the model-authored
++        # ``required_outcomes`` set matches no single ``_RouteSpec`` exactly (for
++        # example when it names ``bounded-recovery`` — a legal outcome no spec
++        # covers — or mixes goal-expanding outcomes from two lanes).  That is a
++        # matching artifact, not a capability shortage: the effect-authorized
++        # tools still exist.  Rebuild an advisory ``offered`` envelope from every
++        # lane whose required effects fit the authority ceiling, hand the child
++        # the requested-outcome acceptance predicates, and demote the blocker
++        # codes to per-candidate telemetry (an ``offered`` mission may not retain
++        # top-level blockers).  Only a genuinely empty tool inventory — no
++        # effect-compatible lane authorizes any tool at all — stays ``blocked``,
++        # because that is a real environment problem the child cannot work around.
++        if request is None:
++            resolved_request = infer_shader_route_request(task_text)
++        elif isinstance(request, ShaderRouteRequest):
++            resolved_request = request
++        else:
++            resolved_request = ShaderRouteRequest.model_validate(request, strict=True)
++        advisory_effect_set = frozenset(
++            str(value).strip() for value in authorized_effects
++        )
++        advisory_available = frozenset(
++            str(value).strip() for value in available_tools
++        )
++        advisory_required = set(_MODE_OUTCOMES[resolved_request.mode])
++        advisory_required.update(resolved_request.required_outcomes)
++        advisory_required_outcomes = frozenset(advisory_required)
++        advisory_tools = tuple(
++            sorted(
++                {
++                    tool
++                    for spec in _ROUTES
++                    if spec.required_effects.issubset(advisory_effect_set)
++                    for tool in _authorized_tools(spec, advisory_available, advisory_effect_set)
++                }
++            )
++        )
++        if advisory_tools:
++            advisory_criteria = _acceptance_criteria(advisory_required_outcomes)
++            return ShaderRouteOffer(
++                status="offered",
++                mode=legacy.mode,
++                replacement_scope=legacy.replacement_scope,
++                required_outcomes=legacy.required_outcomes,
++                authorized_effects=legacy.authorized_effects,
++                allowed_tools=advisory_tools,
++                required_tool_groups=(),
++                acceptance_criteria=advisory_criteria,
++                causal_dependencies=legacy.causal_dependencies,
++                stop_conditions=legacy.stop_conditions,
++                fallback_actions=legacy.fallback_actions,
++                blocker_codes=(),
++                candidates=candidates,
++            )
+         return ShaderRouteOffer(
+             status="blocked",
+             mode=legacy.mode,
+--- a/replaylab/src/replaylab_agent/intent_contract.py	2026-09-02 04:10:17.308985745 +0000
++++ b/replaylab/src/replaylab_agent/intent_contract.py	2026-09-02 04:10:57.068988108 +0000
+@@ -1126,8 +1126,18 @@
+         # claim a compiler/container or replay-ABI result the user explicitly
+         # declined.  This remains a workspace task rather than quick analysis.
+         operation = "readable-reconstruction"
+-    elif validated_reconstruction or artifact_reconstruction:
++    elif validated_reconstruction:
+         operation = "validated-reconstruction"
++    elif artifact_reconstruction:
++        # A bare decompile / readable-reconstruction / source request that does
++        # NOT explicitly ask to compile, validate the ABI, fix, or optimize is a
++        # readable reconstruction only.  Do not upgrade it to
++        # validated-reconstruction (which maps to the compile-only route and
++        # then demands compiled-candidate + replay-abi-fresh receipts): a plain
++        # "反编译这个 shader" must stay in a workspace-only readable lane the
++        # child can actually satisfy.  An explicit compile/validate/fix ask is
++        # caught by ``validated_reconstruction`` above and still compiles.
++        operation = "readable-reconstruction"
+     elif diagnosis_requested:
+         # A diagnosis without an already admitted terminal receipt needs the
+         # same readable reconstruction and compile/ABI evidence as other
+--- a/replaylab/src/replaylab_agent/adaptive_orchestration.py	2026-09-02 04:07:18.944975142 +0000
++++ b/replaylab/src/replaylab_agent/adaptive_orchestration.py	2026-09-02 04:15:51.261005596 +0000
+@@ -7511,6 +7511,15 @@
+ ) -> InitialSupervisorProposal | None:
+     """Rebuild one Host-stored Shader goal without trusting compressed prose."""
+ 
++    # Re-derive the route from the stored objective rather than replaying the
++    # exact ``goal.shader_route`` captured on the previous (failed) attempt.
++    # Resuming restores the target identity, the authority/effect ceiling, and
++    # the objective — it must NOT pin the child back onto the earlier technical
++    # route.  Replaying the stored route is what made a failed run keep retrying
++    # the same losing route ("Host keeps deciding the route").  The freshly
++    # inferred route is bounded by the stored effect ceiling below, and the
++    # child/Host re-plan the concrete route from current evidence.
++    resolved_route = infer_shader_route_request(goal.task_summary or goal.objective)
+     plan = TaskPlan(
+         request_summary=goal.objective,
+         tasks=[
+@@ -7521,7 +7530,7 @@
+                 skill_candidates=list(goal.skill_candidates),
+                 custom_agent_id=goal.custom_agent_id,
+                 effects=list(goal.effects),
+-                shader_route=goal.shader_route,
++                shader_route=resolved_route,
+             )
+         ],
+     )
+@@ -8587,8 +8596,13 @@
+ 
+ 
+ def parse_external_supervisor_decision(text: str, catalog: SkillCatalog) -> SupervisorDecision:
+-    value = json.loads(text.strip())
+-    decision = SUPERVISOR_DECISION_ADAPTER.validate_python(value, strict=True)
++    # Validate from the JSON source rather than a pre-parsed ``json.loads`` dict.
++    # ``validate_json`` keeps strict typing but still admits JSON arrays for
++    # ``tuple[...]`` fields (for example ``shader_route.required_outcomes`` and
++    # ``intent_contract.deliveries``); ``validate_python(value, strict=True)`` on
++    # the already-parsed Python ``list`` rejects every such array as ``tuple_type``
++    # and made a well-formed reviewer ``dispatch_next_stage`` unparseable.
++    decision = SUPERVISOR_DECISION_ADAPTER.validate_json(text.strip())
+     if isinstance(decision, DispatchNextStageDecision):
+         decision = decision.model_copy(update={"plan": validate_plan(decision.plan, catalog)})
+     return decision
+@@ -8615,13 +8629,15 @@
+                 and result.structured_output is not None
+             ):
+                 answer = host_rendered_event_answer(result.structured_output)
+-            if (
+-                not response_text_matches_language(answer, language)
+-                or not response_text_is_user_safe(answer)
+-            ):
+-                # A child may have ignored the language contract. Do not create
+-                # a mixed-language Host fallback; the admitted receipt remains in
+-                # the task timeline for diagnostics.
++            if not response_text_is_user_safe(answer):
++                # Drop only genuinely unsafe prose (internal protocol/jargon
++                # leaks). Do NOT drop a verified child result merely because its
++                # language does not match the display language: children write in
++                # their own natural technical language now, and language is
++                # unified only at the primary main-Agent synthesis. This
++                # deterministic fallback runs when that synthesis is unavailable,
++                # so surfacing a verified (possibly English) finding is far
++                # better than dropping it and returning an empty partial.
+                 continue
+             if language == "zh_CN":
+                 if (
+--- a/replaylab/src/replaylab_agent/runtime.py	2026-09-02 04:07:18.460975114 +0000
++++ b/replaylab/src/replaylab_agent/runtime.py	2026-09-02 05:12:24.205850754 +0000
+@@ -16457,6 +16457,13 @@
+                     raise
+                 except (ValueError, ReplayLabAIError) as exc:
+                     retry = self._exception_summary(exc)
++                    reviewer_detail = self._safe_reviewer_diagnostic(exc)
++                    if reviewer_detail:
++                        # Give the reviewer the exact bounded reason (code/phase/
++                        # allowedActions/validator detail) so its next dispatch can
++                        # correct the actual failing field instead of re-proposing
++                        # the same rejected plan against a generic sentence.
++                        retry = f"{retry} {reviewer_detail}"
+                     if self._external_supervisor_retry_forbidden(exc):
+                         # Preserve the admitted child ledger and use the local
+                         # bounded review fallback. Replaying the same rejected
+@@ -23927,7 +23934,15 @@
+             "Use the task-scoped tools loaded by the Host. Separate observed facts from hypotheses, do not "
+             "invent tool results, and return a concise evidence-backed answer rather than hidden "
+             "chain-of-thought. "
+-            f"{response_language_instruction(_RESPONSE_LANGUAGE.get())} "
++            # A child Agent is NOT bound by the user-visible response language.
++            # Write findings, evidence notes, and the answer in whatever language
++            # is natural for the technical content (English technical prose is
++            # fine). The main Agent unifies and translates the language once, at
++            # the final user-facing synthesis. Forcing every child to match the
++            # display language mid-task only adds a failure/rejection surface and
++            # previously caused otherwise-valid child results to be dropped.
++            "Respond in clear technical language; you do not need to match the user's display "
++            "language, which the main Agent normalizes at the final answer. "
+             f"{receipt_rule}{event_workflow_rule}{shader_route_rule}"
+             f"{assistance_rule} "
+             f"{_NATIVE_CHAT_FORMAT_HINT}\n\n"
+@@ -24675,6 +24690,40 @@
+         return "internal-host"
+ 
+     @staticmethod
++    def _safe_reviewer_diagnostic(exc: BaseException) -> str:
++        """Bounded, non-sensitive failure detail for the reviewer's next turn.
++
++        The reviewer previously received only the one-sentence public *category*
++        (via ``_exception_summary``) and therefore could not tell which field or
++        route to correct — which is exactly why a rejected reviewer wrote "上次
++        失败的精确原因无法确认" before re-proposing the same losing plan. The
++        attributes echoed here are Host/validator-authored, are already written
++        to the durable tool events, and are bounded, so they are safe to feed
++        back to the reviewer model. Arbitrary provider/tool exception strings are
++        never echoed (only ``EvidenceValidationError`` — a trusted internal
++        validator — contributes a bounded ``detail``)."""
++
++        parts: list[str] = []
++        code = str(getattr(exc, "code", "") or "").strip()
++        if code:
++            parts.append(f"code={code[:64]}")
++        phase = str(getattr(exc, "phase", "") or "").strip()
++        if phase:
++            parts.append(f"phase={phase[:64]}")
++        actions = getattr(exc, "allowed_actions", None)
++        if isinstance(actions, (list, tuple)) and actions:
++            safe_actions = ",".join(str(action)[:48] for action in actions[:6])
++            if safe_actions:
++                parts.append(f"allowedActions={safe_actions}")
++        if isinstance(exc, EvidenceValidationError):
++            reason = " ".join(str(exc).split())[:400]
++            if reason:
++                parts.append(f"detail={reason}")
++        if not parts:
++            return ""
++        return "Host diagnostic (advisory, fix this then re-dispatch only the failed step): " + "; ".join(parts)
++
++    @staticmethod
+     async def _best_effort_bridge_call(function: Any, *args: Any, **kwargs: Any) -> bool:
+         """Attempt queue bookkeeping without delaying an authoritative terminal event."""
+ 
+--- a/replaylab/src/replaylab_agent/orchestration.py	2026-09-02 04:07:19.292975163 +0000
++++ b/replaylab/src/replaylab_agent/orchestration.py	2026-09-02 05:10:26.557843761 +0000
+@@ -2736,10 +2736,15 @@
+         fields: tuple[ChildField, ...],
+         *,
+         label: str,
++        allow_undeclared: bool = False,
+     ) -> None:
+         declared = {item.name: item for item in fields}
+         unknown = set(payload) - set(declared)
+-        if unknown:
++        if unknown and not allow_undeclared:
++            # Host-built inputs are exact, so an undeclared input field is a bug.
++            # A child-authored *output*, however, may add descriptive report
++            # fields of its own; with ``allow_undeclared=True`` those extra keys
++            # are ignored (see ``validate_output``) instead of failing the task.
+             raise PolicyError(
+                 f"child-result {label} contains undeclared fields: "
+                 + ", ".join(sorted(unknown))
+@@ -2755,7 +2760,10 @@
+                 + ", ".join(missing)
+             )
+         for name, value in payload.items():
+-            field = declared[name]
++            field = declared.get(name)
++            if field is None:
++                # Undeclared extra field, tolerated under ``allow_undeclared``.
++                continue
+             if not cls._matches_value_type(value, field.value_type):
+                 raise PolicyError(
+                     f"child-result {label} field '{name}' must be {field.value_type}"
+@@ -2815,21 +2823,22 @@
+                 f"{output.task_id} != {expected_task_id}"
+             )
+ 
+-        reserved = {
++        declared_output_names = {item.name for item in self.output_schema}
++        semantic_payload: dict[str, Any] = dict(output.details)
++        # The top-level ChildOutput fields are authoritative. If the child also
++        # echoed any of them inside its free-form ``details`` report, that
++        # duplication is harmless — drop the details copy and use the top-level
++        # value below — rather than failing the whole task for a formatting
++        # quirk. (Previously this raised "details duplicate common fields".)
++        for reserved_key in (
+             "answer",
+             "unknowns",
+             "delegation_requests",
+             "shader_delegation_requests",
+             "analysis_obligation_closures",
+             "assistance_requests",
+-        } & set(output.details)
+-        if reserved:
+-            raise PolicyError(
+-                "child result details duplicate common fields: "
+-                + ", ".join(sorted(reserved))
+-            )
+-        declared_output_names = {item.name for item in self.output_schema}
+-        semantic_payload: dict[str, Any] = dict(output.details)
++        ):
++            semantic_payload.pop(reserved_key, None)
+         if "answer" in declared_output_names:
+             semantic_payload["answer"] = output.answer
+         if "unknowns" in declared_output_names and output.unknowns:
+@@ -2840,8 +2849,14 @@
+             semantic_payload["analysis_obligation_closures"] = (
+                 output.analysis_obligation_closures
+             )
++        # Tolerate undeclared/extra report fields the child adds to its details
++        # (route_selection, algorithm_explanation, representation_report, …):
++        # extract and type-check the declared fields, ignore the rest. The Host
++        # still enforces evidence admission, identity, effect ceiling and
++        # false-completion below; it must not fail a child merely for adding
++        # descriptive structure to its own report.
+         self._validate_declared_payload(
+-            semantic_payload, self.output_schema, label="output"
++            semantic_payload, self.output_schema, label="output", allow_undeclared=True
+         )
+         if self.skill == "renderdoc-explain-event" and "actual_work" in declared_output_names:
+             validate_event_actual_work_details(
+@@ -2881,10 +2896,23 @@
+         coverage = {item.criterion_id: item for item in output.coverage}
+         unexpected_criteria = set(coverage) - expected_criteria
+         if unexpected_criteria:
+-            raise PolicyError(
+-                "child result covers unknown acceptance criteria: "
+-                + ", ".join(sorted(unexpected_criteria))
+-            )
++            # A child covering criteria the descriptor did not name is NOT a
++            # safety violation and must never fail the task. It happens when the
++            # child uses the loaded Skill's own acceptance vocabulary (e.g. the
++            # generic ``criterion-N`` labels or a Skill's workflow-acceptance
++            # ids) alongside, or instead of, the descriptor's route-derived
++            # ``shader-*`` ids — the exact criterion-namespace mismatch that
++            # previously turned a perfectly good read-only ``yielded`` result
++            # into a correction loop and then a failure. Drop the unrecognized
++            # rows (the raw output is retained for diagnostics) and validate only
++            # the criteria this descriptor actually declared. The real Host
++            # gates below — false-completion, evidence admission, and identity —
++            # still apply; only the label-namespace match is relaxed.
++            coverage = {
++                criterion_id: item
++                for criterion_id, item in coverage.items()
++                if criterion_id in expected_criteria
++            }
+         if required_completion_criteria is not None:
+             inherited_restatements = set(coverage) - required_criteria
+             if inherited_restatements:

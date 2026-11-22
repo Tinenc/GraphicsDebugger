@@ -68,7 +68,7 @@ inline bool checkname(rdcstr &log, const char *baseType, rdcstr name, NameType n
     return false;
 
   // allow the config to have different names
-  if((baseType && strstr(baseType, "PersistantConfig")) || name.contains("PersistantConfig"))
+  if((baseType && strstr(baseType, "PersistentConfig")) || name.contains("PersistentConfig"))
     return false;
 
   // skip swig internal type
@@ -80,8 +80,6 @@ inline bool checkname(rdcstr &log, const char *baseType, rdcstr name, NameType n
     name.erase(0, 10);
   if(name.beginsWith("qrenderdoc."))
     name.erase(0, 11);
-  if(name.beginsWith("qTinecmaTool."))
-    name.erase(0, 13);
 
   // skip a few well-known members
   if(name == "this" || name == "thisown")

@@ -1,5 +1,5 @@
 
-%module(docstring="This is the API to QTinecmaTool's high-level UI panels and functionality.") qTinecmaTool
+%module(docstring="This is the API to QRenderDoc's high-level UI panels and functionality.") qrenderdoc
 
 %feature("autodoc", "0");
 
@@ -115,6 +115,9 @@ TEMPLATE_FIXEDARRAY_DECLARE(rdcfixedarray);
     PyObject *resultobj = 0;
     ICaptureViewer *result = 0;
 
+    if(!SWIG_Python_UnpackTuple(args, "new_CaptureViewer", 0, 0, 0))
+      return -1;
+
     result = new PythonCaptureViewer(self);
     resultobj = SWIG_NewPointerObj(SWIG_as_voidptr(result), SWIGTYPE_p_ICaptureViewer, SWIG_BUILTIN_INIT | 0);
     return Py_IsNone(resultobj) ? -1 : 0;
@@ -148,6 +151,7 @@ SWIGPY_DESTRUCTOR_CLOSURE(capviewer_deinit) /* defines capviewer_deinit_destruct
 
 
 // need to ignore the original function and add a helper that releases the python GIL while calling
+%ignore IReplayManager::BlockInvokeTagged;
 %ignore IReplayManager::BlockInvoke;
 
 // ignore these functions as we don't map QVariantMap to/from python
@@ -167,27 +171,81 @@ SWIGPY_DESTRUCTOR_CLOSURE(capviewer_deinit) /* defines capviewer_deinit_destruct
 
 %include <stdint.i>
 
+// SetEventID waits for the replay queue. An earlier Python replay callback must be
+// able to acquire the GIL while it waits, otherwise neither callback can finish.
+// Keep conversion/ownership under the GIL and preserve the native UI-thread contract.
+// Python capture-viewer notifications reacquire the GIL through ScopedFuncCall.
+%exception ICaptureContext::SetEventID {
+  struct ScopedSelectionGILRelease
+  {
+    ScopedSelectionGILRelease() : state(PyEval_SaveThread()) {}
+    ~ScopedSelectionGILRelease() noexcept { PyEval_RestoreThread(state); }
+    PyThreadState *state;
+  };
+  {
+    ScopedSelectionGILRelease release;
+    $action
+  }
+}
+
 %include "Code/Interface/QRDInterface.h"
-%include "Code/Interface/PersistantConfig.h"
+%include "Code/Interface/PersistentConfig.h"
 %include "Code/Interface/RemoteHost.h"
 %include "Code/Interface/Extensions.h"
+%include "Code/Interface/Helpers.h"
 
 DOCUMENT("");
 
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, EventBookmark)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ShaderProcessingTool)
+TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ShaderEditorDiagnostic)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, rdcstrpair)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, BugReport)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ExtensionMetadata)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, DialogButton)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, RemoteHost)
+TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ConnectedTempCapture)
 TEMPLATE_ARRAY_INSTANTIATE_PTR(rdcarray, ICaptureViewer)
+TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ParseError)
 
 // unignore the function from above
+%rename("%s") IReplayManager::BlockInvokeTagged;
 %rename("%s") IReplayManager::BlockInvoke;
 
 %extend IReplayManager {
-  void BlockInvoke(InvokeCallback m) {
+  DOCUMENT(R"(Make a tagged blocking invoke call onto the replay thread.
+
+The tag participates in replay queue ordering. Callers must use a unique tag for
+each blocking request; tagged coalescing remains an :meth:`AsyncInvoke` feature.
+This entry point is intended for a non-UI worker that must wait for a replay result
+without blocking qrenderdoc's event loop.
+
+:param str tag: The tag used to order this callback.
+:param ReplayInvokeCallback method: The function to callback on the replay thread.
+  Callback function signature must match :func:`ReplayInvokeCallback`.
+)");
+  void BlockInvokeTagged(const rdcstr &tag, ReplayInvokeCallback m) {
+    PyObject *global_internal_handle = NULL;
+
+    PyObject *globals = PyEval_GetGlobals();
+    if(globals)
+      global_internal_handle = PyDict_GetItemString(globals, "_renderdoc_internal");
+
+    SetThreadBlocking(global_internal_handle, true);
+
+    Py_BEGIN_ALLOW_THREADS
+    $self->BlockInvokeTagged(tag, m);
+    Py_END_ALLOW_THREADS
+
+    SetThreadBlocking(global_internal_handle, false);
+  }
+
+  DOCUMENT(R"(Make a blocking invoke call onto the replay thread.
+
+:param ReplayInvokeCallback method: The function to callback on the replay thread.
+  Callback function signature must match :func:`ReplayInvokeCallback`.
+)");
+  void BlockInvoke(ReplayInvokeCallback m) {
     PyObject *global_internal_handle = NULL;
 
     PyObject *globals = PyEval_GetGlobals();

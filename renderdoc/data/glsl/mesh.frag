@@ -46,7 +46,13 @@ void main(void)
 {
   int type = Mesh.displayFormat;
 
-  if(type == MESHDISPLAY_SECONDARY || type == MESHDISPLAY_MESHLET)
+  if(Mesh.pointSpriteSize.x < 0.0f)
+  {
+    if(dot(SECONDARY_NAME.xy, SECONDARY_NAME.xy) > 1.0f)
+      discard;
+    color_out = vec4(SECONDARY_NAME.z > 0.5f ? vec3(0.32f, 0.58f, 0.72f) : Mesh.color.xyz, 1);
+  }
+  else if(type == MESHDISPLAY_SECONDARY || type == MESHDISPLAY_MESHLET)
   {
     color_out = vec4(SECONDARY_NAME.xyz, 1);
   }

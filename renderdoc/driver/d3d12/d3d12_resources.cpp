@@ -23,8 +23,11 @@
  ******************************************************************************/
 
 #include "d3d12_resources.h"
+#include <algorithm>
 #include "driver/shaders/dxbc/dxbc_reflect.h"
+#include "driver/shaders/dxil/dxil_bytecode.h"
 #include "driver/shaders/dxil/dxil_metadata.h"
+#include "replay/replay_timing.h"
 #include "d3d12_command_list.h"
 #include "d3d12_command_queue.h"
 #include "d3d12_rootsig.h"
@@ -32,6 +35,41 @@
 
 GPUAddressRangeTracker WrappedID3D12Resource::m_Addresses;
 std::map<WrappedID3D12PipelineState::DXBCKey, WrappedID3D12Shader *> WrappedID3D12Shader::m_Shaders;
+
+rdcstr WrappedID3D12Shader::GetMemoryAudit()
+{
+  uint64_t bytecode = 0, containers = 0, dxil = 0, reflection = 0, sources = 0;
+  uint32_t parsed = 0, programs = 0;
+  for(const auto &entry : m_Shaders)
+  {
+    const ShaderEntry *shader = entry.second;
+    bytecode += shader->m_Bytecode.capacity();
+    if(shader->m_DXBCFile)
+    {
+      parsed++;
+      containers += shader->m_DXBCFile->GetRetainedByteStorage();
+      const DXIL::Program *program = shader->m_DXBCFile->GetDXILByteCode();
+      if(program)
+      {
+        programs++;
+        dxil += program->GetRetainedStorageBytes();
+      }
+    }
+    if(shader->m_Details)
+    {
+      reflection += shader->m_Details->rawBytes.capacity();
+      for(const ShaderSourceFile &file : shader->m_Details->debugInfo.files)
+        sources += file.contents.capacity();
+    }
+  }
+  return StringFormat::Fmt(
+      "api=D3D12ShaderMemory shaders=%zu parsed=%u dxilPrograms=%u bytecodeCapacity=%llu "
+      "containerByteCapacity=%llu dxilByteArenaDisassemblyCapacity=%llu "
+      "reflectionRawCapacity=%llu sourceTextCapacity=%llu nestedArraysExcluded=1",
+      m_Shaders.size(), parsed, programs, (unsigned long long)bytecode,
+      (unsigned long long)containers, (unsigned long long)dxil, (unsigned long long)reflection,
+      (unsigned long long)sources);
+}
 bool WrappedID3D12Shader::m_InternalResources = false;
 int32_t WrappedID3D12CommandAllocator::m_ResetEnabled = 1;
 
@@ -392,7 +430,7 @@ HRESULT STDMETHODCALLTYPE WrappedID3D12Resource::Map(UINT Subresource,
     map[Subresource].realPtr = (byte *)mapPtr;
     map[Subresource].refcount++;
 
-    // on the first map, register this so we can flush any updates in case it's left persistant
+    // on the first map, register this so we can flush any updates in case it's left persistent
     if(map[Subresource].refcount == 1)
       m_pDevice->Map(this, Subresource);
   }
@@ -524,10 +562,741 @@ rdcarray<ID3D12Resource *> WrappedID3D12Resource::AddRefBuffersBeforeCapture(D3D
 
 void WrappedID3D12DescriptorHeap::MarkMutableIndex(uint32_t index)
 {
+  if(index < numDescriptors && IsLoading(m_pDevice->GetState()))
+    RecordReplayReadReference(index, descriptors[index]);
   if(!mutableDescriptorBitmask)
     return;
 
   mutableDescriptorBitmask[index / 64] |= (1ULL << (index % 64));
+}
+
+void D3D12DescriptorRestoreTracker::Reset(uint32_t descriptorCount)
+{
+  m_DescriptorCount = descriptorCount;
+  m_DirtyDescriptorCount = 0;
+  m_DirtyBlocks.clear();
+  // One bit represents 64 descriptors, so each mask word covers 4096 descriptors.
+  m_DirtyBlockMask.resize(size_t((uint64_t(descriptorCount) + 4095) / 4096));
+  if(!m_DirtyBlockMask.empty())
+    RDCEraseMem(m_DirtyBlockMask.data(), m_DirtyBlockMask.byteSize());
+}
+
+bool D3D12SubtractDescriptorRanges(uint32_t count,
+                                  const rdcarray<D3D12DescriptorRestoreRange> &copies,
+                                  const rdcarray<D3D12DescriptorRestoreRange> &excluded,
+                                  rdcarray<D3D12DescriptorRestoreRange> &result)
+{
+  const auto valid = [count](const rdcarray<D3D12DescriptorRestoreRange> &ranges) {
+    uint64_t end = 0;
+    for(const auto &range : ranges)
+    {
+      if(!range.count || range.first < end || uint64_t(range.first) + range.count > count)
+        return false;
+      end = uint64_t(range.first) + range.count;
+    }
+    return true;
+  };
+  result = copies;
+  if(!valid(copies) || !valid(excluded))
+    return false;
+  rdcarray<D3D12DescriptorRestoreRange> filtered;
+  size_t next = 0;
+  for(const auto &copy : copies)
+  {
+    uint32_t first = copy.first, end = copy.first + copy.count;
+    while(next < excluded.size() && uint64_t(excluded[next].first) + excluded[next].count <= first)
+      next++;
+    for(size_t i = next; i < excluded.size() && excluded[i].first < end; i++)
+    {
+      if(excluded[i].first > first)
+        filtered.push_back({first, excluded[i].first - first});
+      first = RDCMIN(end, excluded[i].first + excluded[i].count);
+      if(first == end)
+        break;
+    }
+    if(first < end)
+      filtered.push_back({first, end - first});
+  }
+  result.swap(filtered);
+  return true;
+}
+
+void D3D12DescriptorRestoreTracker::MarkRange(uint32_t first, uint32_t count)
+{
+  if(first >= m_DescriptorCount || count == 0)
+    return;
+
+  // Clamp before adding so a malformed count cannot wrap the end index.
+  const uint32_t last = first + RDCMIN(count, m_DescriptorCount - first) - 1;
+  for(uint32_t block = first / 64; block <= last / 64; block++)
+  {
+    const uint64_t bit = 1ULL << (block % 64);
+    uint64_t &mask = m_DirtyBlockMask[block / 64];
+    if((mask & bit) == 0)
+    {
+      mask |= bit;
+      m_DirtyBlocks.push_back(block);
+      m_DirtyDescriptorCount += RDCMIN(64U, m_DescriptorCount - block * 64);
+    }
+  }
+}
+
+void D3D12DescriptorRestoreTracker::GetRanges(rdcarray<D3D12DescriptorRestoreRange> &ranges)
+{
+  ranges.clear();
+  if(m_DirtyBlocks.empty())
+    return;
+
+  std::sort(m_DirtyBlocks.begin(), m_DirtyBlocks.end());
+  for(uint32_t block : m_DirtyBlocks)
+  {
+    const uint32_t first = block * 64;
+    const uint32_t count = RDCMIN(64U, m_DescriptorCount - first);
+    if(!ranges.empty() && ranges.back().first + ranges.back().count == first)
+      ranges.back().count += count;
+    else
+      ranges.push_back({first, count});
+  }
+}
+
+void D3D12DescriptorRestoreTracker::ClearDirty()
+{
+  for(uint32_t block : m_DirtyBlocks)
+    m_DirtyBlockMask[block / 64] &= ~(1ULL << (block % 64));
+  m_DirtyBlocks.clear();
+  m_DirtyDescriptorCount = 0;
+}
+
+void WrappedID3D12DescriptorHeap::MarkReplayDirtyRange(uint32_t first, uint32_t count)
+{
+  if(m_ReplayUAVIndexReady)
+    UpdateReplayUAVIndex(first, count);
+
+  if(m_InitialDescriptorSource == NULL || m_RestoringInitialDescriptors)
+    return;
+
+  m_InitialDescriptorDirty.MarkRange(first, count);
+}
+
+void D3D12ReplayUAVIndex::EraseRange(uint32_t first, uint32_t count)
+{
+  auto begin = m_Descriptors.lower_bound(first);
+  auto end = uint64_t(first) + count > UINT_MAX ? m_Descriptors.end()
+                                               : m_Descriptors.lower_bound(first + count);
+  m_Descriptors.erase(begin, end);
+}
+
+void D3D12ReplayUAVIndex::Set(uint32_t index, ResourceId resource, ResourceId counter)
+{
+  m_Descriptors[index] = {resource, counter};
+}
+
+void D3D12ReplayUAVIndex::Gather(uint32_t first, uint32_t count,
+                              std::set<ResourceId> &resources) const
+{
+  const uint64_t end = uint64_t(first) + count;
+  for(auto it = m_Descriptors.lower_bound(first);
+      it != m_Descriptors.end() && it->first < end; ++it)
+  {
+    if(it->second.first != ResourceId())
+      resources.insert(it->second.first);
+    if(it->second.second != ResourceId())
+      resources.insert(it->second.second);
+  }
+}
+
+void WrappedID3D12DescriptorHeap::UpdateReplayUAVIndex(uint32_t first, uint32_t count)
+{
+  if(first >= numDescriptors)
+    return;
+  count = RDCMIN(count, numDescriptors - first);
+  m_ReplayUAVDescriptors.EraseRange(first, count);
+  for(uint32_t i = first; i < first + count; i++)
+  {
+    if(descriptors[i].GetType() == D3D12DescriptorType::UAV)
+      m_ReplayUAVDescriptors.Set(i, descriptors[i].GetResResourceId(),
+                                descriptors[i].GetCounterResourceId());
+  }
+}
+
+bool WrappedID3D12DescriptorHeap::GatherReplayUAVResources(uint32_t first, uint32_t count,
+                                                         std::set<ResourceId> &resources)
+{
+  if(first > numDescriptors || count > numDescriptors - first)
+    return false;
+  if(!m_ReplayUAVIndexReady)
+  {
+    UpdateReplayUAVIndex(0, numDescriptors);
+    m_ReplayUAVIndexReady = true;
+  }
+  m_ReplayUAVDescriptors.Gather(first, count, resources);
+  return true;
+}
+
+void D3D12ReplayDescriptorReferences::Add(uint32_t index, ResourceId resource)
+{
+  if(!m_Complete || resource == ResourceId())
+    return;
+  if(m_References[resource].insert(index).second && ++m_Count > 1024 * 1024)
+  {
+    // Bound capture metadata. Losing precision must make future proofs fail closed.
+    m_Complete = false;
+    m_References.clear();
+  }
+}
+
+bool D3D12ReplayDescriptorReferences::MayReference(ResourceId resource, uint32_t first,
+                                                 uint32_t count) const
+{
+  if(!m_Complete || uint64_t(first) + count > uint64_t(UINT_MAX) + 1)
+    return true;
+  auto found = m_References.find(resource);
+  if(found == m_References.end())
+    return false;
+  auto index = found->second.lower_bound(first);
+  return index != found->second.end() && uint64_t(*index) < uint64_t(first) + count;
+}
+
+void WrappedID3D12DescriptorHeap::RecordReplayReadReference(uint32_t index,
+                                                           const D3D12Descriptor &descriptor)
+{
+  if(descriptor.GetType() == D3D12DescriptorType::CBV)
+  {
+    const auto &cbv = descriptor.GetCBV();
+    if(cbv.BufferLocation)
+    {
+      ResourceId id;
+      UINT64 offset = 0;
+      WrappedID3D12Resource::GetResIDFromAddr(cbv.BufferLocation, id, offset);
+      if(id == ResourceId() || !cbv.SizeInBytes)
+        m_ReplayBufferReadRanges.Invalidate();
+      else
+        m_ReplayBufferReadRanges.Add(index, id, offset, cbv.SizeInBytes);
+    }
+  }
+  if(descriptor.GetType() == D3D12DescriptorType::SRV ||
+     descriptor.GetType() == D3D12DescriptorType::UAV)
+  {
+    m_ReplayReadReferences.Add(index, descriptor.GetResResourceId());
+    m_ReplayBufferReadRanges.Add(index, descriptor.GetResResourceId(), 0, ~0ULL);
+    if(descriptor.GetType() == D3D12DescriptorType::UAV)
+    {
+      m_ReplayReadReferences.Add(index, descriptor.GetCounterResourceId());
+      m_ReplayBufferReadRanges.Add(index, descriptor.GetCounterResourceId(), 0, ~0ULL);
+    }
+  }
+}
+
+bool WrappedID3D12DescriptorHeap::PrepareReplayReadReferences()
+{
+  if(!m_ReplayReadReferencesReady)
+  {
+    // Dynamic descriptor handlers recorded every loading-time mutation above. Add the immutable
+    // frame baseline and final loading contents, including slots never changed by the frame.
+    const D3D12InitialContents initial =
+        m_pDevice->GetResourceManager()->GetInitialContents(GetResourceID());
+    if(initial.resourceType != Resource_DescriptorHeap || !initial.resource)
+      return false;
+    WrappedID3D12DescriptorHeap *baseline = (WrappedID3D12DescriptorHeap *)initial.resource;
+    if(baseline->GetNumDescriptors() != numDescriptors)
+      return false;
+    for(uint32_t i = 0; i < numDescriptors; i++)
+    {
+      RecordReplayReadReference(i, baseline->GetDescriptors()[i]);
+      RecordReplayReadReference(i, descriptors[i]);
+    }
+    m_ReplayReadReferencesReady = true;
+  }
+  return true;
+}
+
+bool WrappedID3D12DescriptorHeap::ReplayRangeMayReference(ResourceId resource, uint32_t first,
+                                                          uint32_t count)
+{
+  if(first > numDescriptors || count > numDescriptors - first || !PrepareReplayReadReferences())
+    return true;
+  return m_ReplayReadReferences.MayReference(resource, first, count);
+}
+
+void D3D12ReplayBufferDescriptorRanges::Add(uint32_t slot, ResourceId resource, uint64_t offset,
+                                            uint64_t size)
+{
+  if(!m_Complete || resource == ResourceId())
+    return;
+  if(!size || (size != ~0ULL && size > ~0ULL - offset))
+  {
+    Invalidate();
+    return;
+  }
+  if(m_Ranges[resource][slot].insert({offset, size}).second && ++m_Count > 1024 * 1024)
+    Invalidate();
+}
+
+bool D3D12ReplayBufferDescriptorRanges::Gather(ResourceId resource, uint32_t first, uint32_t count,
+                                               rdcarray<rdcpair<uint64_t, uint64_t>> &ranges,
+                                               size_t &work) const
+{
+  if(!m_Complete || uint64_t(first) + count > uint64_t(UINT_MAX) + 1 || !work)
+    return false;
+  work--;
+  const auto found = m_Ranges.find(resource);
+  if(found == m_Ranges.end())
+    return true;
+  for(auto slot = found->second.lower_bound(first);
+      slot != found->second.end() && uint64_t(slot->first) < uint64_t(first) + count; ++slot)
+    for(const auto &range : slot->second)
+    {
+      if(!work)
+        return false;
+      work--;
+      ranges.push_back(range);
+    }
+  return true;
+}
+
+bool WrappedID3D12DescriptorHeap::GatherReplayBufferReadRanges(
+    ResourceId resource, uint32_t first, uint32_t count,
+    rdcarray<rdcpair<uint64_t, uint64_t>> &ranges, size_t &work)
+{
+  return first <= numDescriptors && count <= numDescriptors - first &&
+         PrepareReplayReadReferences() &&
+         m_ReplayBufferReadRanges.Gather(resource, first, count, ranges, work);
+}
+
+void WrappedID3D12DescriptorHeap::InvalidateInitialDescriptorRestore()
+{
+  // Called before resource/shader binding replacements can change the replay. The next reset
+  // deliberately takes the complete baseline path even when no captured descriptor write ran.
+  m_InitialDescriptorSource = NULL;
+  m_InitialDescriptorDirty.ClearDirty();
+  cachedDescriptors.Clear();
+}
+
+bool WrappedID3D12DescriptorHeap::GetCheckpointDescriptorRanges(
+    ResourceId &baseline, rdcarray<D3D12DescriptorRestoreRange> &ranges)
+{
+  baseline = ResourceId();
+  ranges.clear();
+  if(!m_InitialDescriptorSource || m_RestoringInitialDescriptors || m_pDevice->HasFatalError() ||
+     m_InitialDescriptorSource->GetNumDescriptors() != numDescriptors)
+    return false;
+
+  baseline = GetResID(m_InitialDescriptorSource);
+  m_InitialDescriptorDirty.GetRanges(ranges);
+  return true;
+}
+
+uint64_t WrappedID3D12DescriptorHeap::GetCheckpointDescriptorBytes() const
+{
+  // Exactly the same baseline and complete 64-slot blocks as GetCheckpointDescriptorRanges.
+  // Counting is O(1), so loading can record a boundary without sorting/materialising ranges.
+  if(!m_InitialDescriptorSource || m_RestoringInitialDescriptors || m_pDevice->HasFatalError() ||
+     m_InitialDescriptorSource->GetNumDescriptors() != numDescriptors)
+    return uint64_t(numDescriptors) * sizeof(D3D12Descriptor);
+  return m_InitialDescriptorDirty.DescriptorCount() * sizeof(D3D12Descriptor);
+}
+
+void WrappedID3D12DescriptorHeap::RestoreInitialDescriptors(WrappedID3D12DescriptorHeap *source,
+                                                            bool forceFullRestore)
+{
+  if(source == NULL || m_pDevice->HasFatalError())
+    return;
+
+  const uint32_t count = source->GetNumDescriptors();
+  bool fullRestore = forceFullRestore || count <= 1024 || m_InitialDescriptorSource != source;
+  rdcarray<D3D12DescriptorRestoreRange> ranges;
+  if(!fullRestore)
+  {
+    m_InitialDescriptorDirty.GetRanges(ranges);
+    // Highly fragmented heaps are cheaper to restore in one copy than thousands of tiny calls.
+    fullRestore = ranges.size() > 1024;
+  }
+  if(fullRestore)
+  {
+    ranges.clear();
+    if(count)
+      ranges.push_back({0, count});
+    AddReplayTimingCounter(ReplayTimingCounter::InitialDescriptorFullRestores);
+  }
+
+  rdcarray<D3D12DescriptorRestoreRange> deferred;
+  if(count > 1024)
+    m_pDevice->GetCheckpointInitialDescriptorRanges(GetResourceID(), GetResID(source), count,
+                                                   ranges, deferred);
+
+  uint64_t copied = 0;
+  m_RestoringInitialDescriptors = true;
+  for(const D3D12DescriptorRestoreRange &range : ranges)
+  {
+    // Wrapped copies update both native descriptors and RenderDoc's CPU metadata. The hook in
+    // CopyDescriptorsSimple must not mark this initial-state copy as a new replay mutation.
+    m_pDevice->CopyDescriptorsSimple(range.count, descriptors[range.first],
+                                    source->GetDescriptors()[range.first], source->GetDesc().Type);
+    copied += range.count;
+  }
+  m_RestoringInitialDescriptors = false;
+  AddReplayTimingCounter(ReplayTimingCounter::InitialDescriptors, copied);
+  AddReplayTimingCounter(ReplayTimingCounter::InitialDescriptorsSkipped, count - copied);
+  AddReplayTimingCounter(ReplayTimingCounter::InitialDescriptorRanges, ranges.size());
+
+  if(m_pDevice->HasFatalError())
+  {
+    InvalidateInitialDescriptorRestore();
+    return;
+  }
+
+  if(fullRestore)
+    m_InitialDescriptorDirty.Reset(count > 1024 ? count : 0);
+  else
+    m_InitialDescriptorDirty.ClearDirty();
+  // Small heaps keep the simpler complete-copy path and need no dirty tracking allocation.
+  m_InitialDescriptorSource = count > 1024 ? source : NULL;
+  // These slots were deliberately left for the checkpoint overlay, so they are still different
+  // from the immutable initial baseline even when the overlay subsequently finds equal values.
+  for(const auto &range : deferred)
+    m_InitialDescriptorDirty.MarkRange(range.first, range.count);
+}
+
+#if ENABLED(ENABLE_UNIT_TESTS)
+
+#include "catch/catch.hpp"
+
+TEST_CASE("D3D12 checkpoint descriptor overlays retain only their complete delta ranges",
+          "[d3d12][replay][descriptor-restore]")
+{
+  rdcarray<D3D12DescriptorRestoreRange> copies = {{0, 130}}, excluded = {{64, 64}}, result;
+  REQUIRE(D3D12SubtractDescriptorRanges(130, copies, excluded, result));
+  REQUIRE(result.size() == 2);
+  CHECK(result[0].first == 0);
+  CHECK(result[0].count == 64);
+  CHECK(result[1].first == 128);
+  CHECK(result[1].count == 2);
+  // Current dirty ranges may begin inside a saved block or end before the next saved block.
+  copies = {{16, 64}, {100, 30}};
+  excluded = {{0, 64}, {128, 2}};
+  REQUIRE(D3D12SubtractDescriptorRanges(130, copies, excluded, result));
+  REQUIRE(result.size() == 2);
+  CHECK(result[0].first == 64);
+  CHECK(result[0].count == 16);
+  CHECK(result[1].first == 100);
+  CHECK(result[1].count == 28);
+  excluded = {{0, 130}};
+  REQUIRE(D3D12SubtractDescriptorRanges(130, copies, excluded, result));
+  CHECK(result.empty());
+  excluded = {{128, 3}};
+  CHECK_FALSE(D3D12SubtractDescriptorRanges(130, copies, excluded, result));
+  REQUIRE(result.size() == copies.size());
+  CHECK(result[0].first == copies[0].first);
+  CHECK(result[0].count == copies[0].count);
+  CHECK_FALSE(D3D12SubtractDescriptorRanges(130, copies, {{64, 64}, {32, 32}}, result));
+  CHECK_FALSE(D3D12SubtractDescriptorRanges(130, copies, {{0, 0}}, result));
+  CHECK_FALSE(D3D12SubtractDescriptorRanges(~0U, copies, {{~0U - 1, 4}}, result));
+}
+
+TEST_CASE("D3D12 descriptor read proof preserves every captured slot identity",
+          "[d3d12][replay][clear-prefix]")
+{
+  D3D12ReplayDescriptorReferences references;
+  const ResourceId before = ResourceIDGen::GetNewUniqueID();
+  const ResourceId after = ResourceIDGen::GetNewUniqueID();
+  references.Add(17, before);
+  references.Add(17, after);    // descriptor changed between recording and submission
+  references.Add(3000, before);
+  CHECK(references.Complete());
+  CHECK(references.MayReference(before, 16, 2));
+  CHECK(references.MayReference(after, 16, 2));
+  CHECK_FALSE(references.MayReference(before, 18, 10));
+  CHECK_FALSE(references.MayReference(after, 3000, 1));
+  CHECK(references.MayReference(before, 3000, 1));
+  CHECK_FALSE(references.MayReference(before, 17, 0));
+  CHECK(references.MayReference(before, ~0U, 2));
+  references.Add(17, before);    // duplicate writes must not remove the older identity
+  CHECK(references.MayReference(after, 17, 1));
+}
+
+TEST_CASE("D3D12 descriptor buffer bounds retain old views and fail closed on missing evidence",
+          "[d3d12][replay][bufferpatch]")
+{
+  D3D12ReplayBufferDescriptorRanges index;
+  const ResourceId buffer = ResourceIDGen::GetNewUniqueID();
+  const ResourceId other = ResourceIDGen::GetNewUniqueID();
+  index.Add(3, buffer, 256, 256);
+  index.Add(3, buffer, 768, 256);
+  index.Add(4, other, 0, ~0ULL);
+  index.Add(5, buffer, 512, 256);
+  rdcarray<rdcpair<uint64_t, uint64_t>> ranges;
+  size_t work = 100;
+  REQUIRE(index.Gather(buffer, 3, 1, ranges, work));
+  REQUIRE(ranges.size() == 2);
+  CHECK(ranges[0].first == 256);
+  CHECK(ranges[0].second == 256);
+  CHECK(ranges[1].first == 768);
+  CHECK(ranges[1].second == 256);
+  ranges.clear();
+  REQUIRE(index.Gather(buffer, 4, 1, ranges, work));
+  CHECK(ranges.empty());
+  REQUIRE(index.Gather(buffer, 5, 1, ranges, work));
+  REQUIRE(ranges.size() == 1);
+  CHECK(ranges[0].first == 512);
+  work = 1;
+  CHECK_FALSE(index.Gather(buffer, 3, 1, ranges, work));
+  work = 100;
+  CHECK_FALSE(index.Gather(buffer, ~0U, 2, ranges, work));
+  index.Add(6, buffer, ~0ULL - 4, 8);
+  CHECK_FALSE(index.Gather(other, 4, 1, ranges, work));
+}
+
+TEST_CASE("D3D12 submitted UAV ranges include counters and follow descriptor overwrites",
+          "[d3d12][replay][dirty-restore]")
+{
+  D3D12ReplayUAVIndex index;
+  const ResourceId first = ResourceIDGen::GetNewUniqueID();
+  const ResourceId counter = ResourceIDGen::GetNewUniqueID();
+  const ResourceId replacement = ResourceIDGen::GetNewUniqueID();
+  index.Set(5, first, ResourceId());
+  index.Set(1000001, first, counter);
+  index.Set(2000000, replacement, ResourceId());
+  std::set<ResourceId> writes;
+  index.Gather(1000, 1500000, writes);
+  CHECK(writes.size() == 2);
+  CHECK(writes.count(first) == 1);
+  CHECK(writes.count(counter) == 1);
+  CHECK(writes.count(replacement) == 0);
+
+  // A CopyDescriptors/native Create can replace the same location between two submissions.
+  index.EraseRange(1000000, 64);
+  index.Set(1000001, replacement, ResourceId());
+  writes.clear();
+  index.Gather(1000001, 1, writes);
+  CHECK(writes.size() == 1);
+  CHECK(writes.count(replacement) == 1);
+  CHECK(writes.count(counter) == 0);
+
+  // Restoring that block to a non-UAV baseline removes the preceding destination/counter.
+  index.EraseRange(1000000, 64);
+  writes.clear();
+  index.Gather(1000001, 1, writes);
+  CHECK(writes.empty());
+  index.Set(UINT_MAX, counter, ResourceId());
+  index.EraseRange(UINT_MAX, 1);
+  index.Gather(UINT_MAX, 1, writes);
+  CHECK(writes.empty());
+  index.Gather(0, 6, writes);
+  CHECK(writes.count(first) == 1);
+}
+
+TEST_CASE("D3D12 descriptor restore coalesces dirty blocks and clamps the heap tail",
+          "[d3d12][replay][descriptor-restore]")
+{
+  D3D12DescriptorRestoreTracker tracker;
+  rdcarray<D3D12DescriptorRestoreRange> ranges;
+  tracker.Reset(130);
+  CHECK(tracker.DescriptorCount() == 0);
+  tracker.GetRanges(ranges);
+  CHECK(ranges.empty());
+
+  tracker.MarkRange(63, 2);
+  tracker.MarkRange(63, 2);
+  tracker.GetRanges(ranges);
+  REQUIRE(ranges.size() == 1);
+  CHECK(ranges[0].first == 0);
+  CHECK(ranges[0].count == 128);
+  CHECK(tracker.DescriptorCount() == 128);
+
+  tracker.MarkRange(128, ~0U);
+  tracker.GetRanges(ranges);
+  REQUIRE(ranges.size() == 1);
+  CHECK(ranges[0].first == 0);
+  CHECK(ranges[0].count == 130);
+  CHECK(tracker.DescriptorCount() == 130);
+
+  tracker.ClearDirty();
+  CHECK(tracker.DescriptorCount() == 0);
+  tracker.MarkRange(129, 1);
+  tracker.GetRanges(ranges);
+  REQUIRE(ranges.size() == 1);
+  CHECK(ranges[0].first == 128);
+  CHECK(ranges[0].count == 2);
+  CHECK(tracker.DescriptorCount() == 2);
+}
+
+TEST_CASE("D3D12 descriptor restore tracks sparse writes across mask words",
+          "[d3d12][replay][descriptor-restore]")
+{
+  D3D12DescriptorRestoreTracker tracker;
+  rdcarray<D3D12DescriptorRestoreRange> ranges;
+  tracker.Reset(8193);
+  tracker.MarkRange(8192, 1);
+  tracker.MarkRange(0, 1);
+  tracker.MarkRange(4096, 1);
+  tracker.MarkRange(8193, 100);
+  tracker.MarkRange(100, 0);
+  tracker.GetRanges(ranges);
+  REQUIRE(ranges.size() == 3);
+  CHECK(ranges[0].first == 0);
+  CHECK(ranges[0].count == 64);
+  CHECK(ranges[1].first == 4096);
+  CHECK(ranges[1].count == 64);
+  CHECK(ranges[2].first == 8192);
+  CHECK(ranges[2].count == 1);
+  CHECK(tracker.DescriptorCount() == 129);
+
+  tracker.ClearDirty();
+  tracker.MarkRange(4096, 1);
+  tracker.GetRanges(ranges);
+  REQUIRE(ranges.size() == 1);
+  CHECK(ranges[0].first == 4096);
+  CHECK(tracker.DescriptorCount() == 64);
+
+  tracker.Reset(0);
+  tracker.MarkRange(0, ~0U);
+  tracker.GetRanges(ranges);
+  CHECK(ranges.empty());
+  CHECK(tracker.DescriptorCount() == 0);
+}
+
+TEST_CASE("D3D12 descriptor boundary counts remain equal to the complete saved blocks",
+          "[d3d12][replay][checkpoints][descriptor-restore]")
+{
+  D3D12DescriptorRestoreTracker tracker;
+  rdcarray<D3D12DescriptorRestoreRange> ranges;
+  tracker.Reset(1000003);
+  for(uint32_t i = 0; i < 4096; ++i)
+  {
+    // Repeated/overlapping writes, sparse blocks, and a partial final block are all counted
+    // exactly once; boundary observation itself must not mutate the subsequent dirty set.
+    tracker.MarkRange((i * 977) % 1000003, i % 131);
+    if(i % 61 == 0)
+    {
+      tracker.GetRanges(ranges);
+      uint64_t count = 0;
+      for(const auto &range : ranges)
+        count += range.count;
+      CHECK(tracker.DescriptorCount() == count);
+    }
+  }
+  tracker.MarkRange(1000002, ~0U);
+  tracker.GetRanges(ranges);
+  uint64_t count = 0;
+  for(const auto &range : ranges)
+    count += range.count;
+  CHECK(tracker.DescriptorCount() == count);
+  tracker.ClearDirty();
+  CHECK(tracker.DescriptorCount() == 0);
+}
+
+TEST_CASE("D3D12 inspector descriptor cache is sparse and bounded across scans",
+          "[d3d12][descriptor-view-cache]")
+{
+  D3D12DescriptorViewCache cache;
+  const uint32_t count = 1000003;
+  Descriptor view;
+  view.type = DescriptorType::ConstantBuffer;
+  view.resource = ResourceIDGen::GetNewUniqueID();
+  view.byteOffset = 256;
+  view.byteSize = 256;
+  CHECK(cache.Find(0) == NULL);
+  CHECK(cache.AllocatedBytes() == 0);
+  cache.Store(count - 1, count, view);
+  REQUIRE(cache.Find(count - 1) != NULL);
+  CHECK(bool(*cache.Find(count - 1) == view));
+  CHECK(cache.ResidentPages() == 1);
+  CHECK(cache.AllocatedBytes() < 128 * 1024);
+  cache.Store(count, count, view);
+  REQUIRE(cache.Find(count) !=
+          NULL);    // same allocated tail page, but the rejected store wrote nothing
+  CHECK(cache.Find(count)->type == DescriptorType::Unknown);
+  cache.Clear();
+  CHECK(cache.AllocatedBytes() == 0);
+
+  for(uint32_t i = 0; i < D3D12DescriptorViewCache::MaxPages; i++)
+  {
+    view.byteOffset = i * 256;
+    cache.Store(i * D3D12DescriptorViewCache::PageSize, count, view);
+  }
+  REQUIRE(cache.Find(0) != NULL);    // keep the oldest page hot
+  view.byteOffset = 999;
+  const uint32_t next = D3D12DescriptorViewCache::MaxPages * D3D12DescriptorViewCache::PageSize;
+  cache.Store(next, count, view);
+  CHECK(cache.Find(0) != NULL);
+  CHECK(cache.Find(D3D12DescriptorViewCache::PageSize) == NULL);
+  REQUIRE(cache.Find(next) != NULL);
+  CHECK(bool(*cache.Find(next) == view));
+  CHECK(cache.Find(next + 1)->type == DescriptorType::Unknown);
+  CHECK(cache.ResidentPages() == D3D12DescriptorViewCache::MaxPages);
+
+  for(uint32_t i = next; i < count; i += D3D12DescriptorViewCache::PageSize)
+  {
+    view.byteOffset = i;
+    cache.Store(i, count, view);
+    REQUIRE(cache.Find(i) != NULL);
+    CHECK(bool(*cache.Find(i) == view));
+    REQUIRE(cache.ResidentPages() <= D3D12DescriptorViewCache::MaxPages);
+  }
+  CHECK(cache.AllocatedBytes() < 3 * 1024 * 1024);
+  cache.Clear();
+  CHECK(cache.AllocatedBytes() == 0);
+  CHECK(cache.Find(next) == NULL);
+  view.resource = ResourceIDGen::GetNewUniqueID();
+  cache.Store(next, count, view);
+  REQUIRE(cache.Find(next) != NULL);
+  CHECK(bool(*cache.Find(next) == view));    // invalidation never resurrects the old view
+}
+
+#endif    // ENABLED(ENABLE_UNIT_TESTS)
+
+const Descriptor *D3D12DescriptorViewCache::Find(uint32_t index)
+{
+  const uint32_t pageIndex = index / PageSize;
+  if(pageIndex >= m_Pages.size() || !m_Pages[pageIndex].views)
+    return NULL;
+  Page &page = m_Pages[pageIndex];
+  page.lastUse = ++m_Clock;
+  return &page.views[index % PageSize];
+}
+
+void D3D12DescriptorViewCache::Store(uint32_t index, uint32_t descriptorCount, const Descriptor &view)
+{
+  if(index >= descriptorCount)
+    return;
+  const uint32_t pageCount = uint32_t((uint64_t(descriptorCount) + PageSize - 1) / PageSize);
+  if(m_Pages.size() < pageCount)
+    m_Pages.resize(pageCount);
+  const uint32_t pageIndex = index / PageSize;
+  Page &page = m_Pages[pageIndex];
+  if(!page.views)
+  {
+    if(m_Resident.size() >= MaxPages)
+    {
+      // Inspect only resident pages, never scan the entire captured heap on eviction.
+      size_t oldest = 0;
+      for(size_t i = 1; i < m_Resident.size(); i++)
+        if(m_Pages[m_Resident[i]].lastUse < m_Pages[m_Resident[oldest]].lastUse)
+          oldest = i;
+      Page &victim = m_Pages[m_Resident[oldest]];
+      page.views = victim.views;
+      victim.views = NULL;
+      victim.lastUse = 0;
+      m_Resident[oldest] = pageIndex;
+    }
+    else
+    {
+      page.views = new Descriptor[PageSize];
+      m_Resident.push_back(pageIndex);
+    }
+    RDCEraseMem(page.views, sizeof(Descriptor) * PageSize);
+  }
+  page.lastUse = ++m_Clock;
+  page.views[index % PageSize] = view;
+}
+
+void D3D12DescriptorViewCache::Clear()
+{
+  for(uint32_t page : m_Resident)
+    SAFE_DELETE_ARRAY(m_Pages[page].views);
+  rdcarray<uint32_t>().swap(m_Resident);
+  rdcarray<Page>().swap(m_Pages);
+  m_Clock = 0;
 }
 
 bool WrappedID3D12DescriptorHeap::HasValidDescriptorCache(uint32_t index)
@@ -542,12 +1311,11 @@ bool WrappedID3D12DescriptorHeap::HasValidDescriptorCache(uint32_t index)
   if((mutableDescriptorBitmask[index / 64] & (1ULL << (index % 64))) != 0)
     return false;
 
-  EnsureDescriptorCache();
-
   // anything that's not mutable is valid once it's been set at least once. Since we
   // zero-initialise, we use bind as a flag (it isn't retrieved from the cache since it depends on
   // the binding)
-  return cachedDescriptors[index].type != DescriptorType::Unknown;
+  const Descriptor *cached = cachedDescriptors.Find(index);
+  return cached && cached->type != DescriptorType::Unknown;
 }
 
 void WrappedID3D12DescriptorHeap::GetFromDescriptorCache(uint32_t index, Descriptor &view)
@@ -555,29 +1323,19 @@ void WrappedID3D12DescriptorHeap::GetFromDescriptorCache(uint32_t index, Descrip
   if(!mutableDescriptorBitmask)
     return;
 
-  EnsureDescriptorCache();
-
-  view = cachedDescriptors[index];
-}
-
-void WrappedID3D12DescriptorHeap::EnsureDescriptorCache()
-{
-  if(!cachedDescriptors)
-  {
-    D3D12_DESCRIPTOR_HEAP_DESC desc = GetDesc();
-    cachedDescriptors = new Descriptor[desc.NumDescriptors];
-    RDCEraseMem(cachedDescriptors, sizeof(Descriptor) * desc.NumDescriptors);
-  }
+  if(const Descriptor *cached = cachedDescriptors.Find(index))
+    view = *cached;
 }
 
 void WrappedID3D12DescriptorHeap::SetToDescriptorCache(uint32_t index, const Descriptor &view)
 {
-  if(!mutableDescriptorBitmask)
+  // HasValidDescriptorCache always rejects these entries. Do not allocate a
+  // page for values that can never satisfy a later cache lookup.
+  if(!mutableDescriptorBitmask || view.type == DescriptorType::Unknown ||
+     (mutableDescriptorBitmask[index / 64] & (1ULL << (index % 64))) != 0)
     return;
 
-  EnsureDescriptorCache();
-
-  cachedDescriptors[index] = view;
+  cachedDescriptors.Store(index, numDescriptors, view);
 }
 
 WrappedID3D12DescriptorHeap::WrappedID3D12DescriptorHeap(ResourceId id, ID3D12DescriptorHeap *real,
@@ -607,14 +1365,11 @@ WrappedID3D12DescriptorHeap::WrappedID3D12DescriptorHeap(ResourceId id, ID3D12De
   {
     size_t bitmaskSize = AlignUp(desc.NumDescriptors, 64U) / 64;
 
-    cachedDescriptors = NULL;
-
     mutableDescriptorBitmask = new uint64_t[bitmaskSize];
     RDCEraseMem(mutableDescriptorBitmask, sizeof(uint64_t) * bitmaskSize);
   }
   else
   {
-    cachedDescriptors = NULL;
     mutableDescriptorBitmask = NULL;
   }
 }
@@ -623,7 +1378,6 @@ WrappedID3D12DescriptorHeap::~WrappedID3D12DescriptorHeap()
 {
   Shutdown();
   SAFE_DELETE_ARRAY(descriptors);
-  SAFE_DELETE_ARRAY(cachedDescriptors);
   SAFE_DELETE_ARRAY(mutableDescriptorBitmask);
 }
 
@@ -633,7 +1387,12 @@ void WrappedID3D12PipelineState::ShaderEntry::BuildReflection()
       D3Dx_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT == D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT,
       "Mismatched vertex input count");
 
-  MakeShaderReflection(m_DXBCFile, {}, m_Details);
+  ShaderEntryPoint entry;
+  const rdcarray<ShaderEntryPoint> entries = m_DXBCFile->GetEntryPoints();
+  if(entries.size() == 1)
+    entry = entries[0];
+
+  MakeShaderReflection(m_DXBCFile, entry, m_Details);
   m_Details->resourceId = GetResourceID();
 }
 
@@ -1604,9 +2363,9 @@ D3D12_SHADER_RESOURCE_VIEW_DESC MakeSRVDesc(const D3D12_RESOURCE_DESC &desc)
 
     ret.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
     ret.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-    ret.Buffer.StructureByteStride = 0;
+    ret.Buffer.StructureByteStride = 16;
     ret.Buffer.FirstElement = 0;
-    ret.Buffer.NumElements = (UINT)desc.Width;
+    ret.Buffer.NumElements = (UINT)desc.Width / 16;
   }
   else if(desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
   {
@@ -1761,27 +2520,82 @@ void WrappedID3D12QueryHeap::SaveValidQueries(ID3D12GraphicsCommandList *unwrapp
   }
 }
 
+static UINT QueryResolveRunEnd(const rdcarray<D3D12_QUERY_TYPE> &valid, UINT start, UINT end)
+{
+  UINT next = start + 1;
+  while(next < end && valid[next] == valid[start])
+    next++;
+  return next;
+}
+
+bool WrappedID3D12QueryHeap::CanCheckpointQuery(UINT index, D3D12_QUERY_TYPE type) const
+{
+  if(index >= m_Valid.size() || m_Valid[index] != type)
+    return false;
+  // Saved results are resolved on the internal DIRECT queue. Copy-queue timestamps, video
+  // queries and newer query types require their own compatible queue/feature handling.
+  switch(m_Type)
+  {
+    case D3D12_QUERY_HEAP_TYPE_TIMESTAMP: return type == D3D12_QUERY_TYPE_TIMESTAMP;
+    case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
+      return type == D3D12_QUERY_TYPE_OCCLUSION || type == D3D12_QUERY_TYPE_BINARY_OCCLUSION;
+    case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
+      return type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS;
+    case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
+      return type >= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0 &&
+             type <= D3D12_QUERY_TYPE_SO_STATISTICS_STREAM3;
+    default: return false;
+  }
+}
+
 void WrappedID3D12QueryHeap::ResolveValidQueryData(ID3D12GraphicsCommandList *list,
                                                    D3D12_QUERY_TYPE Type, UINT StartIndex,
                                                    UINT NumQueries, ID3D12Resource *destBuf,
-                                                   UINT64 destOffs)
+                                                   UINT64 destOffs, ResourceId baked,
+                                                   uint32_t relativeEvent)
 {
   UINT64 stride = GetResolveDataSize();
 
+  if(StartIndex > m_Valid.size() || NumQueries > m_Valid.size() - StartIndex)
+  {
+    RDCERR("Query resolve range %u + %u exceeds heap size %zu", StartIndex, NumQueries,
+           m_Valid.size());
+    return;
+  }
+
   // find contiguous ranges, for sensible applications there should only be a few ranges rather than scattered queries.
+  UINT runEnd = StartIndex;
   for(UINT i = StartIndex, end = StartIndex + NumQueries; i < end;)
   {
     // doesn't matter if the query is valid or not we will still need to resolve it
     UINT start = i;
 
-    for(; i < m_Valid.size(); i++)
-      if(m_Valid[i] != m_Valid[start])
+    // Coalesce only within this request. Extending to the end of a same-type heap would resolve
+    // additional native queries and overwrite bytes past the application's destination range.
+    ID3D12Resource *saved = NULL;
+    UINT64 savedOffset = 0;
+    m_pDevice->GetReplayCheckpointQueryResult(baked, relativeEvent, GetResourceID(), start,
+                                             saved, savedOffset);
+    if(start == runEnd)
+      runEnd = QueryResolveRunEnd(m_Valid, start, end);
+    i = start + 1;
+    for(; i < runEnd; i++)
+    {
+      ID3D12Resource *next = NULL;
+      UINT64 nextOffset = 0;
+      m_pDevice->GetReplayCheckpointQueryResult(baked, relativeEvent, GetResourceID(), i,
+                                               next, nextOffset);
+      if(next != saved || (saved && nextOffset != savedOffset + stride * (i - start)))
         break;
+    }
 
     UINT num = i - start;
 
     // if the query range is valid, resolve it normally
-    if(m_Valid[start] != InvalidQueryType)
+    if(saved)
+      Unwrap(list)->CopyBufferRegion(Unwrap(destBuf), destOffs + stride * (start - StartIndex),
+                                     saved, savedOffset, stride * num);
+    else if(m_Valid[start] != InvalidQueryType)
       Unwrap(list)->ResolveQueryData(GetReal(), m_Valid[start], start, num, Unwrap(destBuf),
                                      destOffs + stride * (start - StartIndex));
     else if(m_SavedResults)
@@ -1789,3 +2603,18 @@ void WrappedID3D12QueryHeap::ResolveValidQueryData(ID3D12GraphicsCommandList *li
                                      Unwrap(m_SavedResults), stride * start, stride * num);
   }
 }
+
+#if ENABLED(ENABLE_UNIT_TESTS)
+TEST_CASE("D3D12 query resolve runs stay within the requested destination range",
+          "[d3d12][replay][checkpoint]")
+{
+  rdcarray<D3D12_QUERY_TYPE> valid = {
+      D3D12_QUERY_TYPE_OCCLUSION, D3D12_QUERY_TYPE_OCCLUSION, D3D12_QUERY_TYPE_OCCLUSION,
+      D3D12_QUERY_TYPE_BINARY_OCCLUSION, D3D12_QUERY_TYPE_BINARY_OCCLUSION};
+  CHECK(QueryResolveRunEnd(valid, 0, 1) == 1);
+  CHECK(QueryResolveRunEnd(valid, 1, 2) == 2);
+  CHECK(QueryResolveRunEnd(valid, 0, 5) == 3);
+  CHECK(QueryResolveRunEnd(valid, 3, 4) == 4);
+  CHECK(QueryResolveRunEnd(valid, 3, 5) == 5);
+}
+#endif

@@ -124,14 +124,11 @@ Q_DECLARE_METATYPE(VulkanBufferTag);
 
 struct VulkanTextureTag
 {
-  VulkanTextureTag() { compType = CompType::Typeless; }
-  VulkanTextureTag(ResourceId id, CompType ty)
+  VulkanTextureTag() = default;
+  VulkanTextureTag(const Descriptor &desc) : descriptor(desc)
   {
-    ID = id;
-    compType = ty;
   }
-  ResourceId ID;
-  CompType compType;
+  Descriptor descriptor;
 };
 
 Q_DECLARE_METATYPE(VulkanTextureTag);
@@ -606,7 +603,7 @@ ResourceId VulkanPipelineStateViewer::GetResource(RDTreeWidgetItem *item)
   else if(tag.canConvert<VulkanTextureTag>())
   {
     VulkanTextureTag texTag = tag.value<VulkanTextureTag>();
-    return texTag.ID;
+    return texTag.descriptor.resource;
   }
   else if(tag.canConvert<VulkanBufferTag>())
   {
@@ -636,6 +633,35 @@ ResourceId VulkanPipelineStateViewer::GetResource(RDTreeWidgetItem *item)
   }
 
   return ResourceId();
+}
+
+bool VulkanPipelineStateViewer::GetTextureHistoryDetails(RDTreeWidgetItem *item,
+                                                         Subresource &subresource,
+                                                         CompType &typeCast)
+{
+  subresource = Subresource();
+
+  ResourceId resource = GetResource(item);
+  TextureDescription *tex = m_Ctx.GetTexture(resource);
+  if(tex == NULL)
+    return false;
+
+  typeCast = tex->format.compType;
+
+  QVariant tag = item->tag();
+  if(tag.canConvert<VulkanTextureTag>())
+  {
+    const Descriptor &descriptor = tag.value<VulkanTextureTag>().descriptor;
+    if(descriptor.resource == resource)
+    {
+      subresource.mip = descriptor.firstMip;
+      subresource.slice = descriptor.firstSlice;
+      typeCast = descriptor.format.compType;
+    }
+  }
+
+  subresource.sample = tex->msSamp > 1 ? TextureDisplay::ResolveSamples : 0;
+  return true;
 }
 
 void VulkanPipelineStateViewer::on_showUnused_toggled(bool checked)
@@ -726,16 +752,18 @@ bool VulkanPipelineStateViewer::setViewDetails(RDTreeWidgetItem *node, const Des
       viewdetails = true;
     }
 
-    if(tex->depth > 1 && ((tex->depth != descriptor.numSlices && descriptor.numSlices > 0) ||
-                          descriptor.firstSlice > 0))
+    uint32_t effectiveDepth = qMax(1U, tex->depth >> descriptor.firstMip);
+
+    if(effectiveDepth > 1 && ((effectiveDepth != descriptor.numSlices && descriptor.numSlices > 0) ||
+                              descriptor.firstSlice > 0))
     {
       if(descriptor.numSlices == 1)
-        text += tr("The texture has %1 3D slices, the view covers slice %2.\n")
-                    .arg(tex->depth)
+        text += tr("The texture has %1 3D slices at first mip, the view covers slice %2.\n")
+                    .arg(effectiveDepth)
                     .arg(descriptor.firstSlice);
       else
-        text += tr("The texture has %1 3D slices, the view covers slices %2-%3.\n")
-                    .arg(tex->depth)
+        text += tr("The texture has %1 3D slices at first mip, the view covers slices %2-%3.\n")
+                    .arg(effectiveDepth)
                     .arg(descriptor.firstSlice)
                     .arg(descriptor.firstSlice + descriptor.numSlices - 1);
 
@@ -1318,7 +1346,7 @@ void VulkanPipelineStateViewer::addResourceRow(const ShaderResource *shaderRes,
         restype = tex->type;
         samples = tex->msSamp;
 
-        tag = QVariant::fromValue(VulkanTextureTag(descriptor.resource, descriptor.format.compType));
+        tag = QVariant::fromValue(VulkanTextureTag(descriptor));
       }
 
       // if not a texture, it must be a buffer
@@ -2609,7 +2637,25 @@ void VulkanPipelineStateViewer::setState()
     ui->depthBias->setPixmap(QPixmap());
     ui->depthBiasClamp->setPixmap(QPixmap());
     ui->slopeScaledBias->setPixmap(QPixmap());
-    ui->depthBias->setText(Formatter::Format(state.rasterizer.depthBias));
+
+    QString depthBiasText = Formatter::Format(state.rasterizer.depthBias);
+
+    if(state.rasterizer.depthBiasRepresentation == DepthBiasMode::ForceUNorm)
+    {
+      depthBiasText += tr(" (UNorm)");
+    }
+    else if(state.rasterizer.depthBiasRepresentation == DepthBiasMode::One)
+    {
+      depthBiasText += tr(" (Float)");
+    }
+
+    if(state.rasterizer.depthBiasExact)
+    {
+      depthBiasText += tr(" Exact");
+    }
+
+    ui->depthBias->setText(depthBiasText);
+
     ui->depthBiasClamp->setText(Formatter::Format(state.rasterizer.depthBiasClamp));
     ui->slopeScaledBias->setText(Formatter::Format(state.rasterizer.slopeScaledDepthBias));
   }
@@ -2982,7 +3028,7 @@ void VulkanPipelineStateViewer::setState()
               {slotname, resName, typeName, dimensions, format, samples, QString()});
 
           if(tex)
-            node->setTag(QVariant::fromValue(VulkanTextureTag(p.resource, p.format.compType)));
+            node->setTag(QVariant::fromValue(VulkanTextureTag(p)));
 
           if(p.resource == ResourceId())
             setEmptyRow(node);
@@ -3218,7 +3264,7 @@ void VulkanPipelineStateViewer::resource_itemActivated(RDTreeWidgetItem *item, i
   {
     VulkanTextureTag vtex = tag.value<VulkanTextureTag>();
 
-    TextureDescription *tex = m_Ctx.GetTexture(vtex.ID);
+    TextureDescription *tex = m_Ctx.GetTexture(vtex.descriptor.resource);
 
     if(tex)
     {
@@ -3234,7 +3280,7 @@ void VulkanPipelineStateViewer::resource_itemActivated(RDTreeWidgetItem *item, i
         if(!m_Ctx.HasTextureViewer())
           m_Ctx.ShowTextureViewer();
         ITextureViewer *viewer = m_Ctx.GetTextureViewer();
-        viewer->ViewTexture(tex->resourceId, vtex.compType, true);
+        viewer->ViewTexture(tex->resourceId, vtex.descriptor.format.compType, true);
       }
 
       return;
@@ -3666,8 +3712,8 @@ void VulkanPipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const VKPipe::
           length = buf->length;
       }
 
-      rows.push_back({i, vb.resourceId, (qulonglong)vb.byteOffset, (qulonglong)vb.byteStride,
-                      (qulonglong)length});
+      rows.push_back({i, m_Ctx.GetResourceName(vb.resourceId), (qulonglong)vb.byteOffset,
+                      (qulonglong)vb.byteStride, (qulonglong)length});
 
       i++;
     }
@@ -3724,6 +3770,10 @@ void VulkanPipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const VKPipe::
 {
   const ShaderReflection *shaderDetails = sh.reflection;
 
+  const VKPipe::Pipeline &pipeline =
+      (sh.stage == ShaderStage::Compute ? m_Ctx.CurVulkanPipelineState()->compute
+                                        : m_Ctx.CurVulkanPipelineState()->graphics);
+
   {
     xml.writeStartElement(lit("h3"));
     xml.writeCharacters(tr("Shader"));
@@ -3736,22 +3786,23 @@ void VulkanPipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const VKPipe::
     else
       shadername = m_Ctx.GetResourceName(sh.resourceId);
 
+    QString entryname = tr("Unknown");
     if(shaderDetails)
     {
       QString entryFunc = shaderDetails->entryPoint;
       const ShaderDebugInfo &dbg = shaderDetails->debugInfo;
       int entryFile = qMax(0, dbg.entryLocation.fileIndex);
-      if(entryFunc != lit("main"))
-        shadername = QFormatStr("%1()").arg(entryFunc);
-      else if(!dbg.files.isEmpty())
-        shadername = QFormatStr("%1() - %2")
-                         .arg(entryFunc)
-                         .arg(QFileInfo(dbg.files[entryFile].filename).fileName());
+      if(!dbg.files.isEmpty())
+        entryname = QFormatStr("%1() - %2")
+                        .arg(entryFunc)
+                        .arg(QFileInfo(dbg.files[entryFile].filename).fileName());
+      else
+        entryname = QFormatStr("%1()").arg(entryFunc);
     }
 
-    xml.writeStartElement(lit("p"));
-    xml.writeCharacters(shadername);
-    xml.writeEndElement();
+    m_Common.exportHTMLTable(
+        xml, {tr("Pipeline"), tr("Shader"), tr("Entry")},
+        {m_Ctx.GetResourceName(pipeline.pipelineResourceId), shadername, entryname});
 
     if(sh.resourceId == ResourceId())
       return;
@@ -3759,10 +3810,6 @@ void VulkanPipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const VKPipe::
 
   if(!shaderDetails)
     return;
-
-  const VKPipe::Pipeline &pipeline =
-      (sh.stage == ShaderStage::Compute ? m_Ctx.CurVulkanPipelineState()->compute
-                                        : m_Ctx.CurVulkanPipelineState()->graphics);
 
   QList<QVariantList> uboRows;
   QList<QVariantList> roRows;
@@ -4003,7 +4050,7 @@ void VulkanPipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const VKPipe::
       }
 
       sampRows.push_back(
-          {slotname, addressing, filter,
+          {slotname, m_Ctx.GetResourceName(descriptor.object), addressing, filter,
            QFormatStr("%1 - %2")
                .arg(descriptor.minLOD == -FLT_MAX ? lit("0") : QString::number(descriptor.minLOD))
                .arg(descriptor.maxLOD == FLT_MAX ? lit("FLT_MAX")
@@ -4044,9 +4091,10 @@ void VulkanPipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const VKPipe::
     xml.writeCharacters(tr("Samplers"));
     xml.writeEndElement();
 
-    m_Common.exportHTMLTable(
-        xml, {tr("Binding"), tr("Addressing"), tr("Filter"), tr("LOD Clamp"), tr("LOD Bias")},
-        sampRows);
+    m_Common.exportHTMLTable(xml,
+                             {tr("Binding"), tr("Sampler"), tr("Addressing"), tr("Filter"),
+                              tr("LOD Clamp"), tr("LOD Bias")},
+                             sampRows);
   }
 
   if(!uboRows.empty())
@@ -4115,8 +4163,9 @@ void VulkanPipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const VKPipe::
     xml.writeEndElement();
 
     m_Common.exportHTMLTable(
-        xml, {tr("Fill Mode"), tr("Cull Mode"), tr("Front CCW")},
-        {ToQStr(rs.fillMode), ToQStr(rs.cullMode), rs.frontCCW ? tr("Yes") : tr("No")});
+        xml, {tr("Fill Mode"), tr("Cull Mode"), tr("Front CCW"), tr("Provoking Vertex")},
+        {ToQStr(rs.fillMode), ToQStr(rs.cullMode), rs.frontCCW ? tr("Yes") : tr("No"),
+         rs.provokingVertexFirst ? tr("First") : tr("Last")});
 
     xml.writeStartElement(lit("p"));
     xml.writeEndElement();
@@ -4136,16 +4185,52 @@ void VulkanPipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const VKPipe::
     xml.writeStartElement(lit("p"));
     xml.writeEndElement();
 
-    m_Common.exportHTMLTable(xml,
-                             {tr("Depth Bias Enable"), tr("Depth Bias"), tr("Depth Bias Clamp"),
-                              tr("Slope Scaled Bias"), tr("Line Width")},
-                             {
-                                 rs.depthBiasEnable ? tr("Yes") : tr("No"),
-                                 Formatter::Format(rs.depthBias),
-                                 Formatter::Format(rs.depthBiasClamp),
-                                 Formatter::Format(rs.slopeScaledDepthBias),
-                                 Formatter::Format(rs.lineWidth),
-                             });
+    m_Common.exportHTMLTable(
+        xml,
+        {tr("Depth Bias Enable"), tr("Depth Bias"), tr("Depth Bias Representation"),
+         tr("Depth Bias Exact"), tr("Depth Bias Clamp"), tr("Slope Scaled Bias"), tr("Line Width")},
+        {
+            rs.depthBiasEnable ? tr("Yes") : tr("No"),
+            Formatter::Format(rs.depthBias),
+            ToQStr(rs.depthBiasRepresentation),
+            rs.depthBiasExact ? tr("Yes") : tr("No"),
+            Formatter::Format(rs.depthBiasClamp),
+            Formatter::Format(rs.slopeScaledDepthBias),
+            Formatter::Format(rs.lineWidth),
+        });
+  }
+
+  {
+    xml.writeStartElement(lit("h3"));
+    xml.writeCharacters(tr("Line Stipple"));
+    xml.writeEndElement();
+
+    m_Common.exportHTMLTable(
+        xml, {tr("Factor"), tr("Pattern")},
+        {ToQStr(rs.lineStippleFactor), QString::number(rs.lineStipplePattern, 2)});
+  }
+
+  {
+    xml.writeStartElement(lit("h3"));
+    xml.writeCharacters(tr("Conservative Raster"));
+    xml.writeEndElement();
+
+    m_Common.exportHTMLTable(xml, {tr("Mode"), tr("Over-estimation size")},
+                             {ToQStr(rs.conservativeRasterization),
+                              Formatter::Format(rs.extraPrimitiveOverestimationSize)});
+  }
+
+  {
+    xml.writeStartElement(lit("h3"));
+    xml.writeCharacters(tr("Variable Shading Rate"));
+    xml.writeEndElement();
+
+    m_Common.exportHTMLTable(
+        xml, {tr("Pipeline Shading Rate"), tr("Combiners")},
+        {QFormatStr("%1x%2").arg(rs.pipelineShadingRate.first).arg(rs.pipelineShadingRate.second),
+         QFormatStr("%1, %2")
+             .arg(ToQStr(rs.shadingRateCombiners.first, GraphicsAPI::Vulkan))
+             .arg(ToQStr(rs.shadingRateCombiners.second, GraphicsAPI::Vulkan))});
   }
 
   const VKPipe::MultiSample &msaa = m_Ctx.CurVulkanPipelineState()->multisample;
@@ -4472,6 +4557,23 @@ void VulkanPipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const VKPipe::
       xml.writeEndElement();
     }
 
+    if(!pass.renderpass.multiviews.isEmpty())
+    {
+      QList<QVariantList> colors;
+
+      for(int i = 0; i < pass.renderpass.multiviews.count(); i++)
+        colors.push_back({pass.renderpass.multiviews[i]});
+
+      m_Common.exportHTMLTable(xml,
+                               {
+                                   tr("Multiview Mask"),
+                               },
+                               colors);
+
+      xml.writeStartElement(lit("p"));
+      xml.writeEndElement();
+    }
+
     if(pass.renderpass.depthstencilAttachment >= 0)
     {
       xml.writeStartElement(lit("p"));
@@ -4648,6 +4750,20 @@ const ShaderResource *VulkanPipelineStateViewer::exportDescriptorHTML(const Used
       viewParams += tr("Layers: %1-%2")
                         .arg(descriptor.firstSlice)
                         .arg(descriptor.firstSlice + descriptor.numSlices - 1);
+    }
+
+    if(descriptor.swizzle.red != TextureSwizzle::Red ||
+       descriptor.swizzle.green != TextureSwizzle::Green ||
+       descriptor.swizzle.blue != TextureSwizzle::Blue ||
+       descriptor.swizzle.alpha != TextureSwizzle::Alpha)
+    {
+      if(!viewParams.isEmpty())
+        viewParams += lit(", ");
+      viewParams += tr("swizzle[%1%2%3%4]")
+                        .arg(ToQStr(descriptor.swizzle.red))
+                        .arg(ToQStr(descriptor.swizzle.green))
+                        .arg(ToQStr(descriptor.swizzle.blue))
+                        .arg(ToQStr(descriptor.swizzle.alpha));
     }
   }
 
@@ -5500,6 +5616,12 @@ void VulkanPipelineStateViewer::computeDebugSelector_beginDebug(
   if(!shaderDetails)
     return;
 
+  // The progress dialog can publish a newer event while this debug request is running.
+  // Retain the reflection used to start the request until the viewer has taken its own copy.
+  const ShaderReflection shaderSnapshot(*shaderDetails);
+  shaderDetails = &shaderSnapshot;
+  const ResourceId pipeline = m_Ctx.CurPipelineState().GetComputePipelineObject();
+
   struct threadSelect
   {
     rdcfixedarray<uint32_t, 3> g;
@@ -5551,7 +5673,7 @@ void VulkanPipelineStateViewer::computeDebugSelector_beginDebug(
 
   // viewer takes ownership of the trace
   IShaderViewer *s = m_Ctx.DebugShader(
-      shaderDetails, m_Ctx.CurPipelineState().GetComputePipelineObject(), trace, debugContext);
+      shaderDetails, pipeline, trace, debugContext);
 
   m_Ctx.AddDockWindow(s->Widget(), DockReference::AddTo, this);
 }

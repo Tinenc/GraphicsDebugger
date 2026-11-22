@@ -1,0 +1,12 @@
+Shader "Hidden/Bread/CameraPresentation" { SubShader { Tags {"RenderPipeline"="UniversalPipeline"} Pass {
+ ZWrite Off ZTest Always Cull Off
+ HLSLPROGRAM
+ #pragma vertex Vert
+ #pragma fragment Frag
+ #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+ TEXTURE2D(_BreadSource);SAMPLER(sampler_BreadSource);float4 _BreadPresentation;
+ struct Varyings{float4 position:SV_POSITION;float2 uv:TEXCOORD0;};
+ Varyings Vert(uint id:SV_VertexID){Varyings o;o.position=GetFullScreenTriangleVertexPosition(id);o.uv=GetFullScreenTriangleTexCoord(id);return o;}
+ half4 Frag(Varyings i):SV_Target{if(_BreadPresentation.y>0.5)i.uv.y=1-i.uv.y;float4 value=SAMPLE_TEXTURE2D(_BreadSource,sampler_BreadSource,i.uv);if(_BreadPresentation.x>0.5)value.rgb=SRGBToLinear(value.rgb);return value;}
+ ENDHLSL
+ } } }

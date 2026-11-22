@@ -300,16 +300,29 @@ void D3D12DebugManager::PrepareTextureSampling(ID3D12Resource *resource, CompTyp
   }
 }
 
+void D3D12Replay::DrainTextureDisplaySubmit()
+{
+  if(!m_TextureDisplaySubmitPending)
+    return;
+
+  m_pDevice->FlushLists();
+  m_TextureDisplaySubmitPending = false;
+}
+
 bool D3D12Replay::RenderTexture(TextureDisplay cfg)
 {
   m_OutputViewport = {0, 0, (float)m_OutputWidth, (float)m_OutputHeight, 0.0f, 1.0f};
   return RenderTextureInternal(m_OutputWindows[m_CurrentOutputWindow].rtv, cfg,
-                               eTexDisplay_BlendAlpha);
+                               eTexDisplay_BlendAlpha, !m_D3D12On7);
 }
 
 bool D3D12Replay::RenderTextureInternal(D3D12_CPU_DESCRIPTOR_HANDLE rtv, TextureDisplay cfg,
-                                        TexDisplayFlags flags)
+                                        TexDisplayFlags flags, bool deferPresentFlush)
 {
+  // Texture display uses shared SRV and constant storage. Finish a prior unpresented draw before
+  // rewriting it; the common RenderTexture -> FlipOutputWindow pair never takes this branch.
+  DrainTextureDisplaySubmit();
+
   const bool blendAlpha = (flags & eTexDisplay_BlendAlpha) != 0;
 
   ID3D12Resource *resource = NULL;
@@ -771,7 +784,14 @@ bool D3D12Replay::RenderTextureInternal(D3D12_CPU_DESCRIPTOR_HANDLE rtv, Texture
     list->Close();
 
     m_pDevice->ExecuteLists();
-    m_pDevice->FlushLists();
+
+    // A normal display has no transient PSO and is immediately followed by FlipOutputWindow. Let
+    // that copy submission perform the single fence wait for both command lists. Internal renders,
+    // D3D12On7, and custom PSOs retain their original synchronous lifetime guarantees.
+    if(deferPresentFlush && customPSO == NULL)
+      m_TextureDisplaySubmitPending = true;
+    else
+      m_pDevice->FlushLists();
 
     SAFE_RELEASE(customPSO);
   }

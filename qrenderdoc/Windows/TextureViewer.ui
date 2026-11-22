@@ -1078,11 +1078,6 @@ See FAQ on &quot;Gamma display of linear data&quot;</string>
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
-        <property name="font">
-         <font>
-          <family>Consolas</family>
-         </font>
-        </property>
         <property name="text">
          <string>texStatusDim</string>
         </property>
@@ -1095,11 +1090,6 @@ See FAQ on &quot;Gamma display of linear data&quot;</string>
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
-        </property>
-        <property name="font">
-         <font>
-          <family>Consolas</family>
-         </font>
         </property>
         <property name="text">
          <string>texStatusFormat</string>
@@ -1130,11 +1120,6 @@ See FAQ on &quot;Gamma display of linear data&quot;</string>
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
-        <property name="font">
-         <font>
-          <family>Consolas</family>
-         </font>
-        </property>
         <property name="text">
          <string>hoverText</string>
         </property>
@@ -1147,11 +1132,6 @@ See FAQ on &quot;Gamma display of linear data&quot;</string>
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
-        </property>
-        <property name="font">
-         <font>
-          <family>Consolas</family>
-         </font>
         </property>
         <property name="text">
          <string>pickedText</string>

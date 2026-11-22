@@ -1,5 +1,9 @@
 .idea/
-demos/3rdparty/shaderc/
+# Keep the build script/README; ignore its fetched checkout and installed SDKs.
+/demos/3rdparty/shaderc/shaderc/
+/demos/3rdparty/shaderc/x64/
+/demos/3rdparty/shaderc/x86/
+/demos/3rdparty/shaderc/linux64/
 obj/
 ipch/
 tmp/

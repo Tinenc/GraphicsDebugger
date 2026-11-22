@@ -1,0 +1,100 @@
+// URP 14+ starting point for editable effects. Add to the effective renderers
+// of BOTH Game and Scene. Port the effect's algorithm into material pass 0.
+// For XR, retain descriptor dimension/volumeDepth and use stereo-aware shaders.
+using System;
+using Bread;
+using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
+
+namespace Bread.Capture.URP
+{
+    public sealed class BreadScreenEffectUrpFeature : ScriptableRendererFeature
+    {
+        public Material effectMaterial;
+        sealed class Targets
+        {
+            public RenderTexture texture;
+            public RTHandle handle;
+            public void Release() { handle?.Release(); CoreUtils.Destroy(texture); }
+        }
+        sealed class EffectPass : ScriptableRenderPass, IDisposable
+        {
+            public Material material;
+            public RTHandle source;
+            readonly BreadCameraResources<Targets> views = new BreadCameraResources<Targets>(t=>t.Release());
+            public override void Execute(ScriptableRenderContext context, ref RenderingData data)
+            {
+                var camera = data.cameraData.camera;
+                if (!camera || !material || source == null) return;
+                var descriptor = data.cameraData.cameraTargetDescriptor;
+                // The source RTHandle may have a larger allocation than this
+                // view. Use its CURRENT scaled viewport, not rt.width/height.
+                if (source.useScaling)
+                {
+                    var viewport = source.GetScaledSize(source.rtHandleProperties.currentViewportSize);
+                    descriptor.width = Mathf.Max(1, viewport.x);
+                    descriptor.height = Mathf.Max(1, viewport.y);
+                }
+                descriptor.depthBufferBits = 0;
+                descriptor.depthStencilFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.None;
+                descriptor.msaaSamples = 1;
+                descriptor.bindMS = false;
+                descriptor.useDynamicScale = false; // explicit current physical extent, no second scaling
+                descriptor.useMipMap = false; descriptor.autoGenerateMips = false;
+                var state = views.Acquire(camera, descriptor, d=> {
+                    var rt = new RenderTexture(d) { name = "Bread screen effect " + camera.GetInstanceID() };
+                    if (!rt.Create()) { CoreUtils.Destroy(rt); throw new InvalidOperationException("View target allocation failed."); }
+                    return new Targets { texture = rt, handle = RTHandles.Alloc(rt) };
+                }, settingsKey: material.GetInstanceID().ToString());
+                // Add per-view temporal targets to Targets if this algorithm
+                // needs history. Clear/reseed when !state.HistoryValid and
+                // CommitHistory only after submitting its actual producer.
+                var cmd = CommandBufferPool.Get("Bread per-view screen effect");
+                try
+                {
+                    cmd.SetGlobalVector("_BreadViewSize", state.Layout.ViewSize);
+                    cmd.SetGlobalVector("_BreadTargetTexelSize", state.Layout.TexelSize);
+                    cmd.SetGlobalVector("_BreadTargetUvScaleBias", state.Layout.UvScaleBias);
+                    var sourceScale = source.useScaling ? source.rtHandleProperties.rtHandleScale : Vector4.one;
+                    cmd.SetGlobalVector("_BreadSourceUvScaleBias", new Vector4(sourceScale.x,sourceScale.y,0,0));
+                    if (source.rt) cmd.SetGlobalVector("_BreadSourceTexelSize",new Vector4(
+                        1f/source.rt.width,1f/source.rt.height,source.rt.width,source.rt.height));
+                    var view = data.cameraData.GetViewMatrix();
+                    var projection = data.cameraData.GetGPUProjectionMatrix();
+                    // Temporal raster passes may use BreadRenderProjection for
+                    // command-buffer-only jitter. Never assign SceneView camera
+                    // matrices/Transform; restore all temporary GPU matrices in
+                    // a finally path before gizmos and subsequent camera passes.
+                    cmd.SetGlobalMatrix("_BreadCurrentViewProjection",projection*view);
+                    cmd.SetGlobalMatrix("_BreadCurrentInverseViewProjection",(projection*view).inverse);
+                    // Bind translated capture CBuffer fields from this render's
+                    // values here too. Resizing only the RT is insufficient.
+                    Blitter.BlitCameraTexture(cmd, source, state.Data.handle, material, 0);
+                    Blitter.BlitCameraTexture(cmd, state.Data.handle, source);
+                    context.ExecuteCommandBuffer(cmd);
+                    BreadCameraEvidence.RecordFeature(camera, "BreadScreenEffect", true, state.Generation.ToString());
+                    BreadCameraEvidence.RecordResource(camera, "effect-output", state.Data.texture,
+                        generation: state.Generation, viewport: state.Viewport);
+                }
+                finally { CommandBufferPool.Release(cmd); }
+            }
+            public void Dispose() { views.Dispose(); }
+        }
+        EffectPass pass;
+        public override void Create()
+        {
+            pass?.Dispose(); pass = new EffectPass { renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing };
+            pass.ConfigureInput(ScriptableRenderPassInput.Color);
+        }
+        public override void SetupRenderPasses(ScriptableRenderer renderer, in RenderingData data)
+        { pass.source = renderer.cameraColorTargetHandle; }
+        public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData data)
+        {
+            var type = data.cameraData.cameraType;
+            if ((type != CameraType.Game && type != CameraType.SceneView) || !effectMaterial) return;
+            pass.material = effectMaterial; renderer.EnqueuePass(pass);
+        }
+        protected override void Dispose(bool disposing) { pass?.Dispose(); }
+    }
+}

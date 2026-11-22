@@ -23,11 +23,32 @@
  ******************************************************************************/
 
 #include "core/settings.h"
+#include "replay/replay_timing.h"
 #include "strings/string_utils.h"
 #include "vk_core.h"
 #include "vk_debug.h"
 
 RDOC_EXTERN_CONFIG(bool, Vulkan_Debug_SingleSubmitFlushing);
+
+static void CountInitialImageClear(const VulkanCreationInfo::Image &image,
+                                   const VkImageSubresourceRange &range)
+{
+  if(!IsReplayTimingActive())
+    return;
+  AddReplayTimingCounter(ReplayTimingCounter::InitialClearResources);
+  const uint64_t layers = RDCMIN(range.layerCount, image.arrayLayers - range.baseArrayLayer);
+  VkFormat format = image.format;
+  if(range.aspectMask == VK_IMAGE_ASPECT_STENCIL_BIT)
+    format = VK_FORMAT_S8_UINT;
+  else if(range.aspectMask == VK_IMAGE_ASPECT_DEPTH_BIT)
+    format = GetDepthOnlyFormat(format);
+  for(uint32_t mip = range.baseMipLevel;
+      mip < image.mipLevels && mip - range.baseMipLevel < range.levelCount; ++mip)
+    AddReplayTimingCounter(
+        ReplayTimingCounter::InitialClearBytes,
+        GetByteSize(image.extent.width, image.extent.height, image.extent.depth, format, mip) *
+            layers * uint32_t(image.samples));
+}
 
 // VKTODOLOW there's a lot of duplicated code in this file for creating a buffer to do
 // a memory copy and saving to disk.
@@ -867,7 +888,7 @@ SparseBinding::SparseBinding(WrappedVulkan *vk, VkImage unwrappedImage,
       return;
     }
 
-    Sparse::Coord blockSize = table.getPageTexelSize();
+    Sparse::Coord32 blockSize = table.getPageTexelSize();
     VkExtent3D gran = reqs[a].formatProperties.imageGranularity;
 
     // can't apply if the page texel dimension has changed
@@ -939,7 +960,7 @@ SparseBinding::SparseBinding(WrappedVulkan *vk, VkImage unwrappedImage,
       if(aspect & VK_IMAGE_ASPECT_METADATA_BIT)
         bind.flags = VK_SPARSE_MEMORY_BIND_METADATA_BIT;
 
-      const Sparse::Coord texDim = table.getResourceSize();
+      const Sparse::Coord32 texDim = table.getResourceTexelDim();
 
       for(uint32_t slice = 0; slice < table.getArraySize(); slice++)
       {
@@ -955,13 +976,13 @@ SparseBinding::SparseBinding(WrappedVulkan *vk, VkImage unwrappedImage,
 
           const Sparse::PageRangeMapping &mapping = table.getSubresource(sub);
 
-          Sparse::Coord mipDim = {
+          Sparse::Coord32 mipDim = {
               RDCMAX(1U, texDim.x >> mip),
               RDCMAX(1U, texDim.y >> mip),
               RDCMAX(1U, texDim.z >> mip),
           };
 
-          Sparse::Coord dim = table.calcSubresourcePageDim(sub);
+          Sparse::Coord32 dim = table.calcSubresourcePageDim32(sub);
 
           if(mapping.hasSingleMapping())
           {
@@ -1802,6 +1823,17 @@ void WrappedVulkan::Create_InitialState(ResourceId id, WrappedVkRes *res, bool)
       tag = VkInitialContents::ClearDepthStencilImage;
     }
 
+    // if this image is pre-initialized we need to do some special handling, we will rely on memory
+    // initial contents being applied before images and duplicate the image contents on first load,
+    // so that we can re-apply on subsequent replays after an image may have left PREINITIALIZED and been modified
+    if(state->GetImageInfo().initialLayout == VK_IMAGE_LAYOUT_PREINITIALIZED)
+    {
+      tag = VkInitialContents::PreInit;
+    }
+
+    // zero-initialised images here will just go through the discard+clear path - which works out
+    // for their expected contents
+
     GetResourceManager()->SetInitialContents(id, VkInitialContents(type, tag));
   }
   else if(type == eResDeviceMemory)
@@ -1827,11 +1859,14 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
     return;
 
   VkResourceType type = initial.type;
+  AddReplayTimingCounter(ReplayTimingCounter::InitialResources);
 
   ResourceId id = GetResourceManager()->GetID(res);
 
   if(type == eResDescriptorSet)
   {
+    ScopedReplayTimingSection timing(ReplayTimingSection::InitialDescriptors);
+    AddReplayTimingCounter(ReplayTimingCounter::InitialDescriptorHeaps);
     VkWriteDescriptorSet *writes = initial.descriptorWrites;
 
     // if it ended up that no descriptors were valid, just skip
@@ -1850,6 +1885,7 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
 
     for(uint32_t i = 0; i < initial.numDescriptors; i++)
     {
+      AddReplayTimingCounter(ReplayTimingCounter::InitialDescriptors, writes[i].descriptorCount);
       RDCASSERT(writes[i].dstBinding < bindings.size());
 
       DescriptorSetSlot *bind = bindings[writes[i].dstBinding];
@@ -1921,6 +1957,11 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
   }
   else if(type == eResImage)
   {
+    ScopedReplayTimingSection timing(ReplayTimingSection::InitialGPUCopy);
+    // Device-memory initial contents precede images in VulkanResourceManager's resource order.
+    // Signal that small prefix before recording independent texture restores behind it.
+    SubmitInitialRestoreHostPrefix();
+    AddReplayTimingCounter(ReplayTimingCounter::InitialTextures);
     ResourceId orig = id;
 
     bool initialized = false;
@@ -1935,6 +1976,10 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
     ResourceId boundMemory = state->boundMemory;
     VkDeviceSize boundMemoryOffset = state->boundMemoryOffset;
     VkDeviceSize boundMemorySize = state->boundMemorySize;
+    if(CanDeferInitialRestore() && boundMemory != ResourceId())
+      m_InitialRestoreImageHostRanges[boundMemory].update(
+          boundMemoryOffset, boundMemoryOffset + boundMemorySize, true,
+          [](bool previous, bool next) { return previous || next; });
     const ImageInfo &imageInfo = state->GetImageInfo();
     initialized = IsActiveReplaying(m_State);
 
@@ -1985,139 +2030,14 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
       }
     }
 
-    // handle any 'created' initial states, without an actual image with contents
-    if(initial.tag != VkInitialContents::BufferCopy)
-    {
-      // ignore images with no memory bound
-      if(boundMemory == ResourceId())
-        return;
+    const VulkanCreationInfo::Image &c = m_CreationInfo.m_Image[id];
 
-      if(initial.tag == VkInitialContents::ClearColorImage)
-      {
-        VkFormat format = imageInfo.format;
-
-        // can't clear these, so leave them alone.
-        if(IsBlockFormat(format) || IsYUVFormat(format))
-          return;
-
-        VkCommandBuffer cmd = GetInitStateCmd();
-
-        VkMarkerRegion::Begin(StringFormat::Fmt("Clear colour state for %s", ToStr(orig).c_str()),
-                              cmd);
-
-        ImageBarrierSequence setupBarriers;
-        state->DiscardContents();
-        state->Transition(m_QueueFamilyIdx, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, setupBarriers,
-                          GetImageTransitionInfo());
-        InlineSetupImageBarriers(cmd, setupBarriers);
-        m_setupImageBarriers.Merge(setupBarriers);
-
-        VkClearColorValue clearval = {};
-        VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
-                                         VK_REMAINING_ARRAY_LAYERS};
-
-        ObjDisp(cmd)->CmdClearColorImage(Unwrap(cmd), ToUnwrappedHandle<VkImage>(res),
-                                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearval, 1, &range);
-
-        VkMarkerRegion::End(cmd);
-
-        if(Vulkan_Debug_SingleSubmitFlushing())
-        {
-          CloseInitStateCmd();
-          SubmitAndFlushImageStateBarriers(m_setupImageBarriers);
-          SubmitCmds();
-          FlushQ();
-          SubmitAndFlushImageStateBarriers(m_cleanupImageBarriers);
-        }
-      }
-      else if(initial.tag == VkInitialContents::ClearDepthStencilImage)
-      {
-        VkCommandBuffer cmd = GetInitStateCmd();
-
-        VkMarkerRegion::Begin(StringFormat::Fmt("Clear depth state for %s", ToStr(orig).c_str()),
-                              cmd);
-
-        ImageBarrierSequence setupBarriers;    // , cleanupBarriers;
-        state->DiscardContents();
-        state->Transition(m_QueueFamilyIdx, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, setupBarriers,
-                          GetImageTransitionInfo());
-        InlineSetupImageBarriers(cmd, setupBarriers);
-        m_setupImageBarriers.Merge(setupBarriers);
-
-        VkClearDepthStencilValue clearval = {1.0f, 0};
-        VkImageSubresourceRange range = imageInfo.FullRange();
-
-        ObjDisp(cmd)->CmdClearDepthStencilImage(Unwrap(cmd), ToUnwrappedHandle<VkImage>(res),
-                                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearval, 1,
-                                                &range);
-
-        VkMarkerRegion::End(cmd);
-
-        if(Vulkan_Debug_SingleSubmitFlushing())
-        {
-          CloseInitStateCmd();
-          SubmitAndFlushImageStateBarriers(m_setupImageBarriers);
-          SubmitCmds();
-          FlushQ();
-          SubmitAndFlushImageStateBarriers(m_cleanupImageBarriers);
-        }
-      }
-      else
-      {
-        RDCERR("Unexpected initial state tag %u", initial.tag);
-      }
-
-      return;
-    }
-
-    if(m_CreationInfo.m_Image[id].samples != VK_SAMPLE_COUNT_1_BIT)
-    {
-      VkCommandBuffer cmd = GetInitStateCmd();
-
-      if(cmd == VK_NULL_HANDLE)
-        return;
-
-      VulkanCreationInfo::Image &c = m_CreationInfo.m_Image[id];
-
-      VkFormat fmt = c.format;
-
-      ImageBarrierSequence setupBarriers;    // , cleanupBarriers;
-      state->DiscardContents();
-      state->Transition(m_QueueFamilyIdx, VK_IMAGE_LAYOUT_GENERAL,
-                        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                        setupBarriers, GetImageTransitionInfo());
-      InlineSetupImageBarriers(cmd, setupBarriers);
-      m_setupImageBarriers.Merge(setupBarriers);
-
-      VkBuffer buf = initial.buf;
-
-      GetDebugManager()->CopyBufferToTex2DMS(cmd, ToUnwrappedHandle<VkImage>(res), Unwrap(buf),
-                                             c.extent, c.arrayLayers, (uint32_t)c.samples, fmt);
-
-      if(Vulkan_Debug_SingleSubmitFlushing())
-      {
-        CloseInitStateCmd();
-        SubmitAndFlushImageStateBarriers(m_setupImageBarriers);
-        SubmitCmds();
-        FlushQ();
-        SubmitAndFlushImageStateBarriers(m_cleanupImageBarriers);
-      }
-      return;
-    }
-
-    VkBuffer buf = initial.buf;
-
-    VkExtent3D extent = m_CreationInfo.m_Image[id].extent;
-
-    VkFormat fmt = m_CreationInfo.m_Image[id].format;
-    uint32_t planeCount = GetYUVPlaneCount(fmt);
+    const VkFormat fmt = c.format;
+    const uint32_t planeCount = GetYUVPlaneCount(fmt);
     uint32_t horizontalPlaneShift = 0;
     uint32_t verticalPlaneShift = 0;
 
-    VkImageAspectFlags aspectFlags = FormatImageAspects(fmt);
+    const VkImageAspectFlags aspectFlags = FormatImageAspects(fmt);
 
     if(planeCount > 1)
     {
@@ -2152,6 +2072,200 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
         default: break;
       }
     }
+
+    // preinitialized images we
+    if(initial.tag == VkInitialContents::PreInit)
+    {
+      // ignore images with no memory bound
+      if(boundMemory == ResourceId())
+        return;
+
+      // pre-initialised images should not be MSAA
+      RDCASSERT(c.samples == VK_SAMPLE_COUNT_1_BIT);
+
+      // create a buffer with memory attached, which we will fill with the initial contents
+      VkBufferCreateInfo bufInfo = {
+          VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, NULL, 0, boundMemorySize,
+          VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT};
+
+      VkDevice d = !IsStructuredExporting(m_State) ? GetDev() : VK_NULL_HANDLE;
+
+      VkResult vkr = vkCreateBuffer(d, &bufInfo, NULL, &initial.buf);
+      CHECK_VKR(this, vkr);
+
+      initial.mem =
+          AllocateMemoryForResource(initial.buf, MemoryScope::InitialContents, MemoryType::GPULocal);
+
+      if(initial.mem.mem == VK_NULL_HANDLE)
+      {
+        RDCERR("Couldn't create memory for preinitialised duplicate");
+        return;
+      }
+
+      vkr = vkBindBufferMemory(d, initial.buf, initial.mem.mem, initial.mem.offs);
+      CHECK_VKR(this, vkr);
+
+      VkCommandBuffer cmd = GetInitStateCmd();
+
+      VkMarkerRegion::Begin(
+          StringFormat::Fmt("First-time preinit contents save for %s", ToStr(orig).c_str()), cmd);
+
+      VkBuffer srcBuf = m_CreationInfo.m_Memory[boundMemory].wholeMemBuf;
+
+      if(srcBuf == VK_NULL_HANDLE)
+      {
+        RDCERR("Whole memory buffer not present for %s", ToStr(orig).c_str());
+      }
+      else
+      {
+        VkBufferCopy bufCopy;
+        bufCopy.srcOffset = boundMemoryOffset;
+        bufCopy.size = boundMemorySize;
+        bufCopy.dstOffset = 0;
+        ObjDisp(cmd)->CmdCopyBuffer(Unwrap(cmd), Unwrap(srcBuf), Unwrap(initial.buf), 1, &bufCopy);
+      }
+
+      VkMarkerRegion::End(cmd);
+
+      if(Vulkan_Debug_SingleSubmitFlushing())
+      {
+        CloseInitStateCmd();
+        SubmitAndFlushImageStateBarriers(m_setupImageBarriers);
+        SubmitCmds();
+        FlushQ();
+        SubmitAndFlushImageStateBarriers(m_cleanupImageBarriers);
+      }
+
+      initial.tag = VkInitialContents::BufferCopy;
+
+      // don't immediately re-apply, it's a no-op and would need extra barriers
+      return;
+    }
+
+    // handle any 'created' initial states, without an actual image with contents
+    if(initial.tag != VkInitialContents::BufferCopy)
+    {
+      // ignore images with no memory bound
+      if(boundMemory == ResourceId())
+        return;
+
+      if(initial.tag == VkInitialContents::ClearColorImage)
+      {
+        VkFormat format = imageInfo.format;
+
+        // can't clear these, so leave them alone.
+        if(IsBlockFormat(format) || IsYUVFormat(format))
+          return;
+
+        VkCommandBuffer cmd = GetInitStateCmd();
+
+        VkMarkerRegion::Begin(StringFormat::Fmt("Clear colour state for %s", ToStr(orig).c_str()),
+                              cmd);
+
+        ImageBarrierSequence setupBarriers;
+        state->DiscardContents();
+        state->Transition(m_QueueFamilyIdx, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, setupBarriers,
+                          GetImageTransitionInfo());
+        InlineSetupImageBarriers(cmd, setupBarriers);
+        m_setupImageBarriers.Merge(setupBarriers);
+
+        VkClearColorValue clearval = {};
+        VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+                                         VK_REMAINING_ARRAY_LAYERS};
+
+        CountInitialImageClear(m_CreationInfo.m_Image[id], range);
+
+        ObjDisp(cmd)->CmdClearColorImage(Unwrap(cmd), ToUnwrappedHandle<VkImage>(res),
+                                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearval, 1, &range);
+
+        VkMarkerRegion::End(cmd);
+
+        if(Vulkan_Debug_SingleSubmitFlushing())
+        {
+          CloseInitStateCmd();
+          SubmitAndFlushImageStateBarriers(m_setupImageBarriers);
+          SubmitCmds();
+          FlushQ();
+          SubmitAndFlushImageStateBarriers(m_cleanupImageBarriers);
+        }
+      }
+      else if(initial.tag == VkInitialContents::ClearDepthStencilImage)
+      {
+        VkCommandBuffer cmd = GetInitStateCmd();
+
+        VkMarkerRegion::Begin(StringFormat::Fmt("Clear depth state for %s", ToStr(orig).c_str()),
+                              cmd);
+
+        ImageBarrierSequence setupBarriers;    // , cleanupBarriers;
+        state->DiscardContents();
+        state->Transition(m_QueueFamilyIdx, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, setupBarriers,
+                          GetImageTransitionInfo());
+        InlineSetupImageBarriers(cmd, setupBarriers);
+        m_setupImageBarriers.Merge(setupBarriers);
+
+        VkClearDepthStencilValue clearval = {1.0f, 0};
+        VkImageSubresourceRange range = imageInfo.FullRange();
+
+        CountInitialImageClear(m_CreationInfo.m_Image[id], range);
+
+        ObjDisp(cmd)->CmdClearDepthStencilImage(Unwrap(cmd), ToUnwrappedHandle<VkImage>(res),
+                                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearval, 1,
+                                                &range);
+
+        VkMarkerRegion::End(cmd);
+
+        if(Vulkan_Debug_SingleSubmitFlushing())
+        {
+          CloseInitStateCmd();
+          SubmitAndFlushImageStateBarriers(m_setupImageBarriers);
+          SubmitCmds();
+          FlushQ();
+          SubmitAndFlushImageStateBarriers(m_cleanupImageBarriers);
+        }
+      }
+      else
+      {
+        RDCERR("Unexpected initial state tag %u", initial.tag);
+      }
+
+      return;
+    }
+
+    if(c.samples != VK_SAMPLE_COUNT_1_BIT)
+    {
+      VkCommandBuffer cmd = GetInitStateCmd();
+
+      if(cmd == VK_NULL_HANDLE)
+        return;
+
+      ImageBarrierSequence setupBarriers;    // , cleanupBarriers;
+      state->DiscardContents();
+      state->Transition(m_QueueFamilyIdx, VK_IMAGE_LAYOUT_GENERAL,
+                        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                        setupBarriers, GetImageTransitionInfo());
+      InlineSetupImageBarriers(cmd, setupBarriers);
+      m_setupImageBarriers.Merge(setupBarriers);
+
+      VkBuffer buf = initial.buf;
+
+      GetDebugManager()->CopyBufferToTex2DMS(cmd, ToUnwrappedHandle<VkImage>(res), Unwrap(buf),
+                                             c.extent, c.arrayLayers, (uint32_t)c.samples, fmt);
+
+      if(Vulkan_Debug_SingleSubmitFlushing())
+      {
+        CloseInitStateCmd();
+        SubmitAndFlushImageStateBarriers(m_setupImageBarriers);
+        SubmitCmds();
+        FlushQ();
+        SubmitAndFlushImageStateBarriers(m_cleanupImageBarriers);
+      }
+      return;
+    }
+
+    VkExtent3D extent = m_CreationInfo.m_Image[id].extent;
 
     VkDeviceSize bufOffset = 0;
 
@@ -2307,12 +2421,40 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
       m_setupImageBarriers.Merge(setupBarriers);
 
       if(copyRegions.size() > 0)
-        ObjDisp(cmd)->CmdCopyBufferToImage(Unwrap(cmd), Unwrap(buf), ToUnwrappedHandle<VkImage>(res),
-                                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                           (uint32_t)copyRegions.size(), copyRegions.data());
+      {
+        AddReplayTimingCounter(ReplayTimingCounter::InitialGPUCopyResources);
+        uint64_t restoreBytes = 0;
+        // Payload bytes, excluding row padding; aspect formats avoid double-counting D/S planes.
+        for(const VkBufferImageCopy &region : copyRegions)
+        {
+          VkFormat sizeFormat = fmt;
+          if(region.imageSubresource.aspectMask == VK_IMAGE_ASPECT_STENCIL_BIT)
+            sizeFormat = VK_FORMAT_S8_UINT;
+          else if(region.imageSubresource.aspectMask == VK_IMAGE_ASPECT_DEPTH_BIT)
+            sizeFormat = GetDepthOnlyFormat(fmt);
+          if(planeCount == 1)
+            restoreBytes += GetByteSize(region.imageExtent.width, region.imageExtent.height,
+                                        region.imageExtent.depth, sizeFormat, 0) *
+                            region.imageSubresource.layerCount;
+        }
+        AddReplayTimingCounter(ReplayTimingCounter::InitialGPUCopyFootprintBytes, restoreBytes);
+        if(!RestoreInitialImage(id, initial, cmd, ToUnwrappedHandle<VkImage>(res), copyRegions,
+                                restoreBytes))
+        {
+          VkDeviceSize sourceOffset = 0;
+          VkBuffer source = InitialUploadSource(id, initial, cmd, restoreBytes, sourceOffset);
+          for(VkBufferImageCopy &region : copyRegions)
+            region.bufferOffset += sourceOffset;
+          ObjDisp(cmd)->CmdCopyBufferToImage(Unwrap(cmd), source, ToUnwrappedHandle<VkImage>(res),
+                                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                             (uint32_t)copyRegions.size(), copyRegions.data());
+        }
+      }
 
       if(clearRegions.size() > 0)
       {
+        for(const VkImageSubresourceRange &range : clearRegions)
+          CountInitialImageClear(m_CreationInfo.m_Image[id], range);
         if(IsDepthOrStencilFormat(fmt))
         {
           VkClearDepthStencilValue val = {0, 0};
@@ -2344,6 +2486,8 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
   }
   else if(type == eResDeviceMemory)
   {
+    ScopedReplayTimingSection timing(ReplayTimingSection::InitialGPUCopy);
+    AddReplayTimingCounter(ReplayTimingCounter::InitialHeaps);
     Intervals<InitReqType> resetReq;
     ResourceId orig = id;
     MemRefs *memRefs = GetResourceManager()->FindMemRefs(orig);
@@ -2387,8 +2531,22 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
       return;
     }
 
+    // Clearing/replacing an edit must restore its bytes even when the captured
+    // allocation was read-only and InitReq normally skips them. Restore only
+    // approved old/new edit ranges: the same allocation may hold image data in
+    // disjoint suballocations, which must never be overwritten by this edit.
+    auto restore = m_ReplayPatchRestoreMemory.find(orig);
+    if(restore != m_ReplayPatchRestoreMemory.end())
+      for(auto it = restore->second.begin(); it != restore->second.end(); ++it)
+        if(it->value() && it->start() < dstBufSize)
+          resetReq.update(it->start(), RDCMIN(it->finish(), dstBufSize), eInitReq_Copy,
+                          [](InitReqType x, InitReqType y) -> InitReqType { return RDCMAX(x, y); });
+
+    SkipOverwrittenInitialMemory(orig, dstBufSize, resetReq);
+
     if(resetReq.size() == 1 && resetReq.begin()->value() == eInitReq_None)
     {
+      AddReplayTimingCounter(ReplayTimingCounter::InitialReadOnlySkipped);
       RDCDEBUG("Apply_InitialState (Mem %s): skipped", ToStr(orig).c_str());
       return;    // no copy or clear required
     }
@@ -2419,12 +2577,21 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
       switch(req)
       {
         case eInitReq_Clear:
+          if(CanDeferInitialRestore())
+            m_InitialRestoreHostRanges[orig].update(
+                start, finish, true, [](bool previous, bool next) { return previous || next; });
+          AddReplayTimingCounter(ReplayTimingCounter::InitialClearBytes, size);
           if(finish >= dstBufSize)
             size = VK_WHOLE_SIZE;
           ObjDisp(cmd)->CmdFillBuffer(Unwrap(cmd), Unwrap(dstBuf), start, size, 0);
           fillCount++;
           break;
-        case eInitReq_Copy: regions.push_back({start, start, size}); break;
+        case eInitReq_Copy:
+          if(CanDeferInitialRestore())
+            m_InitialRestoreHostRanges[orig].update(
+                start, finish, true, [](bool previous, bool next) { return previous || next; });
+          regions.push_back({start, start, size});
+          break;
         default: break;
       }
     }
@@ -2432,6 +2599,9 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *res, VkInitialContents &ini
              regions.size());
     if(regions.size() > 0)
     {
+      AddReplayTimingCounter(ReplayTimingCounter::InitialGPUCopyResources);
+      for(const VkBufferCopy &region : regions)
+        AddReplayTimingCounter(ReplayTimingCounter::InitialGPUCopyBufferBytes, region.size);
       VkBufferMemoryBarrier bufBarrier = {
           VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
           NULL,

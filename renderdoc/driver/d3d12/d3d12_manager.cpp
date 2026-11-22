@@ -467,8 +467,13 @@ void D3D12Descriptor::Create(D3D12_DESCRIPTOR_HEAP_TYPE heapType, WrappedID3D12D
         }
       }
 
-      if(countRes == NULL && desc && desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER)
-        desc->Buffer.CounterOffsetInBytes = 0;
+      if(countRes == NULL && desc)
+      {
+        if(desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER)
+          desc->Buffer.CounterOffsetInBytes = 0;
+        if(desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
+          desc->BufferByteOffset.CounterOffsetInBytes = 0;
+      }
 
       D3D12_UNORDERED_ACCESS_VIEW_DESC planeDesc;
       // ensure that multi-plane formats have a valid plane slice specified. This shouldn't be
@@ -545,6 +550,23 @@ void D3D12Descriptor::CopyFrom(const D3D12Descriptor &src)
 
   data.samp.heap = heap;
   data.samp.idx = index;
+}
+
+bool D3D12Descriptor::ContentsEqual(const D3D12Descriptor &src) const
+{
+  // Undefined slots may not have a corresponding initialised native descriptor.
+  if(GetType() == D3D12DescriptorType::Undefined ||
+     src.GetType() == D3D12DescriptorType::Undefined)
+    return false;
+
+  D3D12Descriptor normalised;
+  memcpy(&normalised, &src, sizeof(normalised));
+  normalised.data.samp.heap = data.samp.heap;
+  normalised.data.samp.idx = data.samp.idx;
+
+  // Include every payload byte, including resource/counter IDs and unused union storage. Differing
+  // padding can only reject an otherwise redundant update; it must never broaden equivalence.
+  return memcmp(this, &normalised, sizeof(normalised)) == 0;
 }
 
 void D3D12Descriptor::GetRefIDs(ResourceId &id, ResourceId &id2, FrameRefType &ref)
@@ -804,7 +826,7 @@ void D3D12RTManager::Verify(PatchedRayDispatch &r)
         (WrappedID3D12DescriptorHeap *)m_wrappedDevice->GetResourceManager()
             ->GetResAs<ID3D12DescriptorHeap>(heapId);
 
-    if(heap->GetDescriptors()->GetType() == D3D12DescriptorType::Sampler)
+    if(heap->GetDesc().Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
       sampHeap = heap;
     else
       resHeap = heap;
@@ -1690,7 +1712,7 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
         (WrappedID3D12DescriptorHeap *)m_wrappedDevice->GetResourceManager()
             ->GetResAs<ID3D12DescriptorHeap>(heapId);
 
-    if(heap->GetDescriptors()->GetType() == D3D12DescriptorType::Sampler)
+    if(heap->GetDesc().Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
     {
       cbufferData.wrapped_sampHeapBase = heap->GetOriginalGPUBase();
       cbufferData.unwrapped_sampHeapBase = heap->GetGPU(0).ptr;
@@ -1959,7 +1981,7 @@ PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
         (WrappedID3D12DescriptorHeap *)m_wrappedDevice->GetResourceManager()
             ->GetResAs<ID3D12DescriptorHeap>(heapId);
 
-    if(heap->GetDescriptors()->GetType() == D3D12DescriptorType::Sampler)
+    if(heap->GetDesc().Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
     {
       cbufferData.wrapped_sampHeapBase = heap->GetOriginalGPUBase();
       cbufferData.unwrapped_sampHeapBase = heap->GetGPU(0).ptr;
@@ -3653,7 +3675,17 @@ void D3D12ResourceManager::ResolveDeferredWrappers()
   }
 
   for(ID3D12DeviceChild *wrapper : wrappers)
-    AddWrapper(wrapper, Unwrap(wrapper));
+  {
+    ID3D12DeviceChild *real = Unwrap(wrapper);
+    if(real)
+    {
+      AddWrapper(wrapper, real);
+    }
+    else
+    {
+      RDCWARN("ResolveDeferredWrappers: skipping wrapper with NULL real object (failed PSO creation?)");
+    }
+  }
 }
 
 void D3D12ResourceManager::ApplyBarriers(BarrierSet &barriers,
@@ -3766,7 +3798,7 @@ void AddStateResetBarrier(D3D12ResourceLayout srcState, D3D12ResourceLayout dstS
                           ID3D12Resource *res, UINT subresource, BarrierSet &barriers)
 {
   if((srcState.IsStates() || srcState.ToLayout() == D3D12_BARRIER_LAYOUT_UNDEFINED) &&
-     dstState.IsStates())
+     (dstState.IsStates() || dstState.ToLayout() == D3D12_BARRIER_LAYOUT_UNDEFINED))
   {
     D3D12_RESOURCE_BARRIER b;
     b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -3779,7 +3811,10 @@ void AddStateResetBarrier(D3D12ResourceLayout srcState, D3D12ResourceLayout dstS
     if(srcState.ToLayout() == D3D12_BARRIER_LAYOUT_UNDEFINED)
       b.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
 
-    // could now be identical after silently promoting the before state.
+    if(dstState.ToLayout() == D3D12_BARRIER_LAYOUT_UNDEFINED)
+      b.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+
+    // could now be identical after silently promoting the before/after state.
     if(b.Transition.StateBefore != b.Transition.StateAfter)
       barriers.barriers.push_back(b);
   }

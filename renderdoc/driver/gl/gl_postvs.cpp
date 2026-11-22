@@ -216,6 +216,8 @@ void GLReplay::ClearPostVSCache()
 
 void GLReplay::InitPostVSBuffers(uint32_t eventId)
 {
+  TextureAnalysisScope textureAnalysis(*this);
+  InvalidateLiveForward();
   if(m_PostVSData.find(eventId) != m_PostVSData.end())
     return;
 
@@ -1956,6 +1958,7 @@ void GLReplay::InitPostVSBuffers(uint32_t eventId)
 
 void GLReplay::InitPostVSBuffers(const rdcarray<uint32_t> &passEvents)
 {
+  InvalidateLiveForward();
   uint32_t prev = 0;
 
   // since we can always replay between drawcalls, just loop through all the events

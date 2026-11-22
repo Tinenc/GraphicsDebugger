@@ -32,16 +32,29 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QPixmapCache>
+#include <QProcess>
 #include <QProgressBar>
 #include <QProgressDialog>
+#include <QSaveFile>
+#include <QScreen>
 #include <QShortcut>
+#include <QTabBar>
 #include <QToolButton>
 #include <QToolTip>
+#include <QVersionNumber>
+#include <QWindow>
+#include "Code/BreadVersion.h"
+#include "Code/CaptureContext.h"
 #include "Code/QRDUtils.h"
 #include "Code/Resources.h"
+#include "Code/pyrenderdoc/PythonContext.h"
 #include "Widgets/Extended/RDLabel.h"
 #include "Widgets/Extended/RDMenu.h"
+#include "Widgets/Extended/RDToolButton.h"
 #include "Widgets/ReplayOptionsSelector.h"
+#include "Windows/AI/AIAssistant.h"
+#include "Windows/ApiMonitorWindow.h"
+#include "Windows/BookmarksView.h"
 #include "Windows/Dialogs/AboutDialog.h"
 #include "Windows/Dialogs/CaptureDialog.h"
 #include "Windows/Dialogs/CrashDialog.h"
@@ -52,11 +65,27 @@
 #include "Windows/Dialogs/SuggestRemoteDialog.h"
 #include "Windows/Dialogs/TipsDialog.h"
 #include "Windows/Dialogs/UpdateDialog.h"
+#include "toolwindowmanager/ToolWindowManagerArea.h"
 #include "ui_MainWindow.h"
 #include "version.h"
 
 #define JSON_ID "rdocLayoutData"
 #define JSON_VER 1
+
+static QWidget *CreateFrameRenderFlowPlaceholder()
+{
+  // The first-party Python integration starts after native layout restoration. Keep its dock
+  // position and selected-tab index intact until the real panel populates this same widget.
+  QWidget *panel = new QWidget();
+  // i18n-ignore: stable first-party dock identity and lifecycle properties.
+  panel->setObjectName(lit("breadFrameRenderFlow"));
+  panel->setProperty("breadFrameFlowPlaceholder", true);
+  panel->setProperty("breadPreserveOnLayoutRestore", true);
+  panel->setWindowTitle(
+      QCoreApplication::translate("ReplayLabProjects", "Frame Rendering Flow"));
+  panel->setWindowIcon(QIcon(lit(":/logo.svg")));    // i18n-ignore: application icon resource path
+  return panel;
+}
 
 #if defined(Q_OS_WIN32)
 extern "C" void *__stdcall GetModuleHandleA(const char *);
@@ -113,6 +142,9 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
 {
   ui->setupUi(this);
 
+  // Clean up any leftover monitor script from a previous session (crash, etc.)
+  QFile::remove(QDir::temp().filePath(lit("rdcmonitor_pending.py")));
+
   setProperty("ICaptureContext", QVariant::fromValue((void *)&ctx));
 
 #if defined(Q_OS_WIN32)
@@ -132,6 +164,10 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   setAcceptDrops(true);
 
   QObject::connect(ui->menu_Tools, &QMenu::aboutToShow, this, &MainWindow::updateToolsMenuOptions);
+
+  ui->menu_Load_Layout->addSeparator();
+  ui->menu_Load_Layout->addAction(tr("Restore Factory Layout"), this,
+                                  &MainWindow::ResetFactoryLayout);
 
   QObject::connect(ui->action_Load_Default_Layout, &QAction::triggered, this,
                    &MainWindow::loadLayout_triggered);
@@ -224,6 +260,41 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   QObject::connect(statusIcon, &RDLabel::doubleClicked, this, &MainWindow::statusDoubleClicked);
   QObject::connect(statusText, &RDLabel::doubleClicked, this, &MainWindow::statusDoubleClicked);
 
+  extensionStatus = new RDToolButton(this);
+  extensionStatus->setAutoRaise(true);
+  extensionStatus->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  ui->statusBar->addWidget(extensionStatus);
+
+  extensionStatus->setIcon(Icons::plugin());
+  extensionStatus->setVisible(false);
+
+  extensionReload = new RDToolButton(this);
+  extensionReload->setAutoRaise(true);
+  extensionReload->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  ui->statusBar->addWidget(extensionReload);
+
+  extensionReload->setIcon(Icons::update());
+  extensionReload->setText(tr("Reload changed extensions"));
+  extensionReload->setVisible(false);
+
+  QObject::connect(extensionStatus, &RDToolButton::clicked, this,
+                   &MainWindow::on_action_Manage_Extensions_triggered);
+  QObject::connect(extensionReload, &RDToolButton::clicked, [this]() {
+    rdcarray<ExtensionMetadata> exts = m_Ctx.Extensions().GetInstalledExtensions();
+    for(const ExtensionMetadata &m : exts)
+      if(m.hasChanges || m.failedLoad)
+        m_Ctx.Extensions().LoadExtension(m.package);
+  });
+  QObject::connect(PythonContext::GetExtensionContext(), &PythonContext::extensionLoaded, this,
+                   &MainWindow::PythonStatusUpdate);
+
+  QTimer *pyStatusTimer = new QTimer(this);
+  QObject::connect(pyStatusTimer, &QTimer::timeout, this, &MainWindow::PythonStatusUpdate);
+
+  pyStatusTimer->setSingleShot(false);
+  pyStatusTimer->setInterval(500);
+  pyStatusTimer->start();
+
   QObject::connect(&m_MessageTick, &QTimer::timeout, this, &MainWindow::messageCheck);
   m_MessageTick.setSingleShot(false);
   m_MessageTick.setInterval(175);
@@ -262,7 +333,7 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
           RDDialog::warning(
               NULL, tr("vkconfig detected - possible incompatibility"),
               tr("Configuration from 'vkconfig' tool detected.\n\n"
-                 "This program has caused problems in the past and it is \n"
+                 "This program has caused problems in the past and it is\n"
                  "strongly recommended that you disable it while using RenderDoc.\n\n"
                  "If this program is not active check the path below for any leftover files:\n\n%1")
                   .arg(vkconfigcheck.absoluteFilePath()));
@@ -330,6 +401,7 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
     delete m_NetWorker;
   });
   m_NetManagerThread->moveObjectToThread(m_NetWorker);
+  m_NetManagerThread->selfDelete(true);
   m_NetManagerThread->start();
   m_NetManagerThread->thread()->setPriority(QThread::LowPriority);
 
@@ -374,7 +446,7 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   PopulateRecentCaptureSettings();
   PopulateReportedBugs();
 
-  CheckUpdates();
+  QTimer::singleShot(0, this, [this]() { CheckUpdates(); });
 
   rdcarray<BugReport> bugs = m_Ctx.Config().CrashReport_ReportedBugs;
   LambdaThread *bugupdate = new LambdaThread([this, bugs]() {
@@ -437,6 +509,9 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   bugupdate->start();
 
   ui->toolWindowManager->setToolWindowCreateCallback([this](const QString &objectName) -> QWidget * {
+    // i18n-ignore: stable first-party dock identity stored in layout files.
+    if(objectName == lit("breadFrameRenderFlow"))
+      return CreateFrameRenderFlowPlaceholder();
     return m_Ctx.CreateBuiltinWindow(objectName);
   });
 
@@ -558,9 +633,21 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
 
 MainWindow::~MainWindow()
 {
+  // HideOnClose tool windows have no QObject parent while hidden, so they are not reached by the
+  // direct-child cleanup below. Explicitly destroy the native AI controller to stop it becoming an
+  // orphan with a stale CaptureContext reference.
+  CaptureContext &ctx = static_cast<CaptureContext &>(m_Ctx);
+  if(ctx.HasAIAssistant())
+  {
+    QWidget *assistant = ctx.GetAIAssistant()->Widget();
+    if(ui->toolWindowManager->toolWindows().contains(assistant))
+      ui->toolWindowManager->forceCloseToolWindow(assistant);
+    else
+      delete assistant;
+  }
+
   // close the network manager thread
   m_NetManagerThread->thread()->quit();
-  m_NetManagerThread->deleteLater();
 
   m_Ctx.Replay().DisconnectFromRemoteServer();
 
@@ -692,6 +779,12 @@ void MainWindow::LoadFromFilename(const QString &filename, bool temporary)
   {
     LoadCapture(filename, m_Ctx.Config().DefaultReplayOptions, temporary, true);
   }
+  // i18n-ignore: Python script file extension.
+  else if(ext == lit("py"))
+  {
+    m_Ctx.ShowPythonShell();
+    m_Ctx.GetPythonShell()->LoadScriptFromFilename(filename);
+  }
   else if(ext == lit("cap"))
   {
     OpenCaptureConfigFile(filename, false);
@@ -710,12 +803,14 @@ void MainWindow::LoadFromFilename(const QString &filename, bool temporary)
 void MainWindow::OnCaptureTrigger(const QString &exe, const QString &workingDir,
                                   const QString &cmdLine,
                                   const rdcarray<EnvironmentModification> &env, CaptureOptions opts,
-                                  std::function<void(LiveCapture *)> callback)
+                                  std::function<void(ICaptureConnection *)> callback)
 {
   if(!PromptCloseCapture())
     return;
 
-  LambdaThread *th = new LambdaThread([this, exe, workingDir, cmdLine, env, opts, callback]() {
+  ExecuteResult ret = {};
+
+  LambdaThread *th = new LambdaThread([this, exe, workingDir, cmdLine, env, opts, callback, &ret]() {
     if(isUnshareableDeviceInUse())
     {
       RDDialog::warning(this, tr("RenderDoc is already capturing an app on this device"),
@@ -727,42 +822,7 @@ void MainWindow::OnCaptureTrigger(const QString &exe, const QString &workingDir,
 
     QString capturefile = m_Ctx.TempCaptureFilename(QFileInfo(exe).baseName());
 
-    ExecuteResult ret =
-        m_Ctx.Replay().ExecuteAndInject(exe, workingDir, cmdLine, env, capturefile, opts);
-
-    GUIInvoke::call(this, [this, exe, ret, callback]() {
-      if(ret.result.code == ResultCode::JDWPFailure)
-      {
-        RDDialog::critical(
-            this, tr("Error connecting to debugger"),
-            tr("<html>Error launching %1 for capture.\n\n"
-               "Something went wrong connecting to the debugger on the Android device.\n\n"
-               "This can happen if the package is not marked as debuggable, the device is not "
-               "configured to allow app debugging, if the intent arguments are badly specified, or "
-               "if another android tool such as Android Studio is interfering with the debug "
-               "connection.\n\n"
-               "Close <b>all</b> instances of Android Studio or other Android programs "
-               "and try again.</html>")
-                .arg(exe));
-        return;
-      }
-
-      if(ret.result.code != ResultCode::Succeeded)
-      {
-        RDDialog::critical(
-            this, tr("Error launching capture"),
-            tr("Error launching %1 for capture.\n\n%2").arg(exe).arg(ret.result.Message()));
-        return;
-      }
-
-      LiveCapture *live = new LiveCapture(
-          m_Ctx,
-          m_Ctx.Replay().CurrentRemote().IsValid() ? m_Ctx.Replay().CurrentRemote().Hostname() : "",
-          m_Ctx.Replay().CurrentRemote().IsValid() ? m_Ctx.Replay().CurrentRemote().Name() : "",
-          ret.ident, this, this);
-      ShowLiveCapture(live);
-      callback(live);
-    });
+    ret = m_Ctx.Replay().ExecuteAndInject(exe, workingDir, cmdLine, env, capturefile, opts);
   });
   th->setName(lit("ExecuteAndInject"));
   th->start();
@@ -775,33 +835,58 @@ void MainWindow::OnCaptureTrigger(const QString &exe, const QString &workingDir,
                        [th]() { return !th->isRunning(); });
   }
   th->deleteLater();
+
+  if(ret.result.code == ResultCode::JDWPFailure)
+  {
+    RDDialog::critical(
+        this, tr("Error connecting to debugger"),
+        tr("<html>Error launching %1 for capture.\n\n"
+           "Something went wrong connecting to the debugger on the Android device.\n\n"
+           "This can happen if the package is not marked as debuggable, the device is not "
+           "configured to allow app debugging, if the intent arguments are badly specified, or "
+           "if another android tool such as Android Studio is interfering with the debug "
+           "connection.\n\n"
+           "Close <b>all</b> instances of Android Studio or other Android programs "
+           "and try again.</html>")
+            .arg(exe));
+    return;
+  }
+
+  if(ret.result.code != ResultCode::Succeeded)
+  {
+    RDDialog::critical(
+        this, tr("Error launching capture"),
+        tr("Error launching %1 for capture.\n\n%2").arg(exe).arg(ret.result.Message()));
+    return;
+  }
+
+  LiveCapture *live = new LiveCapture(
+      m_Ctx,
+      m_Ctx.Replay().CurrentRemote().IsValid() ? m_Ctx.Replay().CurrentRemote().Hostname() : "",
+      m_Ctx.Replay().CurrentRemote().IsValid() ? m_Ctx.Replay().CurrentRemote().Name() : "",
+      ret.ident, this, this);
+  ShowLiveCapture(live);
+  callback(live);
+
+  // Keep the custom API Monitor attached to newly created capture connections.
+  CaptureContext &ctx = static_cast<CaptureContext &>(m_Ctx);
+  if(ctx.HasApiMonitorWindow())
+    ctx.GetApiMonitorWindow()->SetTargetConnection(live);
 }
 
 void MainWindow::OnInjectTrigger(uint32_t PID, const rdcarray<EnvironmentModification> &env,
                                  const QString &name, CaptureOptions opts,
-                                 std::function<void(LiveCapture *)> callback)
+                                 std::function<void(ICaptureConnection *)> callback)
 {
   if(!PromptCloseCapture())
     return;
 
-  LambdaThread *th = new LambdaThread([this, PID, env, name, opts, callback]() {
+  ExecuteResult ret = {};
+
+  LambdaThread *th = new LambdaThread([this, PID, env, name, opts, callback, &ret]() {
     QString capturefile = m_Ctx.TempCaptureFilename(name);
 
-    ExecuteResult ret = RENDERDOC_InjectIntoProcess(PID, env, capturefile, opts, false);
-
-    GUIInvoke::call(this, [this, PID, ret, callback]() {
-      if(ret.result.code != ResultCode::Succeeded)
-      {
-        RDDialog::critical(
-            this, tr("Error injecting into process"),
-            tr("Error injecting into process %1 for capture.\n\n%2").arg(PID).arg(ret.result.Message()));
-        return;
-      }
-
-      LiveCapture *live = new LiveCapture(m_Ctx, QString(), QString(), ret.ident, this, this);
-      ShowLiveCapture(live);
-      callback(live);
-    });
+    ret = RENDERDOC_InjectIntoProcess(PID, env, capturefile, opts, false);
   });
   th->start();
   // wait a few ms before popping up a progress bar
@@ -812,6 +897,23 @@ void MainWindow::OnInjectTrigger(uint32_t PID, const rdcarray<EnvironmentModific
                        [th]() { return !th->isRunning(); });
   }
   th->deleteLater();
+
+  if(ret.result.code != ResultCode::Succeeded)
+  {
+    RDDialog::critical(
+        this, tr("Error injecting into process"),
+        tr("Error injecting into process %1 for capture.\n\n%2").arg(PID).arg(ret.result.Message()));
+    return;
+  }
+
+  LiveCapture *live = new LiveCapture(m_Ctx, QString(), QString(), ret.ident, this, this);
+  ShowLiveCapture(live);
+  callback(live);
+
+  // Keep the custom API Monitor attached to newly created capture connections.
+  CaptureContext &ctx = static_cast<CaptureContext &>(m_Ctx);
+  if(ctx.HasApiMonitorWindow())
+    ctx.GetApiMonitorWindow()->SetTargetConnection(live);
 }
 
 void MainWindow::LoadCapture(const QString &filename, const ReplayOptions &opts, bool temporary,
@@ -1166,7 +1268,7 @@ bool MainWindow::PromptCloseCapture()
     }
   }
 
-  CloseCapture();
+  m_Ctx.CloseCapture();
 
   if(!deletepath.isEmpty())
   {
@@ -1177,31 +1279,11 @@ bool MainWindow::PromptCloseCapture()
   return true;
 }
 
-void MainWindow::CloseCapture()
-{
-  QString path = m_Ctx.GetCaptureFilename();
-  bool local = m_Ctx.IsCaptureLocal();
-  bool temp = m_Ctx.IsCaptureTemporary();
-
-  m_Ctx.CloseCapture();
-
-  if(m_OwnTempCapture && temp)
-  {
-    m_Ctx.Replay().DeleteCapture(path, local);
-    RemoveRecentCapture(path);
-    m_OwnTempCapture = false;
-  }
-
-  ui->action_Save_Capture_Inplace->setEnabled(false);
-  ui->action_Save_Capture_As->setEnabled(false);
-  ui->menu_Export_As->setEnabled(false);
-}
-
 void MainWindow::SetTitle(const QString &filename)
 {
   QString prefix;
 
-  if(m_Ctx.IsCaptureLoaded())
+  if(m_Ctx.IsCaptureLoaded() && !filename.isEmpty())
   {
     prefix = QFileInfo(filename).fileName();
     if(m_Ctx.APIProps().degraded)
@@ -1212,15 +1294,10 @@ void MainWindow::SetTitle(const QString &filename)
   if(m_Ctx.Replay().CurrentRemote().IsValid())
     prefix += tr("Remote: %1 - ").arg(m_Ctx.Replay().CurrentRemote().Name());
 
-  QString text = prefix + lit("TinecmaTool ");
+  QString text = prefix + lit("RenderDocBread ");    // i18n-ignore: product brand
 
-  if(RENDERDOC_STABLE_BUILD)
-    text += lit(FULL_VERSION_STRING);
-  else
-    text += tr("Unstable %1 Build (%2 - %3)")
-                .arg(RENDERDOC_IsReleaseBuild() ? lit("Release") : lit("Development"))
-                .arg(lit(FULL_VERSION_STRING))
-                .arg(QString::fromLatin1(RENDERDOC_GetCommitHash()));
+  // Build configuration/commit details remain available through diagnostics.
+  text += lit(BREAD_FULL_VERSION_STRING);
 
   if(IsRunningAsAdmin())
     text += tr(" (Administrator)");
@@ -1262,7 +1339,7 @@ bool MainWindow::HandleMismatchedVersions()
         QMessageBox::Yes | QMessageBox::No);
 
     if(res == QMessageBox::Yes)
-      QDesktopServices::openUrl(QUrl(lit("https://renderdoc.org/builds")));
+      QDesktopServices::openUrl(BreadRelease::ReleasesPage());
 
     SetUpdateAvailable();
 #endif
@@ -1314,6 +1391,44 @@ void MainWindow::ClearRecentCaptureSettings()
 {
   m_Ctx.Config().RecentCaptureSettings.clear();
   PopulateRecentCaptureSettings();
+}
+
+void MainWindow::PythonStatusUpdate()
+{
+  int num = m_Ctx.Extensions().GetLoadedExtensions().count();
+
+  if(num > 0 || PythonContext::IsDebuggerConnected())
+  {
+    // extensions can't be unloaded so we can just unconditionally show this now
+    extensionStatus->setVisible(true);
+
+    QString text = tr("%n extension(s) active", NULL, num);
+
+    bool reloadVisible = false;
+    for(const ExtensionMetadata &m : m_Ctx.Extensions().GetInstalledExtensions())
+    {
+      if(m.hasChanges)
+      {
+        text += tr(" (changed on disk)");
+        reloadVisible = true;
+        break;
+      }
+    }
+    for(const ExtensionMetadata &m : m_Ctx.Extensions().GetInstalledExtensions())
+    {
+      if(m.failedLoad)
+      {
+        text += tr(" (some failed to load)");
+        reloadVisible = true;
+        break;
+      }
+    }
+    extensionReload->setVisible(reloadVisible);
+
+    if(PythonContext::IsDebuggerConnected())
+      text += tr(": Python debugger connected");
+    extensionStatus->setText(text);
+  }
 }
 
 void MainWindow::networkRequestFailed(QUrl url, QString error)
@@ -1424,133 +1539,104 @@ void MainWindow::PopulateReportedBugs()
   }
 }
 
-void MainWindow::CheckUpdates(bool forceCheck, UpdateResultMethod callback)
+void MainWindow::CheckUpdates(bool forceCheck)
 {
-  if(!updateAction)
+  if(!updateAction || m_CheckingForUpdates ||
+     (!forceCheck && !m_Ctx.Config().CheckUpdate_AllowChecks))
     return;
 
-  bool mismatch = HandleMismatchedVersions();
-  if(mismatch)
-    return;
-
-  if(!forceCheck && !m_Ctx.Config().CheckUpdate_AllowChecks)
+  const QString version = BreadRelease::InstalledVersion();
+  if(version.isEmpty())
   {
-    updateAction->setVisible(false);
-    if(callback)
-      callback(UpdateResult::Disabled);
-    return;
-  }
-
-#if RENDERDOC_OFFICIAL_BUILD
-
-  // if the current version isn't the one we expected, clear any cached update state
-  if(m_Ctx.Config().CheckUpdate_CurrentVersion != MAJOR_MINOR_VERSION_STRING)
-  {
-    m_Ctx.Config().CheckUpdate_UpdateAvailable = false;
-    m_Ctx.Config().CheckUpdate_UpdateResponse = "";
-    m_Ctx.Config().CheckUpdate_CurrentVersion = MAJOR_MINOR_VERSION_STRING;
-  }
-
-  QDateTime today = QDateTime::currentDateTime();
-
-  // check by default every 2 days
-  QDateTime compare = today.addDays(-2);
-
-  // if there's already an update available, go down to checking every week.
-  if(m_Ctx.Config().CheckUpdate_UpdateAvailable)
-    compare = today.addDays(-7);
-
-  bool checkDue = compare.secsTo(m_Ctx.Config().CheckUpdate_LastUpdate) < 0;
-
-  if(m_Ctx.Config().CheckUpdate_UpdateAvailable)
-  {
-    // Mark an update available
-    SetUpdateAvailable();
-
-    // If we don't have a proper update response, or we're overdue for a check, then do it again.
-    // The reason for this is twofold: first, if someone has been delaying their updates for a long
-    // time then there might be a newer update available that we should refresh to, so we should
-    // find out and refresh the update status. The other reason is that when we get a positive
-    // response from the server we force-display the popup which means the user will get reminded
-    // every week or so that an update is pending.
-    if(m_Ctx.Config().CheckUpdate_UpdateResponse.isEmpty() || checkDue)
-    {
-      forceCheck = true;
-    }
-
-    // If we're not forcing a recheck, we're done.
-    if(!forceCheck)
-      return;
-  }
-
-  if(!forceCheck && !checkDue)
-  {
-    if(callback)
-      callback(UpdateResult::Toosoon);
+    if(forceCheck &&
+       RDDialog::question(this, tr("RenderDocBread updates"),
+                          tr("Automatic installation is available for standard portable releases. "
+                             "Open the GitHub releases page?"),
+                          QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes)
+      QDesktopServices::openUrl(BreadRelease::ReleasesPage());
     return;
   }
 
-  m_Ctx.Config().CheckUpdate_LastUpdate = today;
-  m_Ctx.Config().Save();
+  if(IsVersionMismatched())
+  {
+    if(forceCheck)
+      HandleMismatchedVersions();
+    return;
+  }
 
-#if QT_POINTER_SIZE == 4
-  QString bitness = lit("32");
-#else
-  QString bitness = lit("64");
-#endif
-  QString versionCheck = lit(MAJOR_MINOR_VERSION_STRING);
+  PersistentConfig &config = m_Ctx.Config();
+  // Invalidate the old upstream response and checks for a different Bread version.
+  const QString cacheVersion =
+      lit("bread/github/v2/") + version;    // i18n-ignore: update cache identity prefix.
+  const bool sameVersion = QString(config.CheckUpdate_CurrentVersion) == cacheVersion;
+  if(!sameVersion)
+  {
+    config.CheckUpdate_UpdateAvailable = false;
+    config.CheckUpdate_UpdateResponse = "";
+    config.CheckUpdate_CurrentVersion = cacheVersion;
+    config.CheckUpdate_LastUpdate = QDateTime::fromMSecsSinceEpoch(0, Qt::UTC);
+  }
 
-  statusText->setText(tr("Checking for updates..."));
+  updateAction->setVisible(config.CheckUpdate_UpdateAvailable);
 
-  statusProgress->setVisible(true);
-  statusProgress->setMaximum(0);
+  const QDateTime now = QDateTime::currentDateTimeUtc();
+  const qint64 elapsed = QDateTime(config.CheckUpdate_LastUpdate).secsTo(now);
+  if(!forceCheck && sameVersion && elapsed >= 0 && elapsed < 24 * 60 * 60)
+    return;
 
-  // call out to the status-check to see when the bug report was last updated
-  MakeNetworkRequest(
-      QUrl(lit("https://renderdoc.org/getupdateurl/%1/%2?htmlnotes=1").arg(bitness).arg(versionCheck)),
+  m_CheckingForUpdates = true;
+  ui->action_Check_for_Updates->setEnabled(false);
+  const QString updateStatus = forceCheck ? tr("Checking for updates...") : QString();
+  if(!updateStatus.isEmpty())
+    statusText->setText(updateStatus);
 
-      // on success
-      [this, callback](QByteArray replyData) {
-        statusText->setText(QString());
-        statusProgress->setVisible(false);
-
-        QString response = QString::fromUtf8(replyData);
+  BreadRelease::Check(
+      this, version,
+      [this, updateStatus, forceCheck, version](const QByteArray &response, const QString &error) {
+        m_CheckingForUpdates = false;
+        ui->action_Check_for_Updates->setEnabled(true);
+        if(!updateStatus.isEmpty() && statusText->text() == updateStatus)
+          statusText->clear();
 
         if(response.isEmpty())
         {
-          m_Ctx.Config().CheckUpdate_UpdateAvailable = false;
-          m_Ctx.Config().CheckUpdate_UpdateResponse = "";
-          m_Ctx.Config().CheckUpdate_CurrentVersion = lit(MAJOR_MINOR_VERSION_STRING);
-          m_Ctx.Config().Save();
-          SetNoUpdate();
-
-          if(callback)
-            callback(UpdateResult::Latest);
-
+          ReportUpdateCheckFailure(error, forceCheck);
           return;
         }
+        const BreadRelease release = BreadRelease::FromGitHub(response);
+        if(release.version.isEmpty())
+        {
+          ReportUpdateCheckFailure(tr("GitHub returned invalid release information."), forceCheck);
+          return;
+        }
+        PersistentConfig &cfg = m_Ctx.Config();
+        if(!forceCheck && !cfg.CheckUpdate_AllowChecks)
+          return;
 
-        m_Ctx.Config().CheckUpdate_UpdateAvailable = true;
-        m_Ctx.Config().CheckUpdate_UpdateResponse = response;
-        m_Ctx.Config().CheckUpdate_CurrentVersion = lit(MAJOR_MINOR_VERSION_STRING);
-        m_Ctx.Config().Save();
-        SetUpdateAvailable();
-        UpdatePopup();
-      },
+        const bool newer =
+            QVersionNumber::fromString(release.version) > QVersionNumber::fromString(version);
+        cfg.CheckUpdate_LastUpdate = QDateTime::currentDateTimeUtc();
+        cfg.CheckUpdate_UpdateAvailable = newer && cfg.CheckUpdate_AllowChecks;
+        cfg.CheckUpdate_UpdateResponse = cfg.CheckUpdate_UpdateAvailable ? response.constData() : "";
+        cfg.Save();
+        updateAction->setVisible(cfg.CheckUpdate_UpdateAvailable);
 
-      // on error
-      [this](QString error) {
-        statusText->setText(QString());
-        statusProgress->setVisible(false);
-        qCritical() << "Network error checking for updates:" << error;
+        if(newer)
+          UpdatePopup(version, response, !forceCheck);
+        else if(forceCheck)
+          RDDialog::information(this, tr("Latest version"),
+                                tr("You are running the latest version."));
       });
-#else    //! RENDERDOC_OFFICIAL_BUILD
-  {
-    if(callback)
-      callback(UpdateResult::Unofficial);
-    return;
-  }
-#endif
+}
+
+void MainWindow::ReportUpdateCheckFailure(const QString &error, bool manual)
+{
+  qWarning() << "Bread release check failed:" << error;
+  if(manual && RDDialog::question(
+                   this, tr("Could not check for updates"),
+                   tr("RenderDocBread could not check GitHub for updates. Open the releases page?"),
+                   QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes)
+    QDesktopServices::openUrl(BreadRelease::ReleasesPage());
 }
 
 void MainWindow::SetUpdateAvailable()
@@ -1559,19 +1645,46 @@ void MainWindow::SetUpdateAvailable()
     updateAction->setVisible(true);
 }
 
-void MainWindow::SetNoUpdate()
+void MainWindow::UpdatePopup(const QString &version, const QByteArray &response, bool automatic)
 {
-  if(updateAction)
-    updateAction->setVisible(false);
-}
+  if(m_UpdateDialog)
+  {
+    if(!automatic)
+    {
+      m_UpdateDialog->raise();
+      m_UpdateDialog->activateWindow();
+    }
+    return;
+  }
 
-void MainWindow::UpdatePopup()
-{
-  if(!m_Ctx.Config().CheckUpdate_UpdateAvailable || !m_Ctx.Config().CheckUpdate_AllowChecks)
+  const BreadRelease release = BreadRelease::FromGitHub(response);
+  if(version.isEmpty() || release.version.isEmpty() ||
+     QVersionNumber::fromString(release.version) <= QVersionNumber::fromString(version))
     return;
 
-  UpdateDialog update((QString)m_Ctx.Config().CheckUpdate_UpdateResponse);
-  RDDialog::show(&update);
+  UpdateDialog *dialog = new UpdateDialog(version, release, this);
+  m_UpdateDialog = dialog;
+  dialog->setAttribute(Qt::WA_ShowWithoutActivating, automatic);
+  QObject::connect(dialog, &QDialog::finished, this, [this, dialog, version, release](int result) {
+    m_UpdateDialog = nullptr;
+    dialog->deleteLater();
+    if(result != QDialog::Accepted)
+      return;
+
+    std::unique_ptr<QTemporaryDir> staging = dialog->TakeStaging();
+    if(!staging || !close())
+      return;
+
+    if(UpdateDialog::StartInstaller(*staging, version, release))
+      staging->setAutoRemove(false);
+    else
+    {
+      show();
+      RDDialog::critical(this, tr("Could not start the update"),
+                         tr("RenderDocBread could not start the update installer."));
+    }
+  });
+  dialog->show();
 }
 
 void MainWindow::ShowLiveCapture(LiveCapture *live)
@@ -1589,7 +1702,7 @@ void MainWindow::LiveCaptureClosed(LiveCapture *live)
   m_LiveCaptures.removeOne(live);
 }
 
-QMenu *MainWindow::GetBaseMenu(WindowMenu base, rdcstr name)
+QMenu *MainWindow::GetBaseMenu(WindowMenu base, rdcstr name, bool showExtensionIcon)
 {
   switch(base)
   {
@@ -1615,7 +1728,8 @@ QMenu *MainWindow::GetBaseMenu(WindowMenu base, rdcstr name)
 
   // no existing menu, add a new one
   QMenu *menu = new QMenu(name, this);
-  menu->setIcon(Icons::plugin());
+  if(showExtensionIcon)
+    menu->setIcon(Icons::plugin());
   ui->menuBar->insertMenu(ui->menu_Help->menuAction(), menu);
   return menu;
 }
@@ -1687,54 +1801,136 @@ void MainWindow::BringToFront()
 
 void MainWindow::LoadInitialLayout()
 {
-  bool loaded = LoadLayout(0);
+  if(!LoadLayout(0))
+    ResetFactoryLayout();
+}
 
-  // create default layout if layout failed to load
-  if(!loaded)
+void MainWindow::ResetFactoryLayout()
+{
+  CaptureContext &ctx = static_cast<CaptureContext &>(m_Ctx);
+  ToolWindowManager *manager = ui->toolWindowManager;
+  const QList<QWidget *> tools = manager->toolWindows();
+  QList<QWidget *> previouslyDocked;
+  for(QWidget *tool : tools)
   {
-    QWidget *eventBrowser = m_Ctx.GetEventBrowser()->Widget();
-
-    ui->toolWindowManager->addToolWindow(eventBrowser, ToolWindowManager::EmptySpace);
-
-    QWidget *textureViewer = m_Ctx.GetTextureViewer()->Widget();
-
-    ui->toolWindowManager->addToolWindow(
-        textureViewer,
-        ToolWindowManager::AreaReference(ToolWindowManager::RightOf,
-                                         ui->toolWindowManager->areaOf(eventBrowser), 0.75f));
-
-    QWidget *pipe = m_Ctx.GetPipelineViewer()->Widget();
-
-    ui->toolWindowManager->addToolWindow(
-        pipe, ToolWindowManager::AreaReference(ToolWindowManager::AddTo,
-                                               ui->toolWindowManager->areaOf(textureViewer)));
-
-    QWidget *mesh = m_Ctx.GetMeshPreview()->Widget();
-
-    ui->toolWindowManager->addToolWindow(
-        mesh, ToolWindowManager::AreaReference(ToolWindowManager::AddTo,
-                                               ui->toolWindowManager->areaOf(textureViewer)));
-
-    QWidget *capDialog = m_Ctx.GetCaptureDialog()->Widget();
-
-    ui->toolWindowManager->addToolWindow(
-        capDialog, ToolWindowManager::AreaReference(ToolWindowManager::AddTo,
-                                                    ui->toolWindowManager->areaOf(textureViewer)));
-
-    QWidget *apiInspector = m_Ctx.GetAPIInspector()->Widget();
-
-    ui->toolWindowManager->addToolWindow(
-        apiInspector,
-        ToolWindowManager::AreaReference(ToolWindowManager::BottomOf,
-                                         ui->toolWindowManager->areaOf(eventBrowser), 0.3f));
-
-    QWidget *timelineBar = m_Ctx.GetTimelineBar()->Widget();
-
-    ui->toolWindowManager->addToolWindow(
-        timelineBar,
-        ToolWindowManager::AreaReference(ToolWindowManager::TopWindowSide,
-                                         ui->toolWindowManager->areaOf(textureViewer), 0.2f));
+    if(manager->areaOf(tool))
+      previouslyDocked.append(tool);
   }
+  // Detach tabs without closing their widgets, including editors with unsaved state.
+  manager->moveToolWindows(previouslyDocked, ToolWindowManager::NoArea);
+  auto dock = [manager, &tools](QWidget *tool, const ToolWindowManager::AreaReference &area,
+                                ToolWindowManager::ToolWindowProperty properties =
+                                    ToolWindowManager::ToolWindowProperty(0)) {
+    if(tools.contains(tool))
+    {
+      manager->moveToolWindow(tool, area);
+      manager->setToolWindowProperties(tool, properties);
+    }
+    else
+    {
+      manager->addToolWindow(tool, area, properties);
+    }
+  };
+
+  QWidget *eventBrowser = m_Ctx.GetEventBrowser()->Widget();
+
+  dock(eventBrowser, ToolWindowManager::EmptySpace);
+
+  QWidget *textureViewer = m_Ctx.GetTextureViewer()->Widget();
+
+  dock(textureViewer,
+       ToolWindowManager::AreaReference(ToolWindowManager::RightOf,
+                                        ui->toolWindowManager->areaOf(eventBrowser), 0.75f));
+
+  QWidget *pipe = m_Ctx.GetPipelineViewer()->Widget();
+
+  dock(pipe, ToolWindowManager::AreaReference(ToolWindowManager::AddTo,
+                                              ui->toolWindowManager->areaOf(textureViewer)));
+
+  QWidget *mesh = m_Ctx.GetMeshPreview()->Widget();
+
+  dock(mesh, ToolWindowManager::AreaReference(ToolWindowManager::AddTo,
+                                              ui->toolWindowManager->areaOf(textureViewer)));
+
+  QWidget *capDialog = m_Ctx.GetCaptureDialog()->Widget();
+
+  dock(capDialog, ToolWindowManager::AreaReference(ToolWindowManager::AddTo,
+                                                   ui->toolWindowManager->areaOf(textureViewer)));
+
+  QWidget *bookmarksView = ctx.GetBookmarksView();
+
+  dock(bookmarksView,
+       ToolWindowManager::AreaReference(ToolWindowManager::BottomOf,
+                                        ui->toolWindowManager->areaOf(eventBrowser), 0.45f));
+
+  QWidget *apiInspector = m_Ctx.GetAPIInspector()->Widget();
+
+  dock(apiInspector, ToolWindowManager::AreaReference(
+                         ToolWindowManager::AddTo, ui->toolWindowManager->areaOf(bookmarksView)));
+  ToolWindowManager::raiseToolWindow(bookmarksView);
+
+  QWidget *annotationViewer = m_Ctx.GetAnnotationViewer()->Widget();
+  dock(annotationViewer, ToolWindowManager::AreaReference(
+                             ToolWindowManager::AddTo, ui->toolWindowManager->areaOf(bookmarksView)));
+  ToolWindowManager::raiseToolWindow(bookmarksView);
+
+  for(QWidget *tool : {m_Ctx.GetResourceInspector()->Widget(), m_Ctx.GetPythonShell()->Widget()})
+    dock(tool, ToolWindowManager::AreaReference(ToolWindowManager::AddTo,
+                                                ui->toolWindowManager->areaOf(textureViewer)));
+  QWidget *frameFlow = NULL;
+  for(QWidget *tool : tools)
+  {
+    // i18n-ignore: stable first-party dock identity stored in layout files.
+    if(tool->objectName() == lit("breadFrameRenderFlow"))
+    {
+      frameFlow = tool;
+      break;
+    }
+  }
+  dock(frameFlow ? frameFlow : CreateFrameRenderFlowPlaceholder(),
+       ToolWindowManager::AreaReference(ToolWindowManager::AddTo,
+                                        ui->toolWindowManager->areaOf(textureViewer)));
+  ToolWindowManager::raiseToolWindow(textureViewer);
+
+  dock(ctx.GetAIAssistant()->Widget(),
+       ToolWindowManager::AreaReference(ToolWindowManager::RightWindowSide,
+                                        ui->toolWindowManager->areaOf(textureViewer), 0.28f),
+       ToolWindowManager::HideOnClose);
+
+  QWidget *timelineBar = m_Ctx.GetTimelineBar()->Widget();
+
+  dock(timelineBar,
+       ToolWindowManager::AreaReference(ToolWindowManager::TopWindowSide,
+                                        ui->toolWindowManager->areaOf(textureViewer), 0.08f));
+
+  for(QWidget *tool : previouslyDocked)
+  {
+    if(!manager->areaOf(tool))
+      manager->moveToolWindow(tool, mainToolArea());
+  }
+  ToolWindowManager::raiseToolWindow(textureViewer);
+  ClampLayoutGeometry();
+}
+
+void MainWindow::ClampLayoutGeometry()
+{
+  if(isMaximized() || isFullScreen() || !QGuiApplication::primaryScreen())
+    return;
+
+  QRect desktop;
+  for(QScreen *screen : QGuiApplication::screens())
+    desktop = desktop.united(screen->availableGeometry());
+
+  // Keep intentional layouts spanning more than one display. Bring an oversized or
+  // off-desktop normal window back to an available screen after a topology change.
+  if(desktop.contains(frameGeometry()))
+    return;
+  QScreen *screen = windowHandle() ? windowHandle()->screen() : NULL;
+  const QRect available = (screen ? screen : QGuiApplication::primaryScreen())->availableGeometry();
+  const QSize frameMargins = frameGeometry().size() - size();
+  const QSize target = size().boundedTo(available.size() - frameMargins);
+  resize(target);
+  move(available.topLeft());
 }
 
 bool MainWindow::ErrorReportsAllowed()
@@ -1868,49 +2064,72 @@ void MainWindow::messageCheck()
       statusProgress->hide();
     }
 
-    m_Ctx.Replay().AsyncInvoke([this](IReplayController *r) {
-      rdcarray<DebugMessage> msgs;
+    // GetDebugMessages can wait on the driver or a remote server. Do not enqueue another poll until
+    // both the replay query and its UI callback have completed.
+    if(m_MessageCheckInFlight)
+      return;
 
-      bool disconnected = false;
+    m_MessageCheckInFlight = true;
+    const uint64_t generation = m_MessageCheckGeneration;
 
-      if(m_Ctx.Replay().CurrentRemote().IsValid())
-      {
-        bool wasRunning = m_Ctx.Replay().CurrentRemote().IsServerRunning();
+    // i18n-ignore: internal replay command tag used only for coalescing and diagnostics.
+    m_Ctx.Replay().AsyncInvoke(lit("mainWindowDebugMessages"),
+                               [this, generation](IReplayController *r) {
+                                 rdcarray<DebugMessage> msgs;
 
-        m_Ctx.Replay().PingRemote();
+                                 bool disconnected = false;
 
-        if(wasRunning != m_Ctx.Replay().CurrentRemote().IsServerRunning())
-        {
-          qCritical() << "Remote server disconnected";
-          disconnected = true;
-        }
+                                 if(m_Ctx.Replay().CurrentRemote().IsValid())
+                                 {
+                                   bool wasRunning =
+                                       m_Ctx.Replay().CurrentRemote().IsServerRunning();
 
-        if(!disconnected && wasRunning)
-          msgs = r->GetDebugMessages();
-      }
-      else
-      {
-        msgs = r->GetDebugMessages();
-      }
+                                   m_Ctx.Replay().PingRemote();
 
-      GUIInvoke::call(this, [this, msgs] {
-        if(m_Ctx.Replay().CurrentRemote().IsValid() &&
-           !m_Ctx.Replay().CurrentRemote().IsServerRunning())
-          contextChooser->setIcon(Icons::cross());
+                                   if(wasRunning !=
+                                      m_Ctx.Replay().CurrentRemote().IsServerRunning())
+                                   {
+                                     qCritical() << "Remote server disconnected";
+                                     disconnected = true;
+                                   }
 
-        if(!msgs.empty())
-        {
-          m_Ctx.AddMessages(msgs);
-        }
+                                   if(!disconnected && wasRunning)
+                                     msgs = r->GetDebugMessages();
+                                 }
+                                 else
+                                 {
+                                   msgs = r->GetDebugMessages();
+                                 }
 
-        if(m_Ctx.UnreadMessageCount() > 0)
-          m_messageAlternate = !m_messageAlternate;
-        else
-          m_messageAlternate = false;
+                                 GUIInvoke::call(this, [this, generation, msgs] {
+                                   // Capture close/load invalidates an outstanding poll. In
+                                   // particular, an old callback must not add messages to a new
+                                   // capture or clear the new capture's in-flight state.
+                                   if(generation != m_MessageCheckGeneration)
+                                     return;
 
-        setCaptureHasErrors(!m_Ctx.DebugMessages().empty());
-      });
-    });
+                                   m_MessageCheckInFlight = false;
+
+                                   if(!m_Ctx.IsCaptureLoaded())
+                                     return;
+
+                                   if(m_Ctx.Replay().CurrentRemote().IsValid() &&
+                                      !m_Ctx.Replay().CurrentRemote().IsServerRunning())
+                                     contextChooser->setIcon(Icons::cross());
+
+                                   if(!msgs.empty())
+                                   {
+                                     m_Ctx.AddMessages(msgs);
+                                   }
+
+                                   if(m_Ctx.UnreadMessageCount() > 0)
+                                     m_messageAlternate = !m_messageAlternate;
+                                   else
+                                     m_messageAlternate = false;
+
+                                   setCaptureHasErrors(!m_Ctx.DebugMessages().empty());
+                                 });
+                               });
   }
   else if(!m_Ctx.IsCaptureLoaded() && !m_Ctx.IsCaptureLoading())
   {
@@ -2020,7 +2239,7 @@ void MainWindow::setRemoteHost(int hostIdx)
     // allow live captures to this host to stay open, that way
     // we can connect to a live capture, then switch into that
     // context
-    if(host.IsValid() && live->hostname() == host.Hostname())
+    if(host.IsValid() && live->Hostname() == host.Hostname())
       continue;
 
     // if the user previously selected 'no to all' in the save prompts below, apply that to all
@@ -2226,6 +2445,9 @@ void MainWindow::statusDoubleClicked(QMouseEvent *event)
 
 void MainWindow::OnCaptureLoaded()
 {
+  ++m_MessageCheckGeneration;
+  m_MessageCheckInFlight = false;
+
   // at first only allow the default save for temporary captures. It should be disabled if we have
   // loaded a 'permanent' capture from disk and haven't made any changes. It will be enabled as soon
   // as any changes are made.
@@ -2292,6 +2514,9 @@ void MainWindow::OnCaptureLoaded()
 
 void MainWindow::OnCaptureClosed()
 {
+  ++m_MessageCheckGeneration;
+  m_MessageCheckInFlight = false;
+
   ui->action_Save_Capture_Inplace->setEnabled(false);
   ui->action_Save_Capture_As->setEnabled(false);
   ui->action_Close_Capture->setEnabled(false);
@@ -2314,7 +2539,7 @@ void MainWindow::OnCaptureClosed()
   ui->action_EmbedExternalFiles->setEnabled(false);
   ui->action_RemoveExternalFiles->setEnabled(false);
 
-  SetTitle();
+  SetTitle(QString());
 
   // if the remote sever disconnected during capture replay, resort back to a 'disconnected' state
   if(m_Ctx.Replay().CurrentRemote().IsValid() && !m_Ctx.Replay().CurrentRemote().IsServerRunning())
@@ -2487,13 +2712,63 @@ void MainWindow::on_action_Mesh_Output_triggered()
   QWidget *meshPreview = m_Ctx.GetMeshPreview()->Widget();
 
   if(ui->toolWindowManager->toolWindows().contains(meshPreview))
-    ToolWindowManager::raiseToolWindow(meshPreview);
+  {
+    if(ui->toolWindowManager->areaOf(meshPreview))
+      ToolWindowManager::raiseToolWindow(meshPreview);
+    else
+      ui->toolWindowManager->moveToolWindow(meshPreview, mainToolArea());
+  }
   else
     ui->toolWindowManager->addToolWindow(meshPreview, mainToolArea());
 }
 
+void MainWindow::on_action_Bookmarks_triggered()
+{
+  CaptureContext &ctx = static_cast<CaptureContext &>(m_Ctx);
+  QWidget *bookmarksView = ctx.GetBookmarksView();
+
+  if(ui->toolWindowManager->toolWindows().contains(bookmarksView))
+  {
+    ToolWindowManager::raiseToolWindow(bookmarksView);
+    return;
+  }
+
+  QWidget *reference = NULL;
+  if(m_Ctx.HasAPIInspector() &&
+     ui->toolWindowManager->toolWindows().contains(m_Ctx.GetAPIInspector()->Widget()))
+    reference = m_Ctx.GetAPIInspector()->Widget();
+  else if(m_Ctx.HasAnnotationViewer() &&
+          ui->toolWindowManager->toolWindows().contains(m_Ctx.GetAnnotationViewer()->Widget()))
+    reference = m_Ctx.GetAnnotationViewer()->Widget();
+
+  if(reference)
+  {
+    ToolWindowManagerArea *area = ui->toolWindowManager->areaOf(reference);
+    ui->toolWindowManager->addToolWindow(
+        bookmarksView, ToolWindowManager::AreaReference(ToolWindowManager::AddTo, area));
+    area = ui->toolWindowManager->areaOf(bookmarksView);
+    area->tabBar()->moveTab(area->indexOf(bookmarksView), area->indexOf(reference));
+  }
+  else if(m_Ctx.HasEventBrowser() &&
+          ui->toolWindowManager->toolWindows().contains(m_Ctx.GetEventBrowser()->Widget()))
+  {
+    ui->toolWindowManager->addToolWindow(
+        bookmarksView,
+        ToolWindowManager::AreaReference(
+            ToolWindowManager::BottomOf,
+            ui->toolWindowManager->areaOf(m_Ctx.GetEventBrowser()->Widget())));
+  }
+  else
+  {
+    ui->toolWindowManager->addToolWindow(bookmarksView, leftToolArea());
+  }
+
+  ToolWindowManager::raiseToolWindow(bookmarksView);
+}
+
 void MainWindow::on_action_API_Inspector_triggered()
 {
+  CaptureContext &ctx = static_cast<CaptureContext &>(m_Ctx);
   QWidget *apiInspector = m_Ctx.GetAPIInspector()->Widget();
 
   if(ui->toolWindowManager->toolWindows().contains(apiInspector))
@@ -2502,7 +2777,14 @@ void MainWindow::on_action_API_Inspector_triggered()
   }
   else
   {
-    if(m_Ctx.HasEventBrowser() &&
+    if(ctx.HasBookmarksView() &&
+       ui->toolWindowManager->toolWindows().contains(ctx.GetBookmarksView()))
+    {
+      ToolWindowManager::AreaReference ref(
+          ToolWindowManager::AddTo, ui->toolWindowManager->areaOf(ctx.GetBookmarksView()));
+      ui->toolWindowManager->addToolWindow(apiInspector, ref);
+    }
+    else if(m_Ctx.HasEventBrowser() &&
        ui->toolWindowManager->toolWindows().contains(m_Ctx.GetEventBrowser()->Widget()))
     {
       ToolWindowManager::AreaReference ref(
@@ -2519,6 +2801,7 @@ void MainWindow::on_action_API_Inspector_triggered()
 
 void MainWindow::on_action_Annotation_Viewer_triggered()
 {
+  CaptureContext &ctx = static_cast<CaptureContext &>(m_Ctx);
   QWidget *annotViewer = m_Ctx.GetAnnotationViewer()->Widget();
 
   if(ui->toolWindowManager->toolWindows().contains(annotViewer))
@@ -2532,6 +2815,13 @@ void MainWindow::on_action_Annotation_Viewer_triggered()
     {
       ToolWindowManager::AreaReference ref(
           ToolWindowManager::AddTo, ui->toolWindowManager->areaOf(m_Ctx.GetAPIInspector()->Widget()));
+      ui->toolWindowManager->addToolWindow(annotViewer, ref);
+    }
+    else if(ctx.HasBookmarksView() &&
+            ui->toolWindowManager->toolWindows().contains(ctx.GetBookmarksView()))
+    {
+      ToolWindowManager::AreaReference ref(
+          ToolWindowManager::AddTo, ui->toolWindowManager->areaOf(ctx.GetBookmarksView()));
       ui->toolWindowManager->addToolWindow(annotViewer, ref);
     }
     else if(m_Ctx.HasEventBrowser() &&
@@ -2653,6 +2943,46 @@ void MainWindow::on_action_Python_Shell_triggered()
     ToolWindowManager::raiseToolWindow(py);
   else
     ui->toolWindowManager->addToolWindow(py, mainToolArea());
+}
+
+void MainWindow::on_action_API_Monitor_triggered()
+{
+  CaptureContext &ctx = static_cast<CaptureContext &>(m_Ctx);
+  ApiMonitorWindow *monWin = ctx.GetApiMonitorWindow();
+  QWidget *mon = monWin->Widget();
+
+  if(ui->toolWindowManager->toolWindows().contains(mon))
+    ToolWindowManager::raiseToolWindow(mon);
+  else
+    ui->toolWindowManager->addToolWindow(mon, mainToolArea());
+
+  // Auto-connect to the most recent LiveCapture if one exists and window is disconnected
+  if(!m_LiveCaptures.isEmpty())
+    monWin->SetTargetConnection(m_LiveCaptures.last());
+}
+
+void MainWindow::on_action_AI_Assistant_triggered()
+{
+  showAIAssistant();
+}
+
+void MainWindow::showAIAssistant()
+{
+  CaptureContext &ctx = static_cast<CaptureContext &>(m_Ctx);
+  AIAssistant *assistantWindow = ctx.GetAIAssistant();
+  QWidget *assistant = assistantWindow->Widget();
+
+  if(ui->toolWindowManager->toolWindows().contains(assistant))
+  {
+    ui->toolWindowManager->setToolWindowProperties(assistant, ToolWindowManager::HideOnClose);
+    if(ui->toolWindowManager->areaOf(assistant) == NULL)
+      ui->toolWindowManager->moveToolWindow(assistant, mainToolArea());
+    ToolWindowManager::raiseToolWindow(assistant);
+  }
+  else
+  {
+    ui->toolWindowManager->addToolWindow(assistant, mainToolArea(), ToolWindowManager::HideOnClose);
+  }
 }
 
 void MainWindow::on_action_Resolve_Symbols_triggered()
@@ -2931,12 +3261,12 @@ void MainWindow::on_action_View_Documentation_triggered()
 
 void MainWindow::on_action_Source_on_GitHub_triggered()
 {
-  QDesktopServices::openUrl(QUrl::fromUserInput(lit("https://github.com/baldurk/renderdoc")));
+  QDesktopServices::openUrl(BreadRelease::RepositoryPage());
 }
 
 void MainWindow::on_action_Build_Release_Downloads_triggered()
 {
-  QDesktopServices::openUrl(QUrl::fromUserInput(lit("https://renderdoc.org/builds")));
+  QDesktopServices::openUrl(BreadRelease::ReleasesPage());
 }
 
 void MainWindow::on_action_Show_Tips_triggered()
@@ -2999,39 +3329,7 @@ void MainWindow::sendErrorReport(bool forceCaptureInclusion)
 
 void MainWindow::on_action_Check_for_Updates_triggered()
 {
-  CheckUpdates(true, [this](UpdateResult updateResult) {
-    switch(updateResult)
-    {
-      case UpdateResult::Disabled:
-      case UpdateResult::Toosoon:
-      {
-        // won't happen, we forced the check
-        break;
-      }
-      case UpdateResult::Unofficial:
-      {
-        QMessageBox::StandardButton res =
-            RDDialog::question(this, tr("Unofficial build"),
-                               tr("You are running an unofficial build, not a stable release.\n"
-                                  "Updates are only available for installed release builds\n\n"
-                                  "Would you like to open the builds list in a browser?"));
-
-        if(res == QMessageBox::Yes)
-          QDesktopServices::openUrl(lit("https://renderdoc.org/builds"));
-        break;
-      }
-      case UpdateResult::Latest:
-      {
-        RDDialog::information(this, tr("Latest version"), tr("You are running the latest version."));
-        break;
-      }
-      case UpdateResult::Upgrade:
-      {
-        // CheckUpdates() will have shown a dialog for this
-        break;
-      }
-    }
-  });
+  CheckUpdates(true);
 }
 
 void MainWindow::showDiagnosticLogView()
@@ -3050,8 +3348,9 @@ void MainWindow::updateAvailable_triggered()
   if(mismatch)
     return;
 
-  SetUpdateAvailable();
-  UpdatePopup();
+  if(m_Ctx.Config().CheckUpdate_AllowChecks && m_Ctx.Config().CheckUpdate_UpdateAvailable)
+    UpdatePopup(BreadRelease::InstalledVersion(),
+                QString(m_Ctx.Config().CheckUpdate_UpdateResponse).toUtf8());
 }
 
 void MainWindow::saveLayout_triggered()
@@ -3127,6 +3426,17 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
     live->cleanItems();
     delete live;
+  }
+
+  if(m_Ctx.HasPythonShell())
+  {
+    IPythonShell *shell = m_Ctx.GetPythonShell();
+
+    if(!shell->CheckUnsavedChanges())
+    {
+      event->ignore();
+      return;
+    }
   }
 
   SaveLayout(0);
@@ -3218,15 +3528,29 @@ QVariantMap MainWindow::saveState()
   QVariantMap state = ui->toolWindowManager->saveState();
 
   state[lit("mainWindowGeometry")] = QString::fromLatin1(saveGeometry().toBase64());
+  // i18n-ignore: internal layout migration key, never shown to the user.
+  state[lit("bookmarksViewLayoutVersion")] = 1;
 
   return state;
 }
 
 bool MainWindow::restoreState(QVariantMap &state)
 {
+  // i18n-ignore: persisted ToolWindowManager version key.
+  const bool supported = state.value(lit("toolWindowManagerStateFormat")).toInt() == 1;
+  // i18n-ignore: persisted ToolWindowManager root key.
+  const bool hasMainWrapper = !state.value(lit("mainWrapper")).toMap().isEmpty();
+  if(!supported || !hasMainWrapper)
+    return false;
+
   restoreGeometry(QByteArray::fromBase64(state[lit("mainWindowGeometry")].toByteArray()));
 
   ui->toolWindowManager->restoreState(state);
+
+  CaptureContext &ctx = static_cast<CaptureContext &>(m_Ctx);
+  if(ctx.HasAIAssistant())
+    ui->toolWindowManager->setToolWindowProperties(ctx.GetAIAssistant()->Widget(),
+                                                   ToolWindowManager::HideOnClose);
 
   return true;
 }
@@ -3238,9 +3562,10 @@ bool MainWindow::SaveLayout(int layout)
 
   QVariantMap state = saveState();
 
-  QFile f(path);
-  if(f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
-    return SaveToJSON(state, f, JSON_ID, JSON_VER);
+  QSaveFile f(path);
+  if(f.open(QIODevice::WriteOnly | QIODevice::Text) && SaveToJSON(state, f, JSON_ID, JSON_VER) &&
+     f.commit())
+    return true;
 
   qWarning() << "Couldn't write to " << path << " " << f.errorString();
 
@@ -3269,10 +3594,40 @@ bool MainWindow::LoadLayout(int layout)
       {
         if(ui->toolWindowManager->areaOf(toolWindow) == NULL)
         {
+          // An omitted frame-flow tab is an intentional choice in this saved layout. Keep its
+          // in-memory analysis alive but hidden instead of inserting it into a custom layout.
+          // i18n-ignore: stable first-party dock identity stored in layout files.
+          if(toolWindow->objectName() == lit("breadFrameRenderFlow"))
+            continue;
+          // First-party Python panels own unsaved documents and asynchronous callbacks.
+          // Loading an older layout must not destroy them behind their controllers' backs.
+          // i18n-ignore: first-party widget lifecycle property, never user-visible.
+          // Bread AI may have an active conversation even when an older layout omits its tab.
+          // HideOnClose is deliberately bypassed by forceCloseToolWindow, so preserve it here too.
+          if(toolWindow->property("breadPreserveOnLayoutRestore").toBool() ||
+             dynamic_cast<AIAssistant *>(toolWindow))
+          {
+            ui->toolWindowManager->moveToolWindow(toolWindow, mainToolArea());
+            continue;
+          }
           qInfo() << "Manually closing orphaned window " << toolWindow->objectName();
           ui->toolWindowManager->forceCloseToolWindow(toolWindow);
         }
       }
+
+      // Add Bookmarks once when upgrading an existing default layout. The feature version is
+      // persisted so a user who later closes the window keeps that choice on the next launch.
+      // i18n-ignore: internal layout migration key, never shown to the user.
+      if(layout == 0 && state[lit("bookmarksViewLayoutVersion")].toInt() < 1)
+        on_action_Bookmarks_triggered();
+
+      ClampLayoutGeometry();
+
+      // Notify the already-running Python integration after the complete native restore. At
+      // startup it will instead find and adopt the placeholder when it registers its windows.
+      // i18n-ignore: internal UI-only layout lifecycle notification, not a user-facing value.
+      setProperty("breadFrameFlowLayoutGeneration",
+                  property("breadFrameFlowLayoutGeneration").toInt() + 1);
       return true;
     }
     return false;

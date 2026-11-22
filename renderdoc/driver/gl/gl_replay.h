@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <memory>
+#include <set>
 #include <unordered_map>
 #include "api/replay/renderdoc_replay.h"
 #include "core/core.h"
@@ -37,6 +39,33 @@ class IntelGlCounters;
 class WrappedOpenGL;
 struct GLCounterContext;
 class NVGLCounters;
+struct GLCheckpointBufferVersion;
+struct GLCheckpointTextureVersion;
+struct GLResource;
+struct GLRenderState;
+
+// Ordinary replay provenance, independent of texture-display caches and checkpoint allocations.
+// Only the matching unmodified target may publish a prefix completed by WithoutDraw.
+struct GLLiveForwardCursor
+{
+  uint32_t event = 0;
+  uint32_t pendingTarget = 0;
+  void Invalidate() { event = pendingTarget = 0; }
+  bool CanAdvance(uint32_t target) const { return event != 0 && target > event; }
+  void Arm(uint32_t target)
+  {
+    event = 0;
+    pendingTarget = target;
+  }
+  bool Complete(uint32_t target, bool success)
+  {
+    const bool publish = success && target != 0 && pendingTarget == target;
+    Invalidate();
+    if(publish)
+      event = target;
+    return publish;
+  }
+};
 
 struct GLPostVSData
 {
@@ -183,7 +212,7 @@ class GLReplay : public IReplayDriver
 {
 public:
   GLReplay(WrappedOpenGL *d);
-  virtual ~GLReplay() {}
+  virtual ~GLReplay();
   void SetProxy(bool p) { m_Proxy = p; }
   bool IsRemoteProxy() { return m_Proxy; }
   void Shutdown();
@@ -235,6 +264,10 @@ public:
 
   RDResult ReadLogInitialisation(RDCFile *rdc, bool storeStructuredBuffers);
   void ReplayLog(uint32_t endEventID, ReplayLogType replayType);
+  void ConfigureReplayCheckpoints(const ReplayCheckpointConfig &config,
+                                  const rdcarray<ReplayCheckpointCandidate> &candidates) override;
+  void InvalidateReplayCheckpoints(uint32_t firstAffectedEvent = 0) override;
+  ReplayCheckpointStats GetReplayCheckpointStats() override;
   SDFile *GetStructuredFile();
 
   rdcarray<uint32_t> GetPassEvents(uint32_t eventId);
@@ -273,6 +306,17 @@ public:
 
   void ReplaceResource(ResourceId from, ResourceId to);
   void RemoveReplacement(ResourceId id);
+  rdcstr ReplaceTargetShaderChecked(ResourceId from, ResourceId to);
+  rdcstr RemoveTargetShaderReplacementChecked(ResourceId id);
+  rdcstr SetEventShaderOverride(uint32_t eventId, ShaderStage stage, ResourceId expectedOriginal,
+                                ResourceId replacement, uint32_t outputTarget = ~0U,
+                                bool independentFloatOutput = false) override;
+  TextureDescription GetEventShaderPreviewTexture(uint32_t eventId, ShaderStage stage) override;
+  void ClearEventShaderOverride(uint32_t eventId, ShaderStage stage) override;
+  void ClearEventShaderOverrides() override;
+  void ClearEventShaderOverridesForResource(ResourceId id) override;
+  rdcstr ApplyEventShaderOverrides(uint32_t eventId) override;
+  void RestoreEventShaderOverrides() override;
   void ClearReplayCache();
   void ReloadShaderDebugInformation();
 
@@ -281,7 +325,7 @@ public:
   rdcarray<CounterResult> FetchCounters(const rdcarray<GPUCounter> &counters);
 
   void RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secondaryDraws,
-                  const MeshDisplay &cfg);
+                  const MeshDisplay &cfg, const MeshComponentHighlight &components);
 
   rdcarray<ShaderEncoding> GetCustomShaderEncodings() { return {ShaderEncoding::GLSL}; }
   rdcarray<ShaderSourcePrefix> GetCustomShaderSourcePrefixes()
@@ -292,7 +336,13 @@ public:
     // coming in.
     return {};
   }
-  rdcarray<ShaderEncoding> GetTargetShaderEncodings() { return {ShaderEncoding::GLSL}; }
+  rdcarray<ShaderEncoding> GetTargetShaderEncodings()
+  {
+    rdcarray<ShaderEncoding> encodings = {ShaderEncoding::GLSL};
+    if(HasExt[ARB_gl_spirv])
+      encodings.push_back(ShaderEncoding::OpenGLSPIRV);
+    return encodings;
+  }
   void BuildTargetShader(ShaderEncoding sourceEncoding, const bytebuf &source, const rdcstr &entry,
                          const ShaderCompileFlags &compileFlags, ShaderStage type, ResourceId &id,
                          rdcstr &errors);
@@ -336,12 +386,23 @@ public:
   ResourceId ApplyCustomShader(TextureDisplay &display);
 
   ResourceId CreateProxyTexture(const TextureDescription &templateTex);
+  ResourceId CreateProxyTextureSnapshot(const TextureDescription &templateTex);
+  bool SupportsProxyTextureSnapshots() { return true; }
   void SetProxyTextureData(ResourceId texid, const Subresource &sub, byte *data, size_t dataSize);
+  ResourceId CreateTextureSnapshot(ResourceId source, const Subresource &sourceSub,
+                                   CompType typeCast, Subresource &snapshotSub);
+  void FreeTextureSnapshot(ResourceId snapshot);
+  void FreeTextureSnapshots(const rdcarray<ResourceId> &snapshots);
   bool IsTextureSupported(const TextureDescription &tex);
   bool NeedRemapForFetch(const ResourceFormat &format);
 
   ResourceId CreateProxyBuffer(const BufferDescription &templateBuf);
   void SetProxyBufferData(ResourceId bufid, byte *data, size_t dataSize);
+  rdcstr SetReplayBufferPatches(const rdcarray<ReplayBufferPatch> &patches) override;
+  uint32_t GetReplayBufferPatchFirstAffectedEvent() const override
+  {
+    return m_ReplayPatchFirstAffectedEvent;
+  }
 
   RenderOutputSubresource GetRenderOutputSubresource(ResourceId id);
   bool IsRenderOutput(ResourceId id) { return GetRenderOutputSubresource(id).mip != ~0U; }
@@ -365,6 +426,86 @@ public:
   GLuint MakeShaderDebugSampleProg(const SamplingProgramConfig &config);
 
 private:
+  friend class WrappedOpenGL;
+  void InvalidateLiveForward()
+  {
+    m_LiveForward.Invalidate();
+    ResetCheckpointTextureLineage();
+  }
+  bool PrepareLiveForward();
+  bool LiveForwardEndpoint(uint32_t eventId) const;
+  GLLiveForwardCursor m_LiveForward;
+  bool m_LiveForwardScanned = false;
+  bool m_LiveForwardCaptureSafe = false;
+  rdcstr m_LiveForwardReason;
+  void TrackCheckpointBufferWrites(GLChunk chunk);
+  void ResetCheckpointBufferLineage();
+  void InvalidateCheckpointBufferVersion(const GLResource &buffer);
+  void ResetCheckpointTextureLineage();
+  void ResetCheckpointTextureTracking();
+  void TrackCheckpointTextureWrites(GLChunk chunk);
+  void RecordCheckpointTextureWrite(const GLResource &resource);
+  bool QueryCheckpointFramebufferWrites(GLuint framebuffer, rdcarray<ResourceId> &writes);
+  bool PrepareCheckpointTextureSharing();
+  uint32_t m_ReplayPatchFirstAffectedEvent = 0;
+  uint32_t m_ReplayPatchAnchorEvent = 0;
+  struct ReplayCheckpoint;
+  bool PrepareReplayCheckpoints();
+  void PrepareCheckpointStaticResources(bool completeBufferEvidence, bool completeTextureEvidence);
+  bool SaveReplayCheckpoint(uint32_t eventId);
+  bool RestoreReplayCheckpoint(ReplayCheckpoint &checkpoint);
+  void ApplyCheckpointBindings(ReplayCheckpoint &checkpoint);
+  void UpdateCheckpointAccounting();
+  void EvictOldestCheckpoint();
+  uint64_t CheckpointStorageBytes(const ReplayCheckpoint *building, uint64_t &sharedBytes) const;
+  ReplayCheckpointConfig m_CheckpointConfig;
+  ReplayCheckpointStats m_CheckpointStats;
+  bool m_ReplayPatchReadOnlyEvidence = false;
+  uint64_t m_ReplayPatchImmutableInitialBytes = 0;
+  uint32_t m_ReplayPatchImmutableInitialCount = 0;
+  rdcarray<ReplayCheckpointCandidate> m_CheckpointCandidates;
+  std::map<uint32_t, std::unique_ptr<ReplayCheckpoint>> m_Checkpoints;
+  // Weak references never keep an evicted GPU allocation outside the checkpoint byte budget.
+  std::map<ResourceId, std::weak_ptr<GLCheckpointBufferVersion>> m_CheckpointBufferVersions;
+  std::map<ResourceId, std::weak_ptr<GLCheckpointTextureVersion>> m_CheckpointTextureVersions;
+  struct TextureWriteRecord
+  {
+    uint32_t chunk = 0;
+    bool complete = false;
+    rdcarray<ResourceId> writes;
+  };
+  std::map<uint64_t, TextureWriteRecord> m_CheckpointTextureWrites;
+  size_t m_CheckpointTextureWriteResources = 0;
+  bool m_CheckpointTextureWriteOverflow = false;
+  bool m_CheckpointTextureBindingEdited = false;
+  bool m_CheckpointTextureSharingScanned = false;
+  bool m_CheckpointTextureSharingSafe = false;
+  bool m_CheckpointTextureReplayManaged = false;
+  bool m_CheckpointTextureAnalysis = false;
+  uint32_t m_CheckpointTexturePendingTarget = 0;
+  struct TextureAnalysisScope
+  {
+    GLReplay &replay;
+    bool previous;
+    explicit TextureAnalysisScope(GLReplay &driver)
+        : replay(driver), previous(driver.m_CheckpointTextureAnalysis)
+    {
+      replay.m_CheckpointTextureAnalysis = true;
+      replay.ResetCheckpointTextureLineage();
+    }
+    ~TextureAnalysisScope()
+    {
+      replay.m_CheckpointTextureAnalysis = previous;
+      replay.ResetCheckpointTextureLineage();
+    }
+  };
+  // Original live contents proven unchanged for the complete captured frame. Object/sampler
+  // state still belongs to each checkpoint. Unknown calls and aliases invalidate this proof.
+  std::set<ResourceId> m_CheckpointStaticResources;
+  uint64_t m_CheckpointUseSerial = 0;
+  bool m_CheckpointPrepared = false;
+  bool m_CheckpointPreparingFailed = false;
+
   void OpenGLFillCBufferVariables(ResourceId shader, GLuint prog, bool bufferBacked, rdcstr prefix,
                                   const rdcarray<ShaderConstant> &variables,
                                   rdcarray<ShaderVariable> &outvars, const bytebuf &data);
@@ -535,6 +676,7 @@ private:
   // cache the previous data returned
   ResourceId m_GetTexturePrevID;
   byte *m_GetTexturePrevData[16];
+  rdcarray<ResourceId> m_TextureSnapshots;
 
   GLuint CreateMeshProgram(GLuint vs, GLuint fs, GLuint gs = 0);
   void ConfigureTexDisplayProgramBindings(GLuint program);
@@ -561,6 +703,35 @@ private:
 
   uint64_t m_OutputWindowID;
   std::map<uint64_t, OutputWindow> m_OutputWindows;
+
+  std::map<std::pair<uint32_t, ShaderStage>, EventShaderOverrideBinding> m_EventShaderOverrides;
+  std::map<EventShaderPipelineKey, GLuint> m_EventShaderPrograms;
+  std::map<EventShaderPipelineKey, GLuint> m_EventShaderPipelines;
+  std::unique_ptr<GLRenderState> m_EventShaderPreviousState;
+  void ReleaseEventShaderPrograms(ResourceId target = ResourceId());
+  struct EventShaderFloatAttachment
+  {
+    ResourceId source;
+    GLenum attachment = eGL_NONE, sourceTarget = eGL_NONE, format = eGL_NONE;
+    GLuint sourceName = 0, texture = 0;
+    GLint mip = 0, layer = 0, layers = 1, width = 0, height = 0, samples = 1;
+    bool layered = false, multiview = false, fixedSamples = true;
+  };
+  struct EventShaderFloatPreview
+  {
+    GLuint framebuffer = 0;
+    rdcarray<EventShaderFloatAttachment> attachments;
+    rdcarray<GLenum> drawBuffers;
+    size_t selected = 0;
+    rdcstr signature;
+    uint64_t bytes = 0, used = 0;
+  };
+  std::map<std::pair<uint32_t, uint32_t>, EventShaderFloatPreview> m_EventShaderFloatPreviews;
+  uint64_t m_EventShaderFloatClock = 0;
+  void DestroyEventShaderFloatPreview(EventShaderFloatPreview &preview);
+  void ReleaseEventShaderFloatPreviews();
+  rdcstr PrepareEventShaderFloatPreview(uint32_t eventId, uint32_t outputTarget,
+                                        GLRenderState &original, EventShaderFloatPreview *&preview);
 
   bool m_Proxy;
 

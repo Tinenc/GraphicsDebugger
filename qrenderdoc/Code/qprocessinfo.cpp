@@ -6,6 +6,8 @@
 
 #include "qprocessinfo.h"
 
+#include <QCoreApplication>
+
 #if defined(Q_OS_WIN32)
 
 #include <windows.h>
@@ -223,7 +225,8 @@ QProcessList QProcessInfo::enumerate(bool includeWindowTitles)
     {
       // add a fake window title to the first process to indicate that xdotool is missing
       if(!ret.isEmpty())
-        ret[0].setWindowTitle(QStringLiteral("Window titles not available - install `xdotool`"));
+        ret[0].setWindowTitle(QCoreApplication::translate(
+            "QProcessInfo", "Window titles not available - install `xdotool`"));
     }
     else
     {

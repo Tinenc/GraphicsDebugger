@@ -48,7 +48,11 @@ RDOC_CONFIG(bool, RemoteServer_DebugLogging, false,
 #define MAKE_REMOTE_SERVER_VERSION(maj, min) uint32_t((maj)*1000) + (min)
 
 static const uint32_t RemoteServerProtocolVersion =
-    MAKE_REMOTE_SERVER_VERSION(RENDERDOC_VERSION_MAJOR, RENDERDOC_VERSION_MINOR);
+    ReplayControlHandshakeVersion(
+        MAKE_REMOTE_SERVER_VERSION(RENDERDOC_VERSION_MAJOR, RENDERDOC_VERSION_MINOR));
+static_assert(MAKE_REMOTE_SERVER_VERSION(RENDERDOC_VERSION_MAJOR, RENDERDOC_VERSION_MINOR) <=
+                  0xffffU,
+              "Application version must fit the fork protocol's low 16 bits");
 
 enum class RemoteServerPacket
 {
@@ -231,7 +235,12 @@ static bool HandleHandshakeClient(ActiveClient &activeClient, ClientThread *thre
       {
         SCOPED_SERIALISE_CHUNK(RemoteServerPacket::VersionMismatch2);
 
-        SERIALISE_ELEMENT(RemoteServerProtocolVersion);
+        // Legacy clients do not understand the fork revision bits. Still reject them, but send
+        // the application version in their mismatch diagnostic instead of an enormous major.
+        uint32_t reportedVersion = (version & 0x80000000U)
+                                       ? RemoteServerProtocolVersion
+                                       : (RemoteServerProtocolVersion & 0xffffU);
+        SERIALISE_ELEMENT(reportedVersion);
       }
       else
       {
@@ -1361,7 +1370,13 @@ RENDERDOC_CreateRemoteServerConnection(const rdcstr &URL, IRemoteServer **rend)
     {
       SAFE_DELETE(sock);
 
-      rdcstr ver = StringFormat::Fmt("Server on v%d.%d", remoteVersion / 1000, remoteVersion % 1000);
+      const bool forkProtocol = (remoteVersion & 0x80000000U) != 0;
+      const uint32_t appVersion = forkProtocol ? remoteVersion & 0xffffU : remoteVersion;
+      const uint32_t revision = forkProtocol ? (remoteVersion >> 16) & 0x7fffU : 0;
+      rdcstr ver = StringFormat::Fmt(
+          "Server on v%u.%u with replay-control protocol revision %u; this client requires "
+          "revision %u and a matching RenderDoc version", appVersion / 1000, appVersion % 1000,
+          revision, ReplayControlProtocolRevision);
 
       if(remoteVersion == 0)
         ver = "Server older than v1.23";

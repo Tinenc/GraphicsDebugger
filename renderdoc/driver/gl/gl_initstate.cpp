@@ -23,6 +23,7 @@
  ******************************************************************************/
 
 #include <algorithm>
+#include "replay/replay_timing.h"
 #include "gl_driver.h"
 #include "gl_manager.h"
 
@@ -194,8 +195,12 @@ void WrappedOpenGL::TextureData::GetCompressedImageDataGLES(int mip, GLenum targ
   }
 }
 
-void GLResourceManager::ContextPrepare_InitialState(GLResource res)
+void GLResourceManager::ContextPrepare_InitialState(GLResource res, GLInitialContents *checkpoint,
+                                                  bool copyContents)
 {
+  // Content sharing is a checkpoint-only decision backed by a capture-wide write proof. Normal
+  // capture initial-state creation must always retain the original bytes.
+  copyContents = copyContents || checkpoint == NULL;
   GLInitialContents initContents;
 
   initContents.type = res.Namespace;
@@ -228,8 +233,11 @@ void GLResourceManager::ContextPrepare_InitialState(GLResource res)
 
     // workaround for some drivers - mapping/unmapping here seems to help avoid problems mapping
     // later.
-    GL.glMapNamedBufferEXT(buf, eGL_READ_ONLY);
-    GL.glUnmapNamedBufferEXT(buf);
+    if(!checkpoint)
+    {
+      GL.glMapNamedBufferEXT(buf, eGL_READ_ONLY);
+      GL.glUnmapNamedBufferEXT(buf);
+    }
 
     // restore old bindings
     GL.glBindBuffer(eGL_COPY_READ_BUFFER, oldbuf1);
@@ -260,7 +268,7 @@ void GLResourceManager::ContextPrepare_InitialState(GLResource res)
   }
   else if(res.Namespace == eResTexture)
   {
-    PrepareTextureInitialContents(id, res);
+    PrepareTextureInitialContents(id, res, checkpoint, copyContents);
     return;
   }
   else if(res.Namespace == eResFramebuffer)
@@ -330,7 +338,7 @@ void GLResourceManager::ContextPrepare_InitialState(GLResource res)
       a.layered = (layered != 0);
       a.obj = (type == eGL_RENDERBUFFER) ? RenderbufferRes(ctx, object) : TextureRes(ctx, object);
 
-      if(type != eGL_RENDERBUFFER)
+      if(type != eGL_RENDERBUFFER && object)
       {
         WrappedOpenGL::TextureData &details = m_Driver->m_Textures[GetID(a.obj)];
 
@@ -547,7 +555,10 @@ void GLResourceManager::ContextPrepare_InitialState(GLResource res)
     RDCERR("Unexpected type of resource requiring initial state");
   }
 
-  SetInitialContents(id, initContents);
+  if(checkpoint)
+    *checkpoint = initContents;
+  else
+    SetInitialContents(id, initContents);
 }
 
 bool GLResourceManager::Prepare_InitialState(GLResource res)
@@ -602,7 +613,9 @@ bool GLResourceManager::Prepare_InitialState(GLResource res)
   return true;
 }
 
-void GLResourceManager::PrepareTextureInitialContents(ResourceId id, GLResource res)
+void GLResourceManager::PrepareTextureInitialContents(ResourceId id, GLResource res,
+                                                       GLInitialContents *checkpoint,
+                                                       bool copyContents)
 {
   WrappedOpenGL::TextureData &details = m_Driver->m_Textures[id];
 
@@ -729,7 +742,7 @@ void GLResourceManager::PrepareTextureInitialContents(ResourceId id, GLResource 
     // we only copy contents for non-views
     GLuint tex = 0;
 
-    if(!details.view)
+    if(!details.view && (copyContents || checkpoint == NULL))
     {
       {
         GLuint oldtex = 0;
@@ -909,8 +922,12 @@ void GLResourceManager::PrepareTextureInitialContents(ResourceId id, GLResource 
         }
       }
 
-      GL.glFlush();
-      GL.glFinish();
+      // Checkpoints stay in the same replay command stream; GPU ordering is sufficient.
+      if(!checkpoint)
+      {
+        GL.glFlush();
+        GL.glFinish();
+      }
 
       if(avoidCopySubImage)
       {
@@ -973,7 +990,10 @@ void GLResourceManager::PrepareTextureInitialContents(ResourceId id, GLResource 
                                        (GLint *)&state.texBufSize);
   }
 
-  SetInitialContents(id, initContents);
+  if(checkpoint)
+    *checkpoint = initContents;
+  else
+    SetInitialContents(id, initContents);
 }
 
 uint64_t GLResourceManager::GetSize_InitialState(ResourceId resid, const GLInitialContents &initial)
@@ -2232,8 +2252,15 @@ void GLResourceManager::Apply_InitialState(GLResource res, GLInitialContents &in
 
     // we need to re-link the program to apply the bindings, as long as it's linkable.
     // See the comment on shaderProgramUnlinkable for more information.
-    if(!prog.shaderProgramUnlinkable && changedBindings)
+    static const bool forceRelink =
+        Process::GetEnvVariable("RENDERDOC_GL_FORCE_INITIAL_PROGRAM_RELINK") == "1";
+    if(!prog.shaderProgramUnlinkable && (changedBindings || forceRelink))
+    {
+      AddReplayTimingCounter(ReplayTimingCounter::InitialProgramRelinks);
       GL.glLinkProgram(res.name);
+    }
+    else
+      AddReplayTimingCounter(ReplayTimingCounter::InitialProgramRelinksSkipped);
 
     PerStageReflections stages;
     m_Driver->FillReflectionArray(Id, stages);

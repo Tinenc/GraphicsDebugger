@@ -1,0 +1,22 @@
+{
+  "schema": "renderdoc-builtin-integration/v1",
+  "name": "Bread AI Bridge",
+  "module": "renderdoc_mcp_bridge",
+  "version": "1.13.121",
+  "minimum_renderdoc": "1.44",
+  "python": "3.6",
+  "entrypoint": "start",
+  "shutdown": "stop",
+  "host_contract": {
+    "schema": "replaylab-internal-host-capabilities/v1",
+    "protocol_version": 1,
+    "capability_versions": {
+      "project-service": 1,
+      "project-restore": 1,
+      "shader-workspace-prepare": 1,
+      "shader-source-save": 1,
+      "shader-live-edit": 1,
+      "asset-index": 1
+    }
+  }
+}

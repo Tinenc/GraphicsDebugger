@@ -1,0 +1,8 @@
+{
+  "name": "com.bread.unity-connection",
+  "version": "0.1.1",
+  "displayName": "Bread Unity Connection",
+  "description": "Project-scoped automatic connection to Bread's managed Unity MCP.",
+  "unity": "2021.3",
+  "dependencies": { "com.coplaydev.unity-mcp": "10.3.0" }
+}

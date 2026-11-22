@@ -1236,21 +1236,7 @@ struct D3D12StatCallback : public D3D12ActionCallback
     {
       // Need to create a new command signature using our modified root signature if the command
       // signature modifies the root arguments i.e. setting root constants, updating bindings.
-      bool needNewCommandSig = false;
-      for(D3D12_INDIRECT_ARGUMENT_DESC &arg : comSig->sig.arguments)
-      {
-        D3D12_INDIRECT_ARGUMENT_TYPE argType = arg.Type;
-        if(argType == D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT ||
-           argType == D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW ||
-           argType == D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW ||
-           argType == D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW ||
-           argType == D3D12_INDIRECT_ARGUMENT_TYPE_INCREMENTING_CONSTANT)
-        {
-          needNewCommandSig = true;
-          break;
-        }
-      }
-      if(needNewCommandSig)
+      if(DoesCommandSignatureModifyRootArgs(comSig))
       {
         D3D12_COMMAND_SIGNATURE_DESC comSigDesc;
         comSigDesc.ByteStride = comSig->sig.ByteStride;
@@ -1606,7 +1592,11 @@ bool D3D12Replay::FetchShaderFeedback(uint32_t eventId)
   {
     D3D12StatCallback cb(m_pDevice, m_BindlessFeedback.PipeStatsHeap, annotatedSig, &modComSig);
 
-    m_pDevice->ReplayLog(0, eventId, eReplay_OnlyDraw);
+    // This private callback preserves every original captured write and adds only feedback/query
+    // scratch. Track the original complete-list write superset; other analysis callbacks remain
+    // conservative. This scope can preserve an existing proof but cannot create one after a
+    // forced root replay. Event-scoped CBuffer overrides never enter this scope.
+    m_pDevice->ReplayLog(0, eventId, eReplay_OnlyDraw, false, m_KnownOrdinaryTargetFeedback);
 
     ID3D12GraphicsCommandList *list = m_pDevice->GetNewList();
     if(!list)

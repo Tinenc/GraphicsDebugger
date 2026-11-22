@@ -964,8 +964,8 @@ void WrappedVulkan::vkFreeMemory(VkDevice device, VkDeviceMemory memory, const V
       SCOPED_READLOCK(m_CapTransitionLock);
       if(IsActiveCapturing(m_State) && wrapped->record->hasBDA)
       {
-        SCOPED_LOCK(m_DeviceAddressResourcesLock);
-        m_DeviceAddressResources.DeadMemories.push_back(memory);
+        SCOPED_LOCK(m_DeferredDestructLock);
+        m_DeferredDestructResources.DeadMemories.push_back(memory);
         return;
       }
     }
@@ -1038,6 +1038,9 @@ void WrappedVulkan::ProcessMap(VkDeviceMemory memory, VkDeviceSize offset, VkDev
     RDCASSERT(memrecord->memMapState);
     MemMapState &state = *memrecord->memMapState;
 
+    // memory that is mapped should be marked as dirty, in case a buffer is bound to it mid-capture
+    GetResourceManager()->MarkDirtyResource(memrecord->GetResourceID());
+
     // ensure size is valid
     RDCASSERT(size == VK_WHOLE_SIZE || (size > 0 && offset + size <= memrecord->Length),
               GetResID(memory), size, memrecord->Length);
@@ -1069,6 +1072,8 @@ template <typename SerialiserType>
 bool WrappedVulkan::SerialiseUnmap(SerialiserType &ser, VkDeviceMemory memory, uint64_t MapOffset,
                                    uint64_t MapSize, byte *MapData)
 {
+  if(ReplayCachedHostWrite(ser, memory, MapOffset, MapSize))
+    return true;
   bool directStream = true;
 
   if(IsReplayingAndReading() && memory != VK_NULL_HANDLE)
@@ -1082,7 +1087,8 @@ bool WrappedVulkan::SerialiseUnmap(SerialiserType &ser, VkDeviceMemory memory, u
     }
 
     if(IsLoading(m_State))
-      m_ResourceUses[GetResID(memory)].push_back(EventUsage(m_RootEventID, ResourceUsage::CPUWrite));
+      m_LoadingEventNode.resourceUsage.push_back(
+          make_rdcpair(GetResID(memory), ResourceUsage::CPUWrite));
 
     const Intervals<VulkanCreationInfo::Memory::MemoryBinding> &bindings =
         m_CreationInfo.m_Memory[GetResID(memory)].bindings;
@@ -1117,6 +1123,8 @@ bool WrappedVulkan::SerialiseUnmap(SerialiserType &ser, VkDeviceMemory memory, u
   {
     // not using SERIALISE_ELEMENT_ARRAY so we can deliberately avoid allocation - we serialise
     // directly into upload memory
+    if(IsReplayingAndReading() && memory != VK_NULL_HANDLE)
+      WaitForInitialRestoreHostWrite(memory, MapOffset, MapSize);
     ser.Serialise("MapData"_lit, MapData, MapSize, SerialiserFlags::NoFlags).Important();
   }
   else
@@ -1147,14 +1155,18 @@ bool WrappedVulkan::SerialiseUnmap(SerialiserType &ser, VkDeviceMemory memory, u
 
         // similarly, only copy up to the end of the region or the end ofthe map whichever is
         // *sooner*.
-        size_t size = size_t(RDCMIN(it->finish(), finish) - offs);
+        size_t size = size_t(RDCMIN(it->finish(), finish) - (MapOffset + offs));
 
+        WaitForInitialRestoreHostWrite(memory, MapOffset + offs, size);
         memcpy(MapData + offs, m_MaskedMapData.data() + offs, size);
       }
 
       it++;
     }
   }
+
+  if(IsReplayingAndReading() && memory != VK_NULL_HANDLE && MapData)
+    ApplyReplayBufferMemoryPatches(memory, MapOffset, MapData, MapSize);
 
   return true;
 }
@@ -1438,8 +1450,8 @@ bool WrappedVulkan::Serialise_vkFlushMappedMemoryRanges(SerialiserType &ser, VkD
   if(IsReplayingAndReading() && MemRange.memory != VK_NULL_HANDLE && MemRange.size > 0)
   {
     if(IsLoading(m_State))
-      m_ResourceUses[GetResID(MemRange.memory)].push_back(
-          EventUsage(m_RootEventID, ResourceUsage::CPUWrite));
+      m_LoadingEventNode.resourceUsage.push_back(
+          make_rdcpair(GetResID(MemRange.memory), ResourceUsage::CPUWrite));
 
     VkResult ret =
         ObjDisp(device)->MapMemory(Unwrap(device), Unwrap(MemRange.memory), MemRange.offset,
@@ -1487,12 +1499,28 @@ bool WrappedVulkan::Serialise_vkFlushMappedMemoryRanges(SerialiserType &ser, VkD
 
       it++;
     }
+
+    if(m_HasSubmit)
+    {
+      FlushQ();
+      m_HasSubmit = false;
+    }
+  }
+
+  if(ReplayCachedHostWrite(ser, MemRange.memory, MemRange.offset, memRangeSize))
+  {
+    if(MappedData)
+      ObjDisp(device)->UnmapMemory(Unwrap(device), Unwrap(MemRange.memory));
+    SERIALISE_CHECK_READ_ERRORS();
+    return true;
   }
 
   if(directStream)
   {
     // not using SERIALISE_ELEMENT_ARRAY so we can deliberately avoid allocation - we serialise
     // directly into upload memory
+    if(IsReplayingAndReading() && MemRange.memory != VK_NULL_HANDLE)
+      WaitForInitialRestoreHostWrite(MemRange.memory, MemRange.offset, memRangeSize);
     ser.Serialise("MapData"_lit, MappedData, memRangeSize, SerialiserFlags::NoFlags).Important();
   }
   else
@@ -1528,6 +1556,7 @@ bool WrappedVulkan::Serialise_vkFlushMappedMemoryRanges(SerialiserType &ser, VkD
         size_t offs = size_t(start - mappedRegionStart);
         size_t size = size_t(finish - start);
 
+        WaitForInitialRestoreHostWrite(MemRange.memory, start, size);
         memcpy(MappedData + offs, m_MaskedMapData.data() + offs, size);
       }
 
@@ -1537,6 +1566,7 @@ bool WrappedVulkan::Serialise_vkFlushMappedMemoryRanges(SerialiserType &ser, VkD
 
   if(IsReplayingAndReading() && MappedData && MemRange.memory != VK_NULL_HANDLE && MemRange.size > 0)
   {
+    ApplyReplayBufferMemoryPatches(MemRange.memory, MemRange.offset, MappedData, memRangeSize);
     const VulkanCreationInfo::Memory &memInfo = m_CreationInfo.m_Memory[GetResID(MemRange.memory)];
     if((m_PhysicalDeviceData.memProps.memoryTypes[memInfo.memoryTypeIndex].propertyFlags &
         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0)
@@ -1713,6 +1743,10 @@ bool WrappedVulkan::Serialise_vkBindBufferMemory(SerialiserType &ser, VkDevice d
 
     ObjDisp(device)->BindBufferMemory(Unwrap(device), Unwrap(buffer), Unwrap(memory), memoryOffset);
 
+    bufInfo.replayMemory = memId;
+    bufInfo.replayMemoryOffset = memoryOffset;
+    bufInfo.replayMemorySize = mrq.size;
+
     GetResourceDesc(memId).derivedResources.push_back(resId);
     GetResourceDesc(resId).parentResources.push_back(memId);
 
@@ -1723,6 +1757,9 @@ bool WrappedVulkan::Serialise_vkBindBufferMemory(SerialiserType &ser, VkDevice d
     // KHR variants now.
     if(bufInfo.usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
       TrackReplayBufferAddress(device, buffer, memory, memoryOffset);
+
+    bufInfo.boundMemory = memId;
+    bufInfo.boundMemoryOffset = memoryOffset;
 
     m_CreationInfo.m_Memory[GetResID(memory)].BindMemory(memoryOffset, mrq.size,
                                                          VulkanCreationInfo::Memory::Linear);
@@ -1965,7 +2002,15 @@ VkResult WrappedVulkan::vkBindImageMemory(VkDevice device, VkImage image, VkDevi
       // AddForcedReference will also call MarkResourceFrameReferenced() on the image in case
       // we're currently capturing, do the same with the memory with the correct semantics.
       GetResourceManager()->MarkMemoryFrameReferenced(
-          GetResID(mem), memOffset, record->resInfo->memreqs.size, eFrameRef_ReadBeforeWrite);
+          GetResID(mem), memOffset, record->resInfo->memreqs.size, eFrameRef_Read);
+    }
+
+    // pre-initialised images act like buffers, and dirty & ref the memory they are bound to.
+    if(record->resInfo->imageInfo.initialLayout == VK_IMAGE_LAYOUT_PREINITIALIZED)
+    {
+      GetResourceManager()->MarkDirtyResource(memrecord->GetResourceID());
+      GetResourceManager()->MarkMemoryFrameReferenced(
+          memrecord->GetResourceID(), memOffset, record->resInfo->memreqs.size, eFrameRef_Read);
     }
 
     // images are a base resource but we want to track where their memory comes from.
@@ -2068,6 +2113,8 @@ bool WrappedVulkan::Serialise_vkCreateBuffer(SerialiserType &ser, VkDevice devic
 
       m_CreationInfo.m_Buffer[live].Init(GetResourceManager(), m_CreationInfo, &CreateInfo,
                                          memoryRequirements);
+      m_CreationInfo.m_Buffer[live].replayPatchProtected =
+          (CreateInfo.flags & VK_BUFFER_CREATE_PROTECTED_BIT) != 0;
 
       if(patchedusage & VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT)
       {
@@ -2393,18 +2440,8 @@ bool WrappedVulkan::Serialise_vkCreateBufferView(SerialiserType &ser, VkDevice d
     {
       ResourceId live;
 
-      if(GetResourceManager()->HasWrapper(ToTypedHandle(view)))
-      {
-        live = GetResourceManager()->GetNonDispWrapper(view)->id;
+      GetResourceManager()->OverrideWrapper(ToTypedHandle(view));
 
-        // destroy this instance of the duplicate, as we must have matching create/destroy
-        // calls and there won't be a wrapped resource hanging around to destroy this one.
-        ObjDisp(device)->DestroyBufferView(Unwrap(device), view, NULL);
-
-        // whenever the new ID is requested, return the old ID, via replacements.
-        GetResourceManager()->ReplaceResource(View, live);
-      }
-      else
       {
         live = GetResourceManager()->WrapResource(View, Unwrap(device), view);
 
@@ -2497,12 +2534,13 @@ bool WrappedVulkan::Serialise_vkCreateImage(SerialiserType &ser, VkDevice device
   {
     VkImage img = VK_NULL_HANDLE;
 
-    VkImageUsageFlags origusage = CreateInfo.usage;
+    VkImageUsageFlags2KHR origusage = GetImageUsageFlags(&CreateInfo);
 
     // ensure we can always display and copy from/to textures
-    CreateInfo.usage |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                        VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    CreateInfo.usage &= ~VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+    VkImageUsageFlags2KHR patchedUsage = origusage;
+    patchedUsage |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                    VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    patchedUsage &= ~VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
 
     if(CreateInfo.tiling == VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
       CreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -2515,14 +2553,16 @@ bool WrappedVulkan::Serialise_vkCreateImage(SerialiserType &ser, VkDevice device
         queueFamiles[q] = m_QueueRemapping[queueFamiles[q]][0].family;
     }
 
+    VkImageUsageFlags2KHR flags = GetImageCreateFlags(&CreateInfo);
+
     // need to be able to mutate the format for YUV textures
     if(IsYUVFormat(CreateInfo.format))
-      CreateInfo.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+      flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
 
     // ensure we can cast multisampled images, for copying to arrays
     if((int)CreateInfo.samples > 1)
     {
-      CreateInfo.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+      flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
 
       // colour targets we do a simple compute copy, for depth-stencil we need
       // to take a slower path that uses drawing
@@ -2533,24 +2573,24 @@ bool WrappedVulkan::Serialise_vkCreateImage(SerialiserType &ser, VkDevice device
         // capability (and it might be the bug we're trying to work around by disabling the
         // pipeline)
         if(GetShaderCache()->IsBuffer2MSSupported())
-          CreateInfo.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
-        CreateInfo.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+          patchedUsage |= VK_IMAGE_USAGE_STORAGE_BIT;
+        patchedUsage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
       }
       else
       {
-        CreateInfo.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        patchedUsage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
       }
     }
 
     // create non-subsampled image to be able to copy its content
-    CreateInfo.flags &= ~VK_IMAGE_CREATE_SUBSAMPLED_BIT_EXT;
+    flags &= ~VK_IMAGE_CREATE_SUBSAMPLED_BIT_EXT;
 
-    CreateInfo.flags |= DefaultImageCreateFlags();
+    flags |= DefaultImageCreateFlags();
 
     APIProps.YUVTextures |= IsYUVFormat(CreateInfo.format);
 
-    const bool isSparse = (CreateInfo.flags & (VK_IMAGE_CREATE_SPARSE_BINDING_BIT |
-                                               VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT)) != 0;
+    const bool isSparse =
+        (flags & (VK_IMAGE_CREATE_SPARSE_BINDING_BIT | VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT)) != 0;
 
     if(isSparse)
     {
@@ -2558,21 +2598,7 @@ bool WrappedVulkan::Serialise_vkCreateImage(SerialiserType &ser, VkDevice device
     }
 
     // we search for the separate stencil usage struct now that it's in patchable memory
-    VkImageStencilUsageCreateInfo *separateStencilUsage =
-        (VkImageStencilUsageCreateInfo *)FindNextStruct(
-            &CreateInfo, VK_STRUCTURE_TYPE_IMAGE_STENCIL_USAGE_CREATE_INFO);
-    if(separateStencilUsage)
-    {
-      separateStencilUsage->stencilUsage |= VK_IMAGE_USAGE_SAMPLED_BIT |
-                                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                                            VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-      separateStencilUsage->stencilUsage &= ~VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
-
-      if(CreateInfo.samples != VK_SAMPLE_COUNT_1_BIT)
-      {
-        separateStencilUsage->stencilUsage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-      }
-    }
+    PatchStencilUsageInfo(&CreateInfo);
 
     rdcarray<VkFormat> patchedFormatList;
 
@@ -2646,11 +2672,11 @@ bool WrappedVulkan::Serialise_vkCreateImage(SerialiserType &ser, VkDevice device
       };
 
       // pass creation info
-      queryBase.flags = CreateInfo.flags;
+      queryBase.flags = (VkImageCreateFlags)flags;
       queryBase.format = CreateInfo.format;
       queryBase.tiling = CreateInfo.tiling;
       queryBase.type = CreateInfo.imageType;
-      queryBase.usage = CreateInfo.usage;
+      queryBase.usage = (VkImageUsageFlags)patchedUsage;
 
       // pass image format list, if the application did
       VkImageFormatListCreateInfo *appFormatInfo = (VkImageFormatListCreateInfo *)FindNextStruct(
@@ -2661,6 +2687,27 @@ bool WrappedVulkan::Serialise_vkCreateImage(SerialiserType &ser, VkDevice device
         formatInfo = *appFormatInfo;
         formatInfo.pNext = queryBase.pNext;
         queryBase.pNext = &formatInfo;
+      }
+
+      // ditto for expanded usage/flags
+      VkImageCreateFlags2CreateInfoKHR *appFlags2 =
+          (VkImageCreateFlags2CreateInfoKHR *)FindNextStruct(
+              &CreateInfo, VK_STRUCTURE_TYPE_IMAGE_CREATE_FLAGS_2_CREATE_INFO_KHR);
+      VkImageCreateFlags2CreateInfoKHR flags2;
+      if(appFlags2)
+      {
+        flags2 = *appFlags2;
+        flags2.pNext = (void *)queryBase.pNext;
+        queryBase.pNext = &flags2;
+      }
+      VkImageUsageFlags2CreateInfoKHR *appUsage2 = (VkImageUsageFlags2CreateInfoKHR *)FindNextStruct(
+          &CreateInfo, VK_STRUCTURE_TYPE_IMAGE_USAGE_FLAGS_2_CREATE_INFO_KHR);
+      VkImageUsageFlags2CreateInfoKHR usage2;
+      if(appUsage2)
+      {
+        usage2 = *appUsage2;
+        usage2.pNext = (void *)queryBase.pNext;
+        queryBase.pNext = &usage2;
       }
 
       for(uint32_t i = 0; i < 32; i++)
@@ -2735,13 +2782,16 @@ bool WrappedVulkan::Serialise_vkCreateImage(SerialiserType &ser, VkDevice device
 
     VkImageCreateInfo patched = CreateInfo;
 
+    SetImageUsageFlags(&patched, patchedUsage);
+    SetImageCreateFlags(&patched, flags);
+
     byte *tempMem = GetTempMemory(GetNextPatchSize(patched.pNext));
 
     UnwrapNextChain(m_State, "VkImageCreateInfo", tempMem, (VkBaseInStructure *)&patched);
 
     VkResult ret = ObjDisp(device)->CreateImage(Unwrap(device), &patched, NULL, &img);
 
-    CreateInfo.usage = origusage;
+    SetImageUsageFlags(&CreateInfo, origusage);
 
     if(ret != VK_SUCCESS)
     {
@@ -2801,31 +2851,31 @@ bool WrappedVulkan::Serialise_vkCreateImage(SerialiserType &ser, VkDevice device
     {
       prefix = CreateInfo.arrayLayers > 1 ? "1D Array Image" : "1D Image";
 
-      if(CreateInfo.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+      if(origusage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
         prefix = "1D Color Attachment";
-      else if(CreateInfo.usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+      else if(origusage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
         prefix = "1D " + depth + " Attachment";
     }
     else if(CreateInfo.imageType == VK_IMAGE_TYPE_2D)
     {
       prefix = CreateInfo.arrayLayers > 1 ? "2D Array Image" : "2D Image";
 
-      if(CreateInfo.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+      if(origusage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
         prefix = "2D Color Attachment";
-      else if(CreateInfo.usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+      else if(origusage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
         prefix = "2D " + depth + " Attachment";
-      else if(CreateInfo.usage & VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
+      else if(origusage & VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
         prefix = "2D Fragment Density Map Attachment";
-      else if(CreateInfo.usage & VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
+      else if(origusage & VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
         prefix = "2D Fragment Shading Rate Attachment";
     }
     else if(CreateInfo.imageType == VK_IMAGE_TYPE_3D)
     {
       prefix = "3D Image";
 
-      if(CreateInfo.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+      if(origusage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
         prefix = "3D Color Attachment";
-      else if(CreateInfo.usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+      else if(origusage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
         prefix = "3D " + depth + " Attachment";
     }
 
@@ -2851,24 +2901,27 @@ VkResult WrappedVulkan::vkCreateImage(VkDevice device, const VkImageCreateInfo *
   // if you change any properties here, ensure you also update
   // vkGetDeviceImageMemoryRequirementsKHR
 
-  createInfo_adjusted.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  VkImageUsageFlags2KHR usage = GetImageUsageFlags(&createInfo_adjusted);
+  VkImageCreateFlags2KHR flags = GetImageCreateFlags(&createInfo_adjusted);
+
+  usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
   // TEMP HACK: Until we define a portable fake hardware, need to match the requirements for usage
   // on replay, so that the memory requirements are the same
   if(IsCaptureMode(m_State))
   {
-    createInfo_adjusted.usage |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    createInfo_adjusted.usage &= ~VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+    usage |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    usage &= ~VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
   }
 
   // need to be able to mutate the format for YUV textures
   if(IsYUVFormat(createInfo_adjusted.format))
-    createInfo_adjusted.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
 
   if(createInfo_adjusted.samples != VK_SAMPLE_COUNT_1_BIT)
   {
-    createInfo_adjusted.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
-    createInfo_adjusted.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+    flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
 
     // TEMP HACK: matching replay requirements
     if(IsCaptureMode(m_State))
@@ -2878,21 +2931,21 @@ VkResult WrappedVulkan::vkCreateImage(VkDevice device, const VkImageCreateInfo *
         // need to check the debug manager here since we might be creating this internal image from
         // its constructor
         if(GetDebugManager() && GetShaderCache()->IsBuffer2MSSupported())
-          createInfo_adjusted.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
-        createInfo_adjusted.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+          usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+        usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
       }
       else
       {
-        createInfo_adjusted.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
       }
     }
   }
 
   // create non-subsampled image to be able to copy its content
-  createInfo_adjusted.flags &= ~VK_IMAGE_CREATE_SUBSAMPLED_BIT_EXT;
+  flags &= ~VK_IMAGE_CREATE_SUBSAMPLED_BIT_EXT;
 
   if(IsCaptureMode(m_State))
-    createInfo_adjusted.flags |= DefaultImageCreateFlags();
+    flags |= DefaultImageCreateFlags();
 
   size_t tempMemSize = GetNextPatchSize(createInfo_adjusted.pNext);
 
@@ -2912,25 +2965,7 @@ VkResult WrappedVulkan::vkCreateImage(VkDevice device, const VkImageCreateInfo *
   UnwrapNextChain(m_State, "VkImageCreateInfo", tempMem, (VkBaseInStructure *)&createInfo_adjusted);
 
   // we search for the separate stencil usage struct now that it's in patchable memory
-  VkImageStencilUsageCreateInfo *separateStencilUsage =
-      (VkImageStencilUsageCreateInfo *)FindNextStruct(
-          &createInfo_adjusted, VK_STRUCTURE_TYPE_IMAGE_STENCIL_USAGE_CREATE_INFO);
-  if(separateStencilUsage)
-  {
-    separateStencilUsage->stencilUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-
-    if(IsCaptureMode(m_State))
-    {
-      createInfo_adjusted.usage |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-      createInfo_adjusted.usage &= ~VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
-    }
-
-    if(createInfo_adjusted.samples != VK_SAMPLE_COUNT_1_BIT)
-    {
-      separateStencilUsage->stencilUsage |=
-          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    }
-  }
+  PatchStencilUsageInfo(&createInfo_adjusted);
 
   // similarly for the image format list for MSAA textures, add the UINT cast format we will need
   if(createInfo_adjusted.samples != VK_SAMPLE_COUNT_1_BIT)
@@ -2975,6 +3010,9 @@ VkResult WrappedVulkan::vkCreateImage(VkDevice device, const VkImageCreateInfo *
     }
   }
 
+  SetImageUsageFlags(&createInfo_adjusted, usage);
+  SetImageCreateFlags(&createInfo_adjusted, flags);
+
   VkResult ret;
   SERIALISE_TIME_CALL(
       ret = ObjDisp(device)->CreateImage(Unwrap(device), &createInfo_adjusted, NULL, pImage));
@@ -2983,8 +3021,8 @@ VkResult WrappedVulkan::vkCreateImage(VkDevice device, const VkImageCreateInfo *
   {
     ResourceId id = GetResourceManager()->WrapResource(ResourceId(), Unwrap(device), *pImage);
 
-    const bool isSparse = (pCreateInfo->flags & (VK_IMAGE_CREATE_SPARSE_BINDING_BIT |
-                                                 VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT)) != 0;
+    const bool isSparse =
+        (flags & (VK_IMAGE_CREATE_SPARSE_BINDING_BIT | VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT)) != 0;
 
     if(IsCaptureMode(m_State))
     {
@@ -3021,7 +3059,7 @@ VkResult WrappedVulkan::vkCreateImage(VkDevice device, const VkImageCreateInfo *
       ResourceInfo &resInfo = *record->resInfo;
       resInfo.imageInfo = ImageInfo(*pCreateInfo);
 
-      record->storable = (pCreateInfo->usage & VK_IMAGE_USAGE_STORAGE_BIT) != 0;
+      record->storable = (GetImageUsageFlags(pCreateInfo) & VK_IMAGE_USAGE_STORAGE_BIT) != 0;
 
       bool isLinear = (pCreateInfo->tiling == VK_IMAGE_TILING_LINEAR);
 
@@ -3178,7 +3216,7 @@ VkResult WrappedVulkan::vkCreateImage(VkDevice device, const VkImageCreateInfo *
       {
         uint32_t pageByteSize = resInfo.memreqs.alignment & 0xFFFFFFFFu;
 
-        if(pCreateInfo->flags & VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT)
+        if(flags & VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT)
         {
           // must record image and page dimension, and create page tables
           uint32_t numreqs = 8;
@@ -3254,28 +3292,32 @@ VkResult WrappedVulkan::vkCreateImage(VkDevice device, const VkImageCreateInfo *
   return ret;
 }
 
-void WrappedVulkan::PatchImageViewUsage(VkImageViewUsageCreateInfo *usage, VkFormat imgFormat,
+void WrappedVulkan::PatchImageViewUsage(VkImageViewUsageCreateInfo *usageInfo, VkFormat imgFormat,
                                         VkSampleCountFlagBits samples)
 {
+  VkImageUsageFlags2KHR usage = GetImageViewUsageFlags(usageInfo);
+
   // this matches the mutations we do to images, so see vkCreateImage
-  usage->usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-  usage->usage |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-  usage->usage &= ~VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+  usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  usage |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  usage &= ~VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
 
   if(samples != VK_SAMPLE_COUNT_1_BIT)
   {
-    usage->usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+    usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 
     if(!IsDepthOrStencilFormat(imgFormat))
     {
       if(GetDebugManager() && GetShaderCache()->IsBuffer2MSSupported())
-        usage->usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+        usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     }
     else
     {
-      usage->usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+      usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     }
   }
+
+  SetImageUsageFlags(usageInfo, usage);
 }
 
 // Image view functions
@@ -3326,18 +3368,8 @@ bool WrappedVulkan::Serialise_vkCreateImageView(SerialiserType &ser, VkDevice de
     {
       ResourceId live;
 
-      if(GetResourceManager()->HasWrapper(ToTypedHandle(view)))
-      {
-        live = GetResourceManager()->GetNonDispWrapper(view)->id;
+      GetResourceManager()->OverrideWrapper(ToTypedHandle(view));
 
-        // destroy this instance of the duplicate, as we must have matching create/destroy
-        // calls and there won't be a wrapped resource hanging around to destroy this one.
-        ObjDisp(device)->DestroyImageView(Unwrap(device), view, NULL);
-
-        // whenever the new ID is requested, return the old ID, via replacements.
-        GetResourceManager()->ReplaceResource(View, live);
-      }
-      else
       {
         live = GetResourceManager()->WrapResource(View, Unwrap(device), view);
 
@@ -3520,6 +3552,10 @@ bool WrappedVulkan::Serialise_vkBindBufferMemory2(SerialiserType &ser, VkDevice 
 
       VulkanCreationInfo::Buffer &bufInfo = m_CreationInfo.m_Buffer[GetResID(bindInfo.buffer)];
 
+      bufInfo.replayMemory = memId;
+      bufInfo.replayMemoryOffset = bindInfo.memoryOffset;
+      bufInfo.replayMemorySize = mrqs[i].size;
+
       GetResourceDesc(memId).derivedResources.push_back(resId);
       GetResourceDesc(resId).parentResources.push_back(memId);
 
@@ -3530,6 +3566,9 @@ bool WrappedVulkan::Serialise_vkBindBufferMemory2(SerialiserType &ser, VkDevice 
       // KHR variants now.
       if(bufInfo.usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
         TrackReplayBufferAddress(device, bindInfo.buffer, bindInfo.memory, bindInfo.memoryOffset);
+
+      bufInfo.boundMemory = memId;
+      bufInfo.boundMemoryOffset = bindInfo.memoryOffset;
 
       // the memory is immediately dirty because we don't use dirty tracking, it's too expensive to
       // follow all frame refs in the background and it's pointless because memory almost always
@@ -3828,11 +3867,20 @@ VkResult WrappedVulkan::vkBindImageMemory2(VkDevice device, uint32_t bindInfoCou
       // if the image was force-referenced, do the same with the memory
       if(IsForcedReference(imgrecord))
       {
-        // AddForcedReference will also call MarkResourceFrameReferenced() on the buffer in case
+        // AddForcedReference will also call MarkResourceFrameReferenced() on the image in case
         // we're currently capturing, do the same with the memory with the correct semantics.
         GetResourceManager()->MarkMemoryFrameReferenced(
             GetResID(pBindInfos[i].memory), pBindInfos[i].memoryOffset,
-            imgrecord->resInfo->memreqs.size, eFrameRef_ReadBeforeWrite);
+            imgrecord->resInfo->memreqs.size, eFrameRef_Read);
+      }
+
+      // pre-initialised images act like buffers, and dirty & ref the memory they are bound to.
+      if(imgrecord->resInfo->imageInfo.initialLayout == VK_IMAGE_LAYOUT_PREINITIALIZED)
+      {
+        GetResourceManager()->MarkDirtyResource(memrecord->GetResourceID());
+        GetResourceManager()->MarkMemoryFrameReferenced(
+            GetResID(pBindInfos[i].memory), pBindInfos[i].memoryOffset,
+            imgrecord->resInfo->memreqs.size, eFrameRef_Read);
       }
 
       const VkBindImageMemorySwapchainInfoKHR *swapBind =
@@ -3976,18 +4024,8 @@ bool WrappedVulkan::Serialise_vkCreateAccelerationStructureKHR(
     {
       ResourceId live;
 
-      if(GetResourceManager()->HasWrapper(ToTypedHandle(acc)))
-      {
-        live = GetResourceManager()->GetNonDispWrapper(acc)->id;
+      GetResourceManager()->OverrideWrapper(ToTypedHandle(acc));
 
-        // destroy this instance of the duplicate, as we must have matching create/destroy
-        // calls and there won't be a wrapped resource hanging around to destroy this one.
-        ObjDisp(device)->DestroyAccelerationStructureKHR(Unwrap(device), acc, NULL);
-
-        // whenever the new ID is requested, return the old ID, via replacements.
-        GetResourceManager()->ReplaceResource(AccelerationStructure, live);
-      }
-      else
       {
         live = GetResourceManager()->WrapResource(AccelerationStructure, Unwrap(device), acc);
 

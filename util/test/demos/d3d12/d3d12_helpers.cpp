@@ -1000,7 +1000,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12ViewCreator::CreateCPU(ID3D12DescriptorHeap *he
   }
   else if(m_Type == ViewType::SRV)
   {
-    if(desc.uav.ViewDimension == D3D12_SRV_DIMENSION_BUFFER)
+    if(desc.srv.ViewDimension == D3D12_SRV_DIMENSION_BUFFER)
     {
       D3D12_RESOURCE_DESC bufdesc = m_Res->GetDesc();
 

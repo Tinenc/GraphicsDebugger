@@ -1403,6 +1403,7 @@ void D3D11Replay::MeshRendering::Release()
   SAFE_RELEASE(FrustumHelper);
   SAFE_RELEASE(AxisHelper);
   SAFE_RELEASE(TriHighlightHelper);
+  SAFE_RELEASE(ComponentHighlight);
 }
 
 void D3D11Replay::VertexPicking::Init(WrappedID3D11Device *device)

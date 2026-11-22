@@ -69,4 +69,12 @@ if ! valid_clang_format; then
 fi;
 
 # Search through the code that should be formatted, exclude any non-renderdoc code.
-find qrenderdoc/ renderdoc/ renderdoccmd/ renderdocshim/ util/test/demos/ -name "3rdparty" -prune -o -name "official" -prune -o -print | grep -E ".*\.(h|c|cpp|m|mm|inl|geom|frag|vert|comp|hlsl)$" | grep -E -v "resource.h$" | awk '{printf("%s%c",$0,0)}' | xargs -0 -n1 "$CLANG_FORMAT" -i -style=file
+if [ "$1" = "--head-commit" ] || [ "$2" = "--head-commit" ]; then
+	COMMIT=$(git rev-parse HEAD)
+	for F in $(git diff --stat --name-only $COMMIT^1  $COMMIT | grep -E ".*\.(h|c|cpp|m|mm|inl|geom|frag|vert|comp|hlsl)$" | grep -E -v "resource.h$"); do
+		echo "Formatting $F"
+		"$CLANG_FORMAT" -i -style=file "$F"
+	done
+else
+	find qrenderdoc/ renderdoc/ renderdoccmd/ renderdocshim/ util/test/demos/ -name "3rdparty" -prune -o -name "official" -prune -o -print | grep -E ".*\.(h|c|cpp|m|mm|inl|geom|frag|vert|comp|hlsl)$" | grep -E -v "resource.h$" | awk '{printf("%s%c",$0,0)}' | xargs -0 -n1 "$CLANG_FORMAT" -i -style=file
+fi

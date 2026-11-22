@@ -34,6 +34,11 @@
 #include <QStyleOption>
 #include <QtMath>
 #include "Code/QRDUtils.h"
+#include "Widgets/Extended/RDTreeView.h"
+
+#if defined(Q_OS_WIN32)
+#include <qt_windows.h>
+#endif
 
 namespace Constants
 {
@@ -83,6 +88,140 @@ static const int TabMaxWidth = 250;
 static const int ItemHeaderMargin = 4;
 static const int ItemHeaderIconSize = 16;
 };
+
+namespace UltraColors
+{
+static const QRgb AppToolbarBackground = qRgb(25, 25, 25);
+static const QRgb DefaultBackground = qRgb(40, 40, 40);
+static const QRgb InputBackground = qRgb(42, 42, 42);
+static const QRgb WindowBackground = qRgb(56, 56, 56);
+static const QRgb ToolbarBackground = qRgb(60, 60, 60);
+static const QRgb AlternateBackground = qRgb(63, 63, 63);
+
+static const QRgb TabBackground = qRgb(40, 40, 40);
+static const QRgb TabBackgroundSelected = qRgb(40, 40, 40);
+static const QRgb TabBackgroundHover = qRgb(48, 48, 48);
+static const QRgb TabText = qRgb(189, 189, 189);
+
+static const QRgb ButtonBackground = qRgb(88, 88, 88);
+static const QRgb ButtonBackgroundHover = qRgb(103, 103, 103);
+static const QRgb ButtonBackgroundFocus = qRgb(110, 110, 110);
+static const QRgb ButtonBackgroundPressed = qRgb(70, 96, 124);
+static const QRgb ButtonBackgroundHoverPressed = qRgb(79, 101, 127);
+static const QRgb ButtonDisabled = qRgb(75, 75, 75);
+
+static const QRgb DropdownBackground = qRgb(81, 81, 81);
+static const QRgb DropdownBackgroundHover = qRgb(88, 88, 88);
+
+static const QRgb DefaultBorder = qRgb(35, 35, 35);
+static const QRgb WindowBorder = qRgb(36, 36, 36);
+static const QRgb ButtonBorder = qRgb(48, 48, 48);
+static const QRgb AccentBorder = qRgb(36, 36, 36);
+static const QRgb InputBorder = qRgb(33, 33, 33);
+static const QRgb DeepBorder = qRgb(13, 13, 13);
+static const QRgb HoverBorder = qRgb(101, 101, 101);
+static const QRgb FocusBorder = qRgb(58, 121, 187);
+static const QRgb ButtonFocusBorder = qRgb(123, 174, 250);
+
+static const QRgb DefaultText = qRgb(210, 210, 210);
+static const QRgb LabelText = qRgb(196, 196, 196);
+static const QRgb ButtonText = qRgb(238, 238, 238);
+static const QRgb DropdownText = qRgb(228, 228, 228);
+static const QRgb DisabledText = qRgb(122, 122, 122);
+static const QRgb DisabledButtonText = qRgb(163, 163, 163);
+
+static const QRgb Highlight = qRgb(44, 93, 135);
+static const QRgb InactiveHighlight = qRgb(77, 77, 77);
+static const QRgb Link = qRgb(76, 126, 255);
+static const QRgb LinkVisited = qRgb(255, 0, 255);
+
+static const QRgb HeaderBackgroundHover = qRgb(70, 70, 70);
+static const QRgb HeaderBackgroundPressed = qRgb(80, 80, 80);
+static const QRgb DockTitleBackground = qRgb(40, 40, 40);
+static const QRgb AppToolbarBackgroundHover = qRgb(66, 66, 66);
+static const QRgb AppToolbarBackgroundPressed = qRgb(106, 106, 106);
+
+static const QRgb ScrollbarThumb = qRgb(95, 95, 95);
+static const QRgb ScrollbarThumbHover = qRgb(104, 104, 104);
+static const QRgb ScrollbarThumbBorder = qRgb(50, 50, 50);
+static const QRgb SliderGroove = qRgb(94, 94, 94);
+static const QRgb SliderThumb = qRgb(153, 153, 153);
+static const QRgb SliderThumbHover = qRgb(234, 234, 234);
+static const QRgb SliderThumbDisabled = qRgb(102, 102, 102);
+
+static const QRgb ToolTipBackground = qRgb(55, 55, 55);
+
+static QColor color(QRgb rgb)
+{
+  return QColor::fromRgb(rgb);
+}
+};
+
+#if defined(Q_OS_WIN32)
+namespace
+{
+typedef HRESULT(WINAPI *DwmSetWindowAttributePtr)(HWND, DWORD, LPCVOID, DWORD);
+
+bool hasNativeTitleBar(const QWidget *widget)
+{
+  if(!widget || !widget->isWindow())
+    return false;
+
+  const Qt::WindowType type = widget->windowType();
+  return type == Qt::Window || type == Qt::Dialog || type == Qt::Tool;
+}
+
+// Qt 5.9 predates native dark-title-bar support. Apply Ultra's title colour through DWM while
+// retaining Windows' native move, resize, snap and caption-button behaviour. Numbered attributes
+// keep this source compatible with the older Windows SDK used by RenderDoc.
+void updateNativeTitleBar(QWidget *window, bool ultra)
+{
+  static DwmSetWindowAttributePtr setWindowAttribute = []() -> DwmSetWindowAttributePtr {
+    // Retain this system module for the process lifetime so the cached procedure stays valid.
+    HMODULE dwmapi = LoadLibraryW(L"dwmapi.dll");
+
+    return dwmapi ? reinterpret_cast<DwmSetWindowAttributePtr>(
+                        GetProcAddress(dwmapi, "DwmSetWindowAttribute"))
+                  : NULL;
+  }();
+
+  if(!setWindowAttribute || !window->testAttribute(Qt::WA_WState_Created))
+    return;
+
+  HWND hwnd = reinterpret_cast<HWND>(window->winId());
+  const BOOL useDarkMode = ultra ? TRUE : FALSE;
+
+  // 20 is supported by current Windows 10/11 builds; 19 is the older Windows 10 spelling.
+  HRESULT result = setWindowAttribute(hwnd, 20, &useDarkMode, sizeof(useDarkMode));
+  if(FAILED(result))
+    setWindowAttribute(hwnd, 19, &useDarkMode, sizeof(useDarkMode));
+
+  // Windows 11 supports exact border/caption/text colours. Unsupported attributes fail safely,
+  // leaving the immersive dark-mode title bar above in place on Windows 10.
+  const DWORD defaultColor = 0xffffffff;
+  if(ultra)
+  {
+    const QColor background = UltraColors::color(UltraColors::DefaultBackground);
+    const QColor foreground = UltraColors::color(UltraColors::TabText);
+    const QColor border = UltraColors::color(UltraColors::WindowBorder);
+    const COLORREF backgroundColor =
+        RGB(background.red(), background.green(), background.blue());
+    const COLORREF textColor = RGB(foreground.red(), foreground.green(), foreground.blue());
+    const COLORREF borderColor = RGB(border.red(), border.green(), border.blue());
+
+    setWindowAttribute(hwnd, 34, &borderColor, sizeof(borderColor));
+    setWindowAttribute(hwnd, 35, &backgroundColor, sizeof(backgroundColor));
+    setWindowAttribute(hwnd, 36, &textColor, sizeof(textColor));
+  }
+  else
+  {
+    setWindowAttribute(hwnd, 34, &defaultColor, sizeof(defaultColor));
+    setWindowAttribute(hwnd, 35, &defaultColor, sizeof(defaultColor));
+    setWindowAttribute(hwnd, 36, &defaultColor, sizeof(defaultColor));
+  }
+}
+}
+#endif
 
 namespace Animation
 {
@@ -182,13 +321,21 @@ void RDStyle::polishPalette(QPalette &pal) const
     highlight = QColor(80, 110, 160);
     tooltip = QColor(250, 245, 200);
   }
-  else
+  else if(m_Scheme == Dark)
   {
     window = QColor(45, 55, 60);
     windowText = QColor(225, 225, 225);
     base = QColor(22, 27, 30);
     highlight = QColor(100, 130, 200);
     tooltip = QColor(70, 70, 65);
+  }
+  else
+  {
+    window = UltraColors::color(UltraColors::WindowBackground);
+    windowText = UltraColors::color(UltraColors::LabelText);
+    base = UltraColors::color(UltraColors::DefaultBackground);
+    highlight = UltraColors::color(UltraColors::Highlight);
+    tooltip = UltraColors::color(UltraColors::ToolTipBackground);
   }
 
   QColor light = window.lighter(150);
@@ -201,12 +348,63 @@ void RDStyle::polishPalette(QPalette &pal) const
 
   pal.setColor(QPalette::Shadow, Qt::black);
 
+  if(m_Scheme == Ultra)
+  {
+    pal.setColor(QPalette::WindowText, UltraColors::color(UltraColors::LabelText));
+    pal.setColor(QPalette::Button, UltraColors::color(UltraColors::ButtonBackground));
+    pal.setColor(QPalette::Light, UltraColors::color(UltraColors::ButtonBorder));
+    pal.setColor(QPalette::Midlight, UltraColors::color(UltraColors::HeaderBackgroundHover));
+    pal.setColor(QPalette::Dark, UltraColors::color(UltraColors::AccentBorder));
+    pal.setColor(QPalette::Mid, UltraColors::color(UltraColors::ButtonBorder));
+    pal.setColor(QPalette::Text, UltraColors::color(UltraColors::DefaultText));
+    pal.setColor(QPalette::BrightText, UltraColors::color(UltraColors::ButtonText));
+    pal.setColor(QPalette::ButtonText, UltraColors::color(UltraColors::ButtonText));
+    pal.setColor(QPalette::Base, UltraColors::color(UltraColors::DefaultBackground));
+    pal.setColor(QPalette::AlternateBase, UltraColors::color(UltraColors::AlternateBackground));
+    pal.setColor(QPalette::Window, UltraColors::color(UltraColors::WindowBackground));
+    pal.setColor(QPalette::Shadow, UltraColors::color(UltraColors::AppToolbarBackground));
+    pal.setColor(QPalette::ToolTipBase, UltraColors::color(UltraColors::ToolTipBackground));
+    pal.setColor(QPalette::ToolTipText, UltraColors::color(UltraColors::DefaultText));
+    pal.setColor(QPalette::Highlight, UltraColors::color(UltraColors::Highlight));
+    pal.setColor(QPalette::HighlightedText, Qt::white);
+    pal.setColor(QPalette::Link, UltraColors::color(UltraColors::Link));
+    pal.setColor(QPalette::LinkVisited, UltraColors::color(UltraColors::LinkVisited));
+
+    pal.setColor(QPalette::Inactive, QPalette::Highlight,
+                 UltraColors::color(UltraColors::InactiveHighlight));
+    pal.setColor(QPalette::Inactive, QPalette::HighlightedText, Qt::white);
+
+    pal.setColor(QPalette::Disabled, QPalette::WindowText,
+                 UltraColors::color(UltraColors::DisabledText));
+    pal.setColor(QPalette::Disabled, QPalette::Text,
+                 UltraColors::color(UltraColors::DisabledText));
+    pal.setColor(QPalette::Disabled, QPalette::ButtonText,
+                 UltraColors::color(UltraColors::DisabledButtonText));
+    pal.setColor(QPalette::Disabled, QPalette::BrightText,
+                 UltraColors::color(UltraColors::DisabledButtonText));
+    pal.setColor(QPalette::Disabled, QPalette::Button,
+                 UltraColors::color(UltraColors::ButtonDisabled));
+    pal.setColor(QPalette::Disabled, QPalette::Base,
+                 UltraColors::color(UltraColors::DefaultBackground));
+    pal.setColor(QPalette::Disabled, QPalette::Window,
+                 UltraColors::color(UltraColors::WindowBackground));
+    pal.setColor(QPalette::Disabled, QPalette::Highlight,
+                 UltraColors::color(UltraColors::InactiveHighlight));
+    pal.setColor(QPalette::Disabled, QPalette::HighlightedText,
+                 UltraColors::color(UltraColors::DisabledButtonText));
+    pal.setColor(QPalette::Disabled, QPalette::Link,
+                 UltraColors::color(UltraColors::DisabledText));
+    pal.setColor(QPalette::Disabled, QPalette::LinkVisited,
+                 UltraColors::color(UltraColors::DisabledText));
+    return;
+  }
+
   if(m_Scheme == Light)
     pal.setColor(QPalette::AlternateBase, base.darker(110));
   else
     pal.setColor(QPalette::AlternateBase, base.lighter(110));
 
-  if(m_Scheme == Dark)
+  if(m_Scheme != Light)
   {
     pal.setColor(QPalette::BrightText, text);
   }
@@ -270,8 +468,46 @@ void RDStyle::polishPalette(QPalette &pal) const
 
 void RDStyle::polish(QWidget *widget)
 {
-  if(qobject_cast<QAbstractSlider *>(widget) || qobject_cast<QTabBar *>(widget))
+  QTabBar *tabbar = qobject_cast<QTabBar *>(widget);
+  if(qobject_cast<QAbstractSlider *>(widget) || tabbar ||
+     qobject_cast<QAbstractItemView *>(widget))
     widget->setAttribute(Qt::WA_Hover);
+
+  if(tabbar && m_Scheme == Ultra)
+  {
+    if(!tabbar->property("_renderdoc_ultra_previous_palette").isValid())
+    {
+      tabbar->setProperty("_renderdoc_ultra_previous_palette", tabbar->palette());
+      tabbar->setProperty("_renderdoc_ultra_previous_autofill", tabbar->autoFillBackground());
+    }
+
+    QPalette tabPalette = tabbar->palette();
+    const QColor background = UltraColors::color(UltraColors::DefaultBackground);
+    for(QPalette::ColorGroup group :
+        {QPalette::Active, QPalette::Inactive, QPalette::Disabled})
+    {
+      tabPalette.setColor(group, QPalette::Window, background);
+      tabPalette.setColor(group, QPalette::Base, background);
+    }
+    tabbar->setPalette(tabPalette);
+    tabbar->setAutoFillBackground(true);
+  }
+
+#if defined(Q_OS_WIN32)
+  if(m_Scheme == Ultra && hasNativeTitleBar(widget))
+  {
+    widget->installEventFilter(this);
+    if(widget->isVisible())
+      updateNativeTitleBar(widget, true);
+  }
+#endif
+
+  RDTreeView *tree = qobject_cast<RDTreeView *>(widget);
+  if(tree && m_Scheme == Ultra && tree->verticalItemMargin() == 6)
+  {
+    tree->setItemVerticalMargin(2);
+    tree->setProperty("_renderdoc_ultra_compact_rows", true);
+  }
 
   QTabWidget *tabwidget = qobject_cast<QTabWidget *>(widget);
   if(tabwidget && tabwidget->inherits("ToolWindowManagerArea"))
@@ -291,6 +527,33 @@ void RDStyle::unpolish(QWidget *widget)
 {
   Animation::stop(widget);
 
+  QTabBar *tabbar = qobject_cast<QTabBar *>(widget);
+  if(tabbar && tabbar->property("_renderdoc_ultra_previous_palette").isValid())
+  {
+    tabbar->setPalette(
+        tabbar->property("_renderdoc_ultra_previous_palette").value<QPalette>());
+    tabbar->setAutoFillBackground(
+        tabbar->property("_renderdoc_ultra_previous_autofill").toBool());
+    tabbar->setProperty("_renderdoc_ultra_previous_palette", QVariant());
+    tabbar->setProperty("_renderdoc_ultra_previous_autofill", QVariant());
+  }
+
+#if defined(Q_OS_WIN32)
+  if(hasNativeTitleBar(widget))
+  {
+    if(m_Scheme == Ultra)
+      updateNativeTitleBar(widget, false);
+    widget->removeEventFilter(this);
+  }
+#endif
+
+  RDTreeView *tree = qobject_cast<RDTreeView *>(widget);
+  if(tree && tree->property("_renderdoc_ultra_compact_rows").toBool())
+  {
+    tree->setItemVerticalMargin(6);
+    tree->setProperty("_renderdoc_ultra_compact_rows", QVariant());
+  }
+
   QTabWidget *tabwidget = qobject_cast<QTabWidget *>(widget);
   if(tabwidget && tabwidget->inherits("ToolWindowManagerArea"))
     tabwidget->removeEventFilter(this);
@@ -307,6 +570,16 @@ QPalette RDStyle::standardPalette() const
 
 bool RDStyle::eventFilter(QObject *watched, QEvent *event)
 {
+#if defined(Q_OS_WIN32)
+  QWidget *window = qobject_cast<QWidget *>(watched);
+  if(m_Scheme == Ultra && hasNativeTitleBar(window) &&
+     (event->type() == QEvent::Show || event->type() == QEvent::PaletteChange ||
+      event->type() == QEvent::StyleChange || event->type() == QEvent::WinIdChange))
+  {
+    updateNativeTitleBar(window, true);
+  }
+#endif
+
   QTabWidget *tabwidget = qobject_cast<QTabWidget *>(watched);
   if(tabwidget && tabwidget->inherits("ToolWindowManagerArea"))
   {
@@ -671,18 +944,30 @@ QSize RDStyle::sizeFromContents(ContentsType type, const QStyleOption *opt, cons
       ret = adjustToolButtonSize(toolbutton, size, widget);
     }
 
-    // add margin and border
-    ret.setHeight(ret.height() + Constants::ButtonMargin + Constants::ButtonBorder * 2);
-    ret.setWidth(ret.width() + Constants::ButtonMargin + Constants::ButtonBorder * 2);
+    // Unity's controls are deliberately compact, while the RenderDoc themes retain their
+    // existing roomier metrics.
+    if(m_Scheme == Ultra)
+    {
+      ret.setHeight(qMax(type == CT_ToolButton ? 20 : 18, ret.height() + 2));
+      ret.setWidth(ret.width() + 6);
+    }
+    else
+    {
+      ret.setHeight(ret.height() + Constants::ButtonMargin + Constants::ButtonBorder * 2);
+      ret.setWidth(ret.width() + Constants::ButtonMargin + Constants::ButtonBorder * 2);
+    }
 
     return ret;
   }
   else if(type == CT_TabBarTab)
   {
     // have a maximum size for tabs
-    return size.boundedTo(QSize(Constants::TabMaxWidth, INT_MAX))
-               .expandedTo(QSize(Constants::TabMinWidth, 0)) +
-           QSize(Constants::TabMargin * 2, 0);
+    QSize ret = size.boundedTo(QSize(Constants::TabMaxWidth, INT_MAX))
+                    .expandedTo(QSize(Constants::TabMinWidth, 0)) +
+                QSize(Constants::TabMargin * 2, 0);
+    if(m_Scheme == Ultra)
+      ret.setHeight(qMax(20, ret.height()));
+    return ret;
   }
   else if(type == CT_CheckBox || type == CT_RadioButton)
   {
@@ -710,6 +995,8 @@ QSize RDStyle::sizeFromContents(ContentsType type, const QStyleOption *opt, cons
       ret.setHeight(Constants::ButtonBorder * 2 + ret.height());
     }
 
+    if(m_Scheme == Ultra)
+      ret.setHeight(qMax(18, ret.height()));
     return ret;
   }
   else if(type == CT_GroupBox || type == CT_ScrollBar || type == CT_ProgressBar || type == CT_Splitter)
@@ -725,6 +1012,9 @@ QSize RDStyle::sizeFromContents(ContentsType type, const QStyleOption *opt, cons
                  Constants::ComboArrowDim + Constants::ScrollButtonDim + ret.width());
     ret.setHeight(Constants::ButtonBorder * 2 + Constants::ComboMargin * 2 + ret.height());
 
+    if(m_Scheme == Ultra)
+      ret.setHeight(qMax(18, ret.height()));
+
     return ret;
   }
   else if(type == CT_SpinBox)
@@ -735,6 +1025,9 @@ QSize RDStyle::sizeFromContents(ContentsType type, const QStyleOption *opt, cons
     ret.setWidth(margin * 2 + Constants::SpinButtonDim + ret.width());
     ret.setHeight(margin * 2 + ret.height());
 
+    if(m_Scheme == Ultra)
+      ret.setHeight(qMax(18, ret.height()));
+
     return ret;
   }
   else if(type == CT_MenuItem)
@@ -742,7 +1035,9 @@ QSize RDStyle::sizeFromContents(ContentsType type, const QStyleOption *opt, cons
     QSize ret = size;
 
     ret.setWidth(ret.width() + 2 * Constants::MenuBarMargin);
-    ret.setHeight(ret.height() + Constants::MenuBarMargin);
+    ret.setHeight(ret.height() + (m_Scheme == Ultra ? 2 : Constants::MenuBarMargin));
+    if(m_Scheme == Ultra)
+      ret.setHeight(qMax(20, ret.height()));
 
     const QStyleOptionMenuItem *menuitem = qstyleoption_cast<const QStyleOptionMenuItem *>(opt);
 
@@ -774,7 +1069,11 @@ QSize RDStyle::sizeFromContents(ContentsType type, const QStyleOption *opt, cons
       sz = sz.expandedTo(QSize(1, iconSize));
     }
 
-    sz += QSize(Constants::MenuBarMargin * 2, Constants::MenuBarMargin);
+    sz += QSize(Constants::MenuBarMargin * 2,
+                m_Scheme == Ultra ? 2 : Constants::MenuBarMargin);
+
+    if(m_Scheme == Ultra)
+      sz.setHeight(qMax(20, sz.height()));
 
     return sz;
   }
@@ -799,7 +1098,11 @@ QSize RDStyle::sizeFromContents(ContentsType type, const QStyleOption *opt, cons
       sz += QSize(Constants::ItemHeaderMargin + Constants::SpinButtonDim, 0);
     }
 
-    sz += QSize(Constants::ItemHeaderMargin * 2, Constants::ItemHeaderMargin);
+    sz += QSize(Constants::ItemHeaderMargin * 2,
+                m_Scheme == Ultra ? 2 : Constants::ItemHeaderMargin);
+
+    if(m_Scheme == Ultra)
+      sz.setHeight(qMax(20, sz.height()));
 
     return sz;
   }
@@ -811,6 +1114,9 @@ int RDStyle::pixelMetric(PixelMetric metric, const QStyleOption *opt, const QWid
 {
   if(metric == QStyle::PM_ButtonShiftHorizontal || metric == QStyle::PM_ButtonShiftVertical)
   {
+    if(m_Scheme == Ultra)
+      return 0;
+
     if(opt && (opt->state & State_AutoRaise) == 0)
       return 1;
   }
@@ -823,6 +1129,16 @@ int RDStyle::pixelMetric(PixelMetric metric, const QStyleOption *opt, const QWid
 
   if(metric == PM_SplitterWidth)
     return 5;
+
+  if(m_Scheme == Ultra && metric == PM_TreeViewIndentation)
+    return 15;
+
+  if(m_Scheme == Ultra && (metric == PM_SmallIconSize || metric == PM_ToolBarIconSize ||
+                            metric == PM_ButtonIconSize))
+    return 16;
+
+  if(m_Scheme == Ultra && metric == PM_ToolTipLabelFrameWidth)
+    return 1;
 
   if(metric == PM_MenuBarHMargin || metric == PM_MenuBarVMargin)
     return 1;
@@ -874,6 +1190,9 @@ int RDStyle::styleHint(StyleHint stylehint, const QStyleOption *opt, const QWidg
 
   if(stylehint == SH_ToolTipLabel_Opacity)
     return 255;
+
+  if(m_Scheme == Ultra && stylehint == SH_ToolTip_WakeUpDelay)
+    return 400;
 
   if(stylehint == SH_UnderlineShortcut)
     return 0;
@@ -928,8 +1247,10 @@ QIcon RDStyle::standardIcon(StandardPixmap standardIcon, const QStyleOption *opt
 void RDStyle::drawComplexControl(ComplexControl control, const QStyleOptionComplex *opt,
                                  QPainter *p, const QWidget *widget) const
 {
-  // let the tweaked native style render autoraise tool buttons
-  if(control == QStyle::CC_ToolButton && (opt->state & State_AutoRaise) == 0)
+  // Ultra also renders auto-raise tool buttons so toolbar hover/pressed states use the same
+  // palette as the rest of the theme.
+  if(control == QStyle::CC_ToolButton &&
+     ((opt->state & State_AutoRaise) == 0 || m_Scheme == Ultra))
   {
     drawRoundedRectBorder(opt, p, widget, QPalette::Button, true);
 
@@ -946,6 +1267,19 @@ void RDStyle::drawComplexControl(ComplexControl control, const QStyleOptionCompl
     {
       QStyleOptionToolButton menu = *toolbutton;
       menu.rect = subControlRect(control, opt, SC_ToolButtonMenu, widget);
+
+      if(m_Scheme == Ultra &&
+         (toolbutton->features & QStyleOptionToolButton::MenuButtonPopup) &&
+         (opt->state & (State_MouseOver | State_Sunken | State_On)))
+      {
+        p->save();
+        p->setPen(QPen(UltraColors::color(UltraColors::DefaultBorder), 1.0));
+        p->drawLine(menu.rect.topLeft(), menu.rect.bottomLeft());
+        p->restore();
+      }
+
+      if(m_Scheme == Ultra)
+        menu.rect.adjust(2, 0, 0, 0);
       proxy()->drawPrimitive(PE_IndicatorArrowDown, &menu, p, widget);
     }
 
@@ -1002,11 +1336,22 @@ void RDStyle::drawComplexControl(ComplexControl control, const QStyleOptionCompl
     p->setRenderHint(QPainter::Antialiasing);
 
     p->fillRect(opt->rect, opt->palette.brush(QPalette::Window));
+    if(m_Scheme == Ultra)
+      p->fillRect(opt->rect, QColor(0, 0, 0, 13));
 
     QBrush hoverBrush;
     QBrush sliderBrush;
 
-    if(m_Scheme == Light)
+    if(m_Scheme == Ultra)
+    {
+      const bool sliderHovered = (opt->state & State_MouseOver) &&
+                                 (opt->activeSubControls & QStyle::SC_ScrollBarSlider);
+      sliderBrush = UltraColors::color(sliderHovered
+                                           ? UltraColors::ScrollbarThumbHover
+                                           : UltraColors::ScrollbarThumb);
+      hoverBrush = UltraColors::color(UltraColors::AppToolbarBackgroundHover);
+    }
+    else if(m_Scheme == Light)
     {
       sliderBrush = opt->palette.brush(QPalette::Dark);
       hoverBrush = opt->palette.brush(QPalette::Midlight);
@@ -1123,7 +1468,7 @@ void RDStyle::drawComplexControl(ComplexControl control, const QStyleOptionCompl
     }
 
     QStyle::State activeHover = State_MouseOver | State_Active | State_Enabled;
-    if((opt->state & activeHover) == activeHover)
+    if(m_Scheme != Ultra && (opt->state & activeHover) == activeHover)
     {
       QRect hoverRect =
           proxy()
@@ -1141,12 +1486,19 @@ void RDStyle::drawComplexControl(ComplexControl control, const QStyleOptionCompl
     if(slider.isValid() && (opt->state & State_Enabled))
     {
       QPainterPath path;
-      path.addRoundedRect(slider, Constants::ScrollBarRadius, Constants::ScrollBarRadius);
+      const qreal radius = m_Scheme == Ultra ? 3.0 : Constants::ScrollBarRadius;
+      path.addRoundedRect(slider, radius, radius);
 
-      if(opt->state & State_Sunken)
+      if((opt->state & State_Sunken) && m_Scheme != Ultra)
         p->fillPath(path, opt->palette.brush(QPalette::Highlight));
       else
         p->fillPath(path, sliderBrush);
+
+      if(m_Scheme == Ultra)
+      {
+        p->setPen(QPen(UltraColors::color(UltraColors::ScrollbarThumbBorder), 1.0));
+        p->drawPath(path.translated(QPointF(0.5, 0.5)));
+      }
     }
 
     p->restore();
@@ -1156,20 +1508,51 @@ void RDStyle::drawComplexControl(ComplexControl control, const QStyleOptionCompl
   else if(control == QStyle::CC_Slider)
   {
     QRect grooveRect = subControlRect(control, opt, QStyle::SC_SliderGroove, widget);
+
+    if(m_Scheme == Ultra)
+    {
+      p->save();
+      p->setPen(QPen(UltraColors::color(UltraColors::SliderGroove), 1.0));
+    }
+
     p->drawLine(QLine(grooveRect.x() + Constants::SliderHandleHalfWidth + 1,
                       grooveRect.y() + grooveRect.height() / 2,
                       grooveRect.right() - Constants::SliderHandleHalfWidth,
                       grooveRect.y() + grooveRect.height() / 2));
 
+    if(m_Scheme == Ultra)
+      p->restore();
+
     p->save();
     p->setRenderHint(QPainter::Antialiasing);
 
     QRect handleRect = subControlRect(control, opt, QStyle::SC_SliderHandle, widget);
-    QBrush handleBrush = (m_Scheme == Light) ? opt->palette.brush(QPalette::Dark)
-                                             : opt->palette.brush(QPalette::Text);
+    QBrush handleBrush;
+    if(m_Scheme == Ultra)
+    {
+      QRgb handleColor = UltraColors::SliderThumb;
+      if(!(opt->state & State_Enabled))
+        handleColor = UltraColors::SliderThumbDisabled;
+      else if((opt->state & State_MouseOver) &&
+              (opt->activeSubControls & QStyle::SC_SliderHandle))
+        handleColor = UltraColors::SliderThumbHover;
+      handleBrush = UltraColors::color(handleColor);
+
+      if(opt->state & State_HasFocus)
+      {
+        QPainterPath halo;
+        halo.addRoundedRect(handleRect.adjusted(-2, -2, 2, 2), 5.0, 5.0);
+        p->fillPath(halo, QColor(16, 111, 205, 128));
+      }
+    }
+    else
+    {
+      handleBrush = (m_Scheme == Light) ? opt->palette.brush(QPalette::Dark)
+                                        : opt->palette.brush(QPalette::Text);
+    }
     QPainterPath path;
-    path.addRoundedRect(handleRect, Constants::SliderHandleCornerRadius,
-                        Constants::SliderHandleCornerRadius);
+    const qreal radius = m_Scheme == Ultra ? 3.0 : Constants::SliderHandleCornerRadius;
+    path.addRoundedRect(handleRect, radius, radius);
     p->fillPath(path, handleBrush);
 
     p->restore();
@@ -1198,7 +1581,10 @@ void RDStyle::drawComplexControl(ComplexControl control, const QStyleOptionCompl
 
     {
       qreal penWidth = 1.5;
-      p->setPen(QPen(outlineBrush(opt->palette), penWidth));
+      p->setPen(QPen(m_Scheme == Ultra
+                         ? opt->palette.brush(QPalette::WindowText)
+                         : outlineBrush(opt->palette),
+                     penWidth));
 
       QPainterPath path;
       QPolygonF poly;
@@ -1434,6 +1820,25 @@ static void drawX(const QStyleOption *opt, QPainter *p, const QRectF &rect)
   p->fillPath(checkpath, opt->palette.brush(QPalette::ButtonText));
 }
 
+static void drawCheckmark(const QStyleOption *opt, QPainter *p, const QRectF &rect)
+{
+  QPainterPath path;
+  path.moveTo(rect.left() + rect.width() * 0.12, rect.top() + rect.height() * 0.52);
+  path.lineTo(rect.left() + rect.width() * 0.40, rect.top() + rect.height() * 0.78);
+  path.lineTo(rect.left() + rect.width() * 0.90, rect.top() + rect.height() * 0.20);
+
+  QPen pen(opt->palette.brush(QPalette::HighlightedText), 1.8, Qt::SolidLine, Qt::RoundCap,
+           Qt::RoundJoin);
+  p->strokePath(path, pen);
+}
+
+static void drawMixedMark(const QStyleOption *opt, QPainter *p, const QRectF &rect)
+{
+  QPen pen(opt->palette.brush(QPalette::ButtonText), 1.8, Qt::SolidLine, Qt::RoundCap);
+  p->drawLine(QPointF(rect.left() + 1, rect.center().y()),
+              QPointF(rect.right() - 1, rect.center().y()));
+}
+
 void RDStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *opt, QPainter *p,
                             const QWidget *widget) const
 {
@@ -1479,7 +1884,10 @@ void RDStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *opt, Q
 
     p->fillRect(opt->rect, opt->palette.brush(QPalette::ToolTipBase));
 
-    p->setPen(QPen(outlineBrush(opt->palette), 0));
+    p->setPen(QPen(m_Scheme == Ultra
+                       ? QBrush(UltraColors::color(UltraColors::AppToolbarBackground))
+                       : outlineBrush(opt->palette),
+                   0));
     p->drawRect(opt->rect.adjusted(0, 0, -1, -1));
 
     p->setPen(oldPen);
@@ -1493,10 +1901,24 @@ void RDStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *opt, Q
   }
   else if(element == QStyle::PE_PanelMenu)
   {
+    if(m_Scheme == Ultra)
+      p->fillRect(opt->rect, UltraColors::color(UltraColors::DropdownBackground));
     return;
   }
   else if(element == QStyle::PE_PanelMenuBar)
   {
+    if(m_Scheme == Ultra)
+      p->fillRect(opt->rect, UltraColors::color(UltraColors::AppToolbarBackground));
+    return;
+  }
+  else if(element == QStyle::PE_PanelToolBar && m_Scheme == Ultra)
+  {
+    p->fillRect(opt->rect, UltraColors::color(UltraColors::ToolbarBackground));
+    p->setPen(QPen(UltraColors::color(UltraColors::DefaultBorder), 1.0));
+    if(!(opt->state & State_Horizontal))
+      p->drawLine(opt->rect.topRight(), opt->rect.bottomRight());
+    else
+      p->drawLine(opt->rect.bottomLeft(), opt->rect.bottomRight());
     return;
   }
   else if(element == QStyle::PE_FrameTabBarBase)
@@ -1578,17 +2000,28 @@ void RDStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *opt, Q
     p->setPen(outlinePen);
     p->drawPath(path.translated(QPointF(0.5, 0.5)));
 
+    if(m_Scheme == Ultra && (opt->state & State_On))
+      p->fillPath(path, opt->palette.brush(QPalette::Highlight));
+
     rect = rect.adjusted(2, 2, -1, -1);
 
     if(opt->state & State_On)
     {
-      drawX(opt, p, rect);
+      if(m_Scheme == Ultra)
+        drawCheckmark(opt, p, rect);
+      else
+        drawX(opt, p, rect);
     }
     else if(opt->state & State_NoChange)
     {
-      QBrush brush = opt->palette.brush(QPalette::ButtonText);
-      brush.setTexture(m_PartialCheckPattern);
-      p->fillRect(rect, brush);
+      if(m_Scheme == Ultra)
+        drawMixedMark(opt, p, rect);
+      else
+      {
+        QBrush brush = opt->palette.brush(QPalette::ButtonText);
+        brush.setTexture(m_PartialCheckPattern);
+        p->fillRect(rect, brush);
+      }
     }
 
     p->restore();
@@ -1625,6 +2058,10 @@ void RDStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *opt, Q
     {
       if(viewitem->backgroundBrush.style() != Qt::NoBrush)
         p->fillRect(viewitem->rect, viewitem->backgroundBrush);
+
+      if(m_Scheme == Ultra && (viewitem->state & QStyle::State_Enabled) &&
+         (viewitem->state & QStyle::State_MouseOver))
+        p->fillRect(viewitem->rect, QColor(255, 255, 255, 16));
     }
 
     return;
@@ -1751,17 +2188,28 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
       p->setPen(outlinePen);
       p->drawPath(path.translated(QPointF(0.5, 0.5)));
 
+      if(m_Scheme == Ultra && (opt->state & State_On))
+        p->fillPath(path, opt->palette.brush(QPalette::Highlight));
+
       rect = rect.adjusted(2, 2, -1, -1);
 
       if(opt->state & State_On)
       {
-        drawX(opt, p, rect);
+        if(m_Scheme == Ultra)
+          drawCheckmark(opt, p, rect);
+        else
+          drawX(opt, p, rect);
       }
       else if(opt->state & State_NoChange)
       {
-        QBrush brush = opt->palette.brush(QPalette::ButtonText);
-        brush.setTexture(m_PartialCheckPattern);
-        p->fillRect(rect, brush);
+        if(m_Scheme == Ultra)
+          drawMixedMark(opt, p, rect);
+        else
+        {
+          QBrush brush = opt->palette.brush(QPalette::ButtonText);
+          brush.setTexture(m_PartialCheckPattern);
+          p->fillRect(rect, brush);
+        }
       }
 
       p->restore();
@@ -1861,7 +2309,8 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
                 -Constants::ProgressMargin);
 
     QPainterPath path;
-    path.addRoundedRect(rect, Constants::ProgressRadius, Constants::ProgressRadius);
+    const qreal radius = m_Scheme == Ultra ? 3.0 : Constants::ProgressRadius;
+    path.addRoundedRect(rect, radius, radius);
 
     const QStyleOptionProgressBar *progress = qstyleoption_cast<const QStyleOptionProgressBar *>(opt);
 
@@ -1923,9 +2372,15 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
   else if(control == QStyle::CE_MenuBarEmptyArea)
   {
     QRect rect = opt->rect;
-    p->eraseRect(opt->rect);
+    if(m_Scheme == Ultra)
+      p->fillRect(opt->rect, UltraColors::color(UltraColors::AppToolbarBackground));
+    else
+      p->eraseRect(opt->rect);
     rect.adjust(0, -2, 0, -2);
-    p->setPen(QPen(outlineBrush(opt->palette), 1.0));
+    p->setPen(QPen(m_Scheme == Ultra
+                       ? QBrush(UltraColors::color(UltraColors::DefaultBorder))
+                       : outlineBrush(opt->palette),
+                   1.0));
     p->drawLine(rect.bottomLeft(), rect.bottomRight());
     return;
   }
@@ -1935,6 +2390,9 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
     p->setRenderHint(QPainter::Antialiasing);
 
     QRectF rect = QRectF(opt->rect).adjusted(0.5, 0.5, 0.5, 0.5);
+
+    if(m_Scheme == Ultra)
+      p->fillRect(opt->rect, UltraColors::color(UltraColors::AppToolbarBackground));
 
     const QStyleOptionMenuItem *menuitem = qstyleoption_cast<const QStyleOptionMenuItem *>(opt);
 
@@ -1952,9 +2410,19 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
 
       QPainterPath path;
       path.addRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius);
-      p->fillPath(path, opt->palette.brush(QPalette::Highlight));
+      if(m_Scheme == Ultra)
+      {
+        p->fillPath(path, UltraColors::color((opt->state & State_Sunken)
+                                                 ? UltraColors::AppToolbarBackgroundPressed
+                                                 : UltraColors::AppToolbarBackgroundHover));
+      }
+      else
+      {
+        p->fillPath(path, opt->palette.brush(QPalette::Highlight));
+      }
 
-      textrole = QPalette::HighlightedText;
+      if(m_Scheme != Ultra)
+        textrole = QPalette::HighlightedText;
 
       if(opt->state & State_Sunken)
         p->drawPath(path);
@@ -2021,17 +2489,31 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
   }
   else if(control == QStyle::CE_MenuEmptyArea)
   {
-    p->eraseRect(opt->rect);
+    if(m_Scheme == Ultra)
+      p->fillRect(opt->rect, UltraColors::color(UltraColors::DropdownBackground));
+    else
+      p->eraseRect(opt->rect);
     return;
   }
   else if(control == QStyle::CE_MenuItem)
   {
     const QStyleOptionMenuItem *menuitem = qstyleoption_cast<const QStyleOptionMenuItem *>(opt);
 
+    QPalette menuPalette = menuitem->palette;
+    if(m_Scheme == Ultra)
+    {
+      const QColor dropdownText = UltraColors::color(UltraColors::DropdownText);
+      menuPalette.setColor(QPalette::Active, QPalette::WindowText, dropdownText);
+      menuPalette.setColor(QPalette::Inactive, QPalette::WindowText, dropdownText);
+    }
+
     p->save();
     p->setRenderHint(QPainter::Antialiasing);
 
     QRectF rect = QRectF(opt->rect).adjusted(0.5, 0.5, 0.5, 0.5);
+
+    if(m_Scheme == Ultra)
+      p->fillRect(opt->rect, UltraColors::color(UltraColors::DropdownBackground));
 
     p->setPen(QPen(outlineBrush(opt->palette), 1.0));
 
@@ -2047,9 +2529,13 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
 
       QPainterPath path;
       path.addRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius);
-      p->fillPath(path, opt->palette.brush(QPalette::Highlight));
+      if(m_Scheme == Ultra)
+        p->fillPath(path, UltraColors::color(UltraColors::DropdownBackgroundHover));
+      else
+        p->fillPath(path, opt->palette.brush(QPalette::Highlight));
 
-      textrole = QPalette::HighlightedText;
+      if(m_Scheme != Ultra)
+        textrole = QPalette::HighlightedText;
 
       if(opt->state & State_Sunken)
         p->drawPath(path);
@@ -2121,7 +2607,7 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
       {
         proxy()->drawItemText(
             p, rect.toRect(), Qt::AlignLeft | Qt::AlignVCenter | Qt::TextShowMnemonic,
-            menuitem->palette, menuitem->state & State_Enabled, menuitem->text, textrole);
+            menuPalette, menuitem->state & State_Enabled, menuitem->text, textrole);
       }
       else
       {
@@ -2130,10 +2616,10 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
 
         proxy()->drawItemText(p, rect.toRect(),
                               Qt::AlignLeft | Qt::AlignVCenter | Qt::TextShowMnemonic,
-                              menuitem->palette, menuitem->state & State_Enabled, title, textrole);
+                              menuPalette, menuitem->state & State_Enabled, title, textrole);
         proxy()->drawItemText(
             p, rect.toRect(), Qt::AlignRight | Qt::AlignVCenter | Qt::TextShowMnemonic,
-            menuitem->palette, menuitem->state & State_Enabled, shortcut, textrole);
+            menuPalette, menuitem->state & State_Enabled, shortcut, textrole);
       }
 
       if(menuitem->menuItemType == QStyleOptionMenuItem::SubMenu)
@@ -2166,8 +2652,23 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
       rect.setLeft(rect.left() + tab->iconSize.width() + Constants::TabMargin);
     }
 
-    proxy()->drawItemText(p, rect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextHideMnemonic,
-                          tab->palette, tab->state & State_Enabled, tab->text, QPalette::WindowText);
+    if(m_Scheme == Ultra)
+    {
+      QPalette palette = tab->palette;
+      const QColor tabText = UltraColors::color((tab->state & State_Selected)
+                                                     ? UltraColors::ButtonText
+                                                     : UltraColors::TabText);
+      palette.setColor(QPalette::Active, QPalette::WindowText, tabText);
+      palette.setColor(QPalette::Inactive, QPalette::WindowText, tabText);
+      proxy()->drawItemText(p, rect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextHideMnemonic,
+                            palette, tab->state & State_Enabled, tab->text, QPalette::WindowText);
+    }
+    else
+    {
+      proxy()->drawItemText(p, rect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextHideMnemonic,
+                            tab->palette, tab->state & State_Enabled, tab->text,
+                            QPalette::WindowText);
+    }
     return;
   }
   else if(control == QStyle::CE_TabBarTabShape)
@@ -2188,17 +2689,40 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
     p->save();
     p->setRenderHint(QPainter::Antialiasing);
 
-    p->setPen(QPen(outlineBrush(opt->palette), 0.0));
+    p->setPen(QPen(m_Scheme == Ultra
+                       ? QBrush(UltraColors::color(UltraColors::DefaultBorder))
+                       : outlineBrush(opt->palette),
+                   0.0));
 
     QPainterPath path;
     path.addRoundedRect(rect, 3.0, 3.0);
 
-    if(opt->state & State_Selected)
-      p->fillPath(path, opt->palette.brush(QPalette::Window));
-    else if(opt->state & State_MouseOver)
-      p->fillPath(path, opt->palette.brush(QPalette::Midlight));
+    if(m_Scheme == Ultra)
+    {
+      // i18n-ignore: internal QObject property identifier, never shown to the user.
+      const bool brightSelectedTabs =
+          widget && widget->property("_renderdoc_ultra_bright_selected_tabs").toBool();
+
+      if(opt->state & State_Selected)
+        p->fillPath(path, UltraColors::color(brightSelectedTabs
+                                                ? UltraColors::WindowBackground
+                                                : UltraColors::TabBackgroundSelected));
+      else if(opt->state & State_MouseOver)
+        p->fillPath(path, UltraColors::color(brightSelectedTabs
+                                                ? UltraColors::HeaderBackgroundHover
+                                                : UltraColors::TabBackgroundHover));
+      else
+        p->fillPath(path, UltraColors::color(UltraColors::TabBackground));
+    }
     else
-      p->fillPath(path, opt->palette.brush(QPalette::Disabled, QPalette::Window));
+    {
+      if(opt->state & State_Selected)
+        p->fillPath(path, opt->palette.brush(QPalette::Window));
+      else if(opt->state & State_MouseOver)
+        p->fillPath(path, opt->palette.brush(QPalette::Midlight));
+      else
+        p->fillPath(path, opt->palette.brush(QPalette::Disabled, QPalette::Window));
+    }
 
     p->drawPath(path.translated(QPointF(0.5, 0.5)));
 
@@ -2222,9 +2746,17 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
     QColor mid = opt->palette.color(QPalette::Mid);
     QColor window = opt->palette.color(QPalette::Window);
 
-    QColor backGround = QColor::fromRgbF(0.5f * mid.redF() + 0.5f * window.redF(),
-                                         0.5f * mid.greenF() + 0.5f * window.greenF(),
-                                         0.5f * mid.blueF() + 0.5f * window.blueF());
+    QColor backGround;
+    if(m_Scheme == Ultra)
+    {
+      backGround = UltraColors::color(UltraColors::DockTitleBackground);
+    }
+    else
+    {
+      backGround = QColor::fromRgbF(0.5f * mid.redF() + 0.5f * window.redF(),
+                                    0.5f * mid.greenF() + 0.5f * window.greenF(),
+                                    0.5f * mid.blueF() + 0.5f * window.blueF());
+    }
 
     QRectF rect = QRectF(opt->rect).adjusted(0.5, 0.5, 0.0, 0.0);
 
@@ -2233,7 +2765,10 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
     p->save();
     p->setRenderHint(QPainter::Antialiasing);
 
-    p->setPen(QPen(outlineBrush(opt->palette), 1.0));
+    p->setPen(QPen(m_Scheme == Ultra
+                       ? QBrush(UltraColors::color(UltraColors::WindowBorder))
+                       : outlineBrush(opt->palette),
+                   1.0));
 
     QPainterPath path;
     path.addRoundedRect(rect, 1.0, 1.0);
@@ -2258,9 +2793,24 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
 
     p->save();
 
-    p->setPen(QPen(outlineBrush(opt->palette), 1.0));
+    p->setPen(QPen(m_Scheme == Ultra
+                       ? QBrush(UltraColors::color(UltraColors::DefaultBorder))
+                       : outlineBrush(opt->palette),
+                   1.0));
 
-    p->fillRect(rect, opt->palette.brush(QPalette::Midlight));
+    if(m_Scheme == Ultra)
+    {
+      QRgb background = UltraColors::ToolbarBackground;
+      if(opt->state & State_Sunken)
+        background = UltraColors::HeaderBackgroundPressed;
+      else if(opt->state & State_MouseOver)
+        background = UltraColors::HeaderBackgroundHover;
+      p->fillRect(rect, UltraColors::color(background));
+    }
+    else
+    {
+      p->fillRect(rect, opt->palette.brush(QPalette::Midlight));
+    }
     p->drawLine(rect.bottomLeft(), rect.bottomRight());
     p->drawLine(rect.topRight(), rect.bottomRight());
 
@@ -2330,6 +2880,126 @@ void RDStyle::drawControl(ControlElement control, const QStyleOption *opt, QPain
 void RDStyle::drawRoundedRectBorder(const QStyleOption *opt, QPainter *p, const QWidget *widget,
                                     QPalette::ColorRole fillRole, bool shadow) const
 {
+  if(m_Scheme == Ultra)
+  {
+    QColor fill = fillRole == QPalette::NoRole ? QColor() : opt->palette.color(fillRole);
+    QColor border = UltraColors::color(UltraColors::WindowBorder);
+    QColor accent = UltraColors::color(UltraColors::AccentBorder);
+
+    const bool enabled = opt->state & State_Enabled;
+    const bool hovered = opt->state & State_MouseOver;
+    const bool pressed = opt->state & State_Sunken;
+    const bool focused = opt->state & State_HasFocus;
+    const bool checked = opt->state & State_On;
+    const bool autoRaise = opt->state & State_AutoRaise;
+    const bool comboBox = qobject_cast<const QComboBox *>(widget) != NULL;
+
+    if(fillRole == QPalette::Button)
+    {
+      if(autoRaise)
+      {
+        fill = UltraColors::color(UltraColors::ToolbarBackground);
+        border = fill;
+        if(enabled && (pressed || checked))
+        {
+          fill = UltraColors::color(UltraColors::HeaderBackgroundPressed);
+          border = UltraColors::color(UltraColors::DefaultBorder);
+        }
+        else if(enabled && (hovered || focused))
+        {
+          fill = UltraColors::color(UltraColors::HeaderBackgroundHover);
+          border = UltraColors::color(UltraColors::DefaultBorder);
+        }
+      }
+      else if(!enabled)
+      {
+        fill = UltraColors::color(UltraColors::ButtonDisabled);
+        border = UltraColors::color(UltraColors::ButtonBorder);
+      }
+      else if(pressed || checked)
+      {
+        fill = UltraColors::color(hovered ? UltraColors::ButtonBackgroundHoverPressed
+                                         : UltraColors::ButtonBackgroundPressed);
+        border = UltraColors::color(UltraColors::DeepBorder);
+        accent = UltraColors::color(UltraColors::DeepBorder);
+      }
+      else if(hovered)
+      {
+        fill = UltraColors::color(UltraColors::ButtonBackgroundHover);
+        border = UltraColors::color(UltraColors::ButtonBorder);
+      }
+      else if(focused)
+      {
+        fill = UltraColors::color(UltraColors::ButtonBackgroundFocus);
+        border = UltraColors::color(UltraColors::ButtonFocusBorder);
+      }
+      else
+      {
+        fill = UltraColors::color(UltraColors::ButtonBackground);
+        border = UltraColors::color(UltraColors::ButtonBorder);
+      }
+
+      if(focused && enabled && !autoRaise)
+        border = UltraColors::color(UltraColors::ButtonFocusBorder);
+    }
+    else if(fillRole == QPalette::Base)
+    {
+      if(comboBox)
+      {
+        fill = UltraColors::color(!enabled ? UltraColors::DefaultBackground
+                                           : hovered ? UltraColors::DropdownBackgroundHover
+                                                     : UltraColors::DropdownBackground);
+        border = UltraColors::color(focused ? UltraColors::FocusBorder
+                                           : UltraColors::ButtonBorder);
+      }
+      else
+      {
+        fill = UltraColors::color(enabled ? UltraColors::InputBackground
+                                          : UltraColors::DefaultBackground);
+        border = UltraColors::color(enabled && focused
+                                        ? UltraColors::FocusBorder
+                                        : enabled && hovered ? UltraColors::HoverBorder
+                                                             : UltraColors::InputBorder);
+        accent = UltraColors::color(UltraColors::DeepBorder);
+      }
+    }
+    else if(fillRole == QPalette::Window)
+    {
+      fill = UltraColors::color(UltraColors::WindowBackground);
+      border = UltraColors::color(UltraColors::WindowBorder);
+    }
+
+    p->save();
+    p->setRenderHint(QPainter::Antialiasing);
+
+    QRectF rect = QRectF(opt->rect).adjusted(0.5, 0.5, -0.5, -0.5);
+    QPainterPath path;
+    path.addRoundedRect(rect, 3.0, 3.0);
+
+    if(fillRole != QPalette::NoRole)
+      p->fillPath(path, fill);
+
+    p->setPen(QPen(border, 1.0));
+    p->drawPath(path);
+
+    // Unity uses a flat accent edge instead of a drop shadow to separate stacked controls.
+    if(fillRole == QPalette::Button && !autoRaise && enabled)
+    {
+      p->setPen(QPen(accent, 1.0));
+      p->drawLine(rect.bottomLeft() + QPointF(3.0, 0.0),
+                  rect.bottomRight() - QPointF(3.0, 0.0));
+    }
+    else if(fillRole == QPalette::Base && !comboBox && !focused)
+    {
+      p->setPen(QPen(accent, 1.0));
+      p->drawLine(rect.topLeft() + QPointF(3.0, 0.0),
+                  rect.topRight() - QPointF(3.0, 0.0));
+    }
+
+    p->restore();
+    return;
+  }
+
   QPen outlinePen(outlineBrush(opt->palette), 1.0);
 
   if(opt->state & State_HasFocus)

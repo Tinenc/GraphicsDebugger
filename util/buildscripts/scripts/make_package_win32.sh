@@ -130,8 +130,41 @@ export RENDERDOC_VERSION="${VERSION}"
 # Ensure this variable passes through to windows on WSL
 export WSLENV=$WSLENV:RENDERDOC_VERSION
 
+# Bread AI: the runtime (AgentHost, MCP host, Skills frozen inside them) and the
+# bundled unpackers are a folder tree, not a fixed file list, so they are harvested
+# rather than listed. The folder is created first so an installer built without a
+# deployed runtime still links against an (empty) component group.
+mkdir -p dist/Release64/replaylab dist/Release32/replaylab
+# The canonical Python bridge and semantic editor service live outside replaylab/.
+# Harvest their entire fixed integration tree as well, or an MSI silently loses them.
+if [ ! -f dist/Release64/integrations/shader-language-server/slangd.exe ] || \
+   [ ! -f dist/Release64/integrations/shader-language-server/slang-compiler.dll ] || \
+   [ ! -f dist/Release64/integrations/shader-language-server/LICENSE ] || \
+   [ ! -f dist/Release64/integrations/shader-language-server/provider.json ]; then
+	echo "ERROR: Missing pinned Shader language server in the 64-bit application. Run DeployShaderLanguageServer before packaging."
+	exit 1
+fi
+mkdir -p dist/Release64/integrations dist/Release32/integrations
+for BITS in 32 64; do
+	"$WIX/bin/heat.exe" dir dist/Release${BITS}/replaylab \
+		-cg BreadRuntimeFiles -dr BreadRuntimeDirRef -var var.BreadRuntimeDir \
+		-srd -sreg -scom -sfrag -ag -g1 -nologo \
+		-out dist/BreadRuntime${BITS}.wxs
+	if [ -n "$(find dist/Release${BITS}/integrations -type f -print -quit)" ]; then
+		"$WIX/bin/heat.exe" dir dist/Release${BITS}/integrations \
+			-cg BreadIntegrationFiles -dr BreadIntegrationsDirRef -var var.BreadIntegrationsDir \
+			-srd -sreg -scom -sfrag -ag -g1 -nologo \
+			-out dist/BreadIntegrations${BITS}.wxs || exit 1
+	else
+		# The semantic runtime is x64-only; keep the optional x86 installer linkable.
+		printf '%s\n' '<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"><Fragment><ComponentGroup Id="BreadIntegrationFiles" /></Fragment></Wix>' > dist/BreadIntegrations${BITS}.wxs
+	fi
+done
+
 "$WIX/bin/candle.exe" -o dist/Installer32.wixobj util/installer/Installer32.wxs
-"$WIX/bin/light.exe" -ext WixUIExtension -sw1076 -loc util/installer/customtext.wxl -o dist/Installer32.msi dist/Installer32.wixobj
+"$WIX/bin/candle.exe" -dBreadRuntimeDir=dist/Release32/replaylab -o dist/BreadRuntime32.wixobj dist/BreadRuntime32.wxs
+"$WIX/bin/candle.exe" -dBreadIntegrationsDir=dist/Release32/integrations -o dist/BreadIntegrations32.wixobj dist/BreadIntegrations32.wxs || exit 1
+"$WIX/bin/light.exe" -ext WixUIExtension -sw1076 -loc util/installer/customtext.wxl -o dist/Installer32.msi dist/Installer32.wixobj dist/BreadRuntime32.wixobj dist/BreadIntegrations32.wixobj
 
 if [[ "$STRICT" == "yes" ]]; then
 	if [ ! -f "${REPO_ROOT}"/dist/Installer32.msi ] ; then
@@ -141,7 +174,9 @@ if [[ "$STRICT" == "yes" ]]; then
 fi
 
 "$WIX/bin/candle.exe" -o dist/Installer64.wixobj util/installer/Installer64.wxs
-"$WIX/bin/light.exe" -ext WixUIExtension -sw1076 -loc util/installer/customtext.wxl -o dist/Installer64.msi dist/Installer64.wixobj
+"$WIX/bin/candle.exe" -dBreadRuntimeDir=dist/Release64/replaylab -o dist/BreadRuntime64.wixobj dist/BreadRuntime64.wxs
+"$WIX/bin/candle.exe" -arch x64 -dBreadIntegrationsDir=dist/Release64/integrations -o dist/BreadIntegrations64.wixobj dist/BreadIntegrations64.wxs || exit 1
+"$WIX/bin/light.exe" -ext WixUIExtension -sw1076 -loc util/installer/customtext.wxl -o dist/Installer64.msi dist/Installer64.wixobj dist/BreadRuntime64.wixobj dist/BreadIntegrations64.wixobj
 
 if [[ "$STRICT" == "yes" ]]; then
 	if [ ! -f "${REPO_ROOT}"/dist/Installer64.msi ] ; then

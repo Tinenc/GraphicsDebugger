@@ -58,11 +58,6 @@
        <height>351</height>
       </size>
      </property>
-     <property name="font">
-      <font>
-       <pointsize>9</pointsize>
-      </font>
-     </property>
      <property name="title">
       <string>Tip #X</string>
      </property>
@@ -85,7 +80,7 @@
           </property>
           <property name="font">
            <font>
-            <pointsize>16</pointsize>
+            <pointsize>11</pointsize>
            </font>
           </property>
           <property name="text">
@@ -111,11 +106,6 @@
           <width>709</width>
           <height>283</height>
          </size>
-        </property>
-        <property name="font">
-         <font>
-          <pointsize>12</pointsize>
-         </font>
         </property>
         <property name="text">
          <string>TextLabel</string>
@@ -143,11 +133,6 @@
             <horstretch>0</horstretch>
             <verstretch>0</verstretch>
            </sizepolicy>
-          </property>
-          <property name="font">
-           <font>
-            <pointsize>10</pointsize>
-           </font>
           </property>
           <property name="text">
            <string>https://renderdoc.org/tips/1</string>

@@ -93,7 +93,7 @@ public:
   }
   IReplayDriver *MakeDummyDriver()
   {
-    IReplayDriver *ret = new DummyDriver(this, {}, m_File);
+    IReplayDriver *ret = new DummyDriver(this, {}, m_File, {});
     // lose our structured file reference
     m_File = NULL;
     return ret;
@@ -250,7 +250,8 @@ public:
     return ResultCode::Succeeded;
   }
   SDFile *GetStructuredFile() { return m_File; }
-  void RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secondaryDraws, const MeshDisplay &cfg)
+  void RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secondaryDraws,
+                  const MeshDisplay &cfg, const MeshComponentHighlight &components)
   {
   }
   rdcarray<DescriptorStoreDescription> GetDescriptorStores() { return {}; }

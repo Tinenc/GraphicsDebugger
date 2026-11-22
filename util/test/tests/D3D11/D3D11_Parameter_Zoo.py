@@ -65,4 +65,14 @@ class D3D11_Parameter_Zoo(rdtest.TestCase):
 
         out.Shutdown()
 
+        action = self.find_action("RastState")
+        self.check(action is not None)
+        self.controller.SetFrameEvent(action.eventId, False)
+
+        pipe11 = self.controller.GetD3D11PipelineState()
+
+        self.check(pipe11.rasterizer.state.resourceId != rd.ResourceId())
+
+        self.check(self.get_resource(pipe11.rasterizer.state.resourceId).name == "RastState")
+     
         rdtest.log.success("Overlay color is as expected")

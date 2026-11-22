@@ -29,18 +29,28 @@
 #include <QColorDialog>
 #include <QFileSystemWatcher>
 #include <QFontDatabase>
+#include <QImage>
 #include <QItemDelegate>
 #include <QJsonDocument>
 #include <QMenu>
 #include <QPainter>
 #include <QPointer>
+#include <QScopedValueRollback>
+#include <QSplitter>
+#include <QStackedWidget>
 #include <QStyledItemDelegate>
+#include <QTimer>
+#include <QUuid>
+#include <memory>
 #include "Code/QRDUtils.h"
+#include "Code/ReplayLab/ReplayLabAIResourceAttachment.h"
 #include "Code/Resources.h"
 #include "Dialogs/TextureSaveDialog.h"
 #include "Widgets/Extended/RDHeaderView.h"
 #include "Widgets/ResourcePreview.h"
 #include "Widgets/TextureGoto.h"
+#include "Windows/AI/AITextureAnnotation.h"
+#include "Windows/RenderTargetHistoryView.h"
 #include "flowlayout/FlowLayout.h"
 #include "toolwindowmanager/ToolWindowManagerArea.h"
 #include "ui_TextureViewer.h"
@@ -53,6 +63,65 @@ float area(const QSizeF &s)
 float aspect(const QSizeF &s)
 {
   return s.width() / s.height();
+}
+
+static bool CanAverageTextureSamples(const TextureDescription &texture, CompType typeCast)
+{
+  const CompType effectiveType =
+      typeCast == CompType::Typeless ? texture.format.compType : typeCast;
+  return effectiveType != CompType::UInt && effectiveType != CompType::SInt &&
+         effectiveType != CompType::Depth &&
+         !(texture.creationFlags & TextureCategory::DepthTarget);
+}
+
+static bool TexturePresentationMatchesCanvas(const rdcpair<int32_t, int32_t> &rendered,
+                                             const QSize &canvas)
+{
+  return canvas.width() > 0 && canvas.height() > 0 && rendered.first == canvas.width() &&
+         rendered.second == canvas.height();
+}
+
+// i18n-ignore: internal QObject property identifiers, never shown to the user.
+static constexpr const char *RenderTargetHistoryEnabledProperty =
+    "_renderdoc_render_target_history_enabled";
+// i18n-ignore: internal QObject property identifiers, never shown to the user.
+static constexpr const char *RenderTargetHistoryEventProperty =
+    "_renderdoc_render_target_history_event";
+
+class ScopedTextureHistoryReplay
+{
+public:
+  ScopedTextureHistoryReplay(IReplayController *controller, uint32_t eventId)
+      : m_Controller(controller), m_Active(controller && eventId != 0)
+  {
+    if(m_Active)
+      m_Controller->ReplayFrameEventForAnalysis(eventId);
+  }
+
+  ~ScopedTextureHistoryReplay()
+  {
+    if(m_Active)
+      m_Controller->RestoreFrameEventAfterAnalysis();
+  }
+
+private:
+  IReplayController *m_Controller = NULL;
+  bool m_Active = false;
+};
+
+static bool ResolveTextureHistorySnapshot(IReplayController *controller, uint32_t eventId,
+                                          const TextureDisplay &source, TextureDisplay &resolved)
+{
+  resolved = source;
+  if(controller == NULL || eventId == 0 || source.customShaderId != ResourceId() ||
+     source.decodeYUV)
+    return false;
+
+  if(source.overlay != DebugOverlay::NoOverlay && source.overlay != DebugOverlay::NaN &&
+     source.overlay != DebugOverlay::Clipping)
+    return false;
+
+  return controller->ResolveEventTextureSnapshot(eventId, source, resolved);
 }
 
 // if changing these functions, consider running the 'exhaustive test' at the bottom of this file
@@ -158,12 +227,12 @@ Following &Following::operator=(const Following &other)
   return *this;
 }
 
-bool Following::operator!=(const Following &o)
+bool Following::operator!=(const Following &o) const
 {
   return !(*this == o);
 }
 
-bool Following::operator==(const Following &o)
+bool Following::operator==(const Following &o) const
 {
   return Type == o.Type && Stage == o.Stage && index == o.index && arrayEl == o.arrayEl;
 }
@@ -248,6 +317,11 @@ Descriptor Following::GetDescriptor(ICaptureContext &ctx, uint32_t arrayIdx)
 rdcarray<Descriptor> Following::GetOutputTargets(ICaptureContext &ctx)
 {
   const ActionDescription *curAction = ctx.CurAction();
+  // Present can retain an unrelated offscreen RT in the graphics pipeline. The following view
+  // must show the actual presented image, matching the frame diagram's final output evidence.
+  if(curAction && (curAction->flags & ActionFlags::Present) &&
+     curAction->copyDestination != ResourceId())
+    return {MakeDescriptor(curAction->copyDestination, curAction->copyDestinationSubresource)};
   bool copy = false, clear = false, compute = false;
   GetActionContext(ctx, copy, clear, compute);
 
@@ -394,6 +468,119 @@ TextureDescription *TextureViewer::GetCurrentTexture()
   return m_CachedTexture;
 }
 
+TextureViewer::OutputBindingKey TextureViewer::UI_OutputBindingKey()
+{
+  OutputBindingKey key;
+  auto append = [this, &key](FollowType type, ShaderStage stage, int slot, uint32_t arrayElement,
+                             const Descriptor &descriptor) {
+    if(m_Ctx.GetTexture(descriptor.resource) != NULL)
+      key.emplace_back(type, stage, slot, arrayElement, descriptor.resource, descriptor.firstMip,
+                       descriptor.firstSlice);
+  };
+
+  const rdcarray<Descriptor> targets = Following::GetOutputTargets(m_Ctx);
+  for(uint32_t slot = 0; slot < targets.size(); slot++)
+    append(FollowType::OutputColor, ShaderStage::Pixel, slot, 0, targets[slot]);
+  append(FollowType::OutputDepth, ShaderStage::Pixel, 0, 0, Following::GetDepthTarget(m_Ctx));
+  append(FollowType::OutputDepthResolve, ShaderStage::Pixel, 0, 0,
+         Following::GetDepthResolveTarget(m_Ctx));
+
+  // Shader bindings can vary between draws in one attachment group. Only use them to identify
+  // the output group when there are no displayable framebuffer attachments (e.g. a dispatch).
+  if(key.empty())
+  {
+    for(uint32_t stage = 0; stage < NumShaderStages; stage++)
+      for(const UsedDescriptor &descriptor : m_ReadWriteResources[stage])
+        if(!descriptor.access.staticallyUnused)
+          append(FollowType::ReadWrite, descriptor.access.stage, descriptor.access.index,
+                 descriptor.access.arrayElement, descriptor.descriptor);
+  }
+
+  return key;
+}
+
+void TextureViewer::UI_RememberOutputFollowing()
+{
+  if(m_Following.Type == FollowType::ReadOnly)
+    return;
+
+  ResourceId resource = m_Following.GetResourceId(m_Ctx);
+  if(m_Ctx.GetTexture(resource) == NULL)
+    return;
+
+  OutputBindingKey key = UI_OutputBindingKey();
+  if(!key.empty())
+  {
+    // Only an explicit selection writes this preference. Automatic fallback must never replace
+    // the remembered choice when a different event temporarily lacks the selected binding.
+    m_OutputPreferences.erase(key);
+    m_OutputPreferences.emplace(std::move(key), std::make_pair(m_Following, resource));
+  }
+}
+
+void TextureViewer::UI_ResolveOutputFollowing()
+{
+  if(currentTextureIsLocked() || m_Following.Type == FollowType::ReadOnly)
+    return;
+
+  const auto preference = m_OutputPreferences.find(UI_OutputBindingKey());
+  if(preference != m_OutputPreferences.end())
+  {
+    Following remembered = preference->second.first;
+    ResourceId resource = remembered.GetResourceId(m_Ctx);
+    if(resource == preference->second.second && m_Ctx.GetTexture(resource) != NULL)
+    {
+      m_Following = remembered;
+      return;
+    }
+  }
+
+  // New output groups start at RT0, even if the previous group's slot is also bound here.
+  // A group without RT0 uses its first available color/depth/UAV texture instead.
+  m_Following = Following(*this, FollowType::OutputColor, ShaderStage::Pixel, 0, 0);
+  const rdcarray<Descriptor> targets = Following::GetOutputTargets(m_Ctx);
+  for(uint32_t slot = 0; slot < targets.size(); slot++)
+  {
+    if(m_Ctx.GetTexture(targets[slot].resource) != NULL)
+    {
+      m_Following = Following(*this, FollowType::OutputColor, ShaderStage::Pixel, slot, 0);
+      return;
+    }
+  }
+
+  if(m_Ctx.GetTexture(Following::GetDepthTarget(m_Ctx).resource) != NULL)
+  {
+    m_Following = Following(*this, FollowType::OutputDepth, ShaderStage::Pixel, 0, 0);
+    return;
+  }
+
+  if(m_Ctx.GetTexture(Following::GetDepthResolveTarget(m_Ctx).resource) != NULL)
+  {
+    m_Following = Following(*this, FollowType::OutputDepthResolve, ShaderStage::Pixel, 0, 0);
+    return;
+  }
+
+  // These arrays contain only this action's active stages. Never select a binding left over
+  // from the previous graphics/compute action, and skip buffer UAVs that cannot be displayed.
+  for(uint32_t stage = 0; stage < NumShaderStages; stage++)
+  {
+    for(const UsedDescriptor &descriptor : m_ReadWriteResources[stage])
+    {
+      if(!descriptor.access.staticallyUnused &&
+         m_Ctx.GetTexture(descriptor.descriptor.resource) != NULL)
+      {
+        Following candidate(*this, FollowType::ReadWrite, descriptor.access.stage,
+                            descriptor.access.index, descriptor.access.arrayElement);
+        if(candidate.GetResourceId(m_Ctx) == descriptor.descriptor.resource)
+        {
+          m_Following = candidate;
+          return;
+        }
+      }
+    }
+  }
+}
+
 void TextureViewer::UI_UpdateCachedTexture()
 {
   if(!m_Ctx.IsCaptureLoaded())
@@ -406,10 +593,10 @@ void TextureViewer::UI_UpdateCachedTexture()
   if(id == ResourceId())
     id = m_Following.GetResourceId(m_Ctx);
 
-  if(id == ResourceId())
-    id = m_TexDisplay.resourceId;
-
   m_CachedTexture = m_Ctx.GetTexture(id);
+  if(m_TemporaryOutputFollowToken && m_TemporaryPreviewActive &&
+     m_TemporaryPreviewEvent == m_Ctx.CurEvent() && m_LockedId == ResourceId())
+    m_CachedTexture = &m_TemporaryPreviewTexture;
 
   if(m_CachedTexture != NULL)
   {
@@ -472,12 +659,35 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
     : QFrame(parent),
       ui(new Ui::TextureViewer),
       m_Ctx(ctx),
-      m_Following(*this, FollowType::OutputColor, ShaderStage::Pixel, 0, 0)
+      m_Following(*this, FollowType::OutputColor, ShaderStage::Pixel, 0, 0),
+      m_BeforeTemporaryOutputFollow(*this, FollowType::OutputColor, ShaderStage::Pixel, 0, 0)
 {
   ui->setupUi(this);
 
+  m_AnalysisTimer = new QTimer(this);
+  m_AnalysisTimer->setSingleShot(true);
+  m_AnalysisTimer->setInterval(75);
+  QObject::connect(m_AnalysisTimer, &QTimer::timeout, this, &TextureViewer::QueueDeferredAnalysis);
+
+  // Keep the native render window in its own page. Qt painting over a native GPU child is not
+  // reliable on Windows; the annotation page displays a pinned replay readback instead.
+  ui->renderLayout->removeItem(ui->gridLayout);
+  m_AIAnnotationStack = new QStackedWidget(this);
+  QWidget *liveTexture = new QWidget(m_AIAnnotationStack);
+  liveTexture->setLayout(ui->gridLayout);
+  m_AIAnnotationStack->addWidget(liveTexture);
+  ui->renderLayout->insertWidget(0, m_AIAnnotationStack, 1);
+
   ui->render->SetContext(m_Ctx);
   ui->pixelContext->SetContext(m_Ctx);
+
+  // Tab transitions temporarily hide the native surfaces while retaining their layout extent.
+  for(CustomPaintWidget *surface : {ui->render, ui->pixelContext})
+  {
+    QSizePolicy policy = surface->sizePolicy();
+    policy.setRetainSizeWhenHidden(true);
+    surface->setSizePolicy(policy);
+  }
 
   ui->textureList->setFont(Formatter::PreferredFont());
   ui->textureListFilter->setFont(Formatter::PreferredFont());
@@ -610,7 +820,11 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
 
   vertical->addWidget(flow1widget);
   vertical->addWidget(flow2widget);
-  vertical->addWidget(ui->dockarea);
+  m_MainHistorySplitter = new QSplitter(Qt::Vertical, this);
+  m_MainHistorySplitter->setChildrenCollapsible(false);
+  m_MainHistorySplitter->addWidget(ui->dockarea);
+  m_MainHistorySplitter->setStretchFactor(0, 1);
+  vertical->addWidget(m_MainHistorySplitter, 1);
 
   Ui_TextureViewer *u = ui;
   u->pixelcontextgrid->setAlignment(u->pixelHistory, Qt::AlignCenter);
@@ -695,13 +909,23 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
 
 TextureViewer::~TextureViewer()
 {
+  m_EventRequestSerial.fetch_add(1, std::memory_order_acq_rel);
+  m_DisplayRequestSerial.fetch_add(1, std::memory_order_acq_rel);
+
   if(m_Output)
   {
-    m_Ctx.Replay().BlockInvoke([this](IReplayController *r) { m_Output->Shutdown(); });
+    m_Ctx.Replay().BlockInvoke([this](IReplayController *r) {
+      for(auto &thumbnail : m_NativeThumbnailOutputs)
+        if(thumbnail.second)
+          thumbnail.second->Shutdown();
+      m_NativeThumbnailOutputs.clear();
+      m_Output->Shutdown();
+    });
   }
 
   m_Ctx.BuiltinWindowClosed(this);
   m_Ctx.RemoveCaptureViewer(this);
+  CompletePresentationWaiters();
   delete ui;
 }
 
@@ -725,6 +949,8 @@ void TextureViewer::HighlightUsage()
 
 void TextureViewer::SelectPreview(ResourcePreview *prev)
 {
+  if(!m_UpdatingTemporaryOutputFollow)
+    m_TemporaryOutputFollowToken = 0;
   Following follow = prev->property("f").value<Following>();
 
   for(ResourcePreview *p : ui->outputThumbs->thumbs())
@@ -734,41 +960,64 @@ void TextureViewer::SelectPreview(ResourcePreview *prev)
     p->setSelected(false);
 
   m_Following = Following(follow);
+  UI_RememberOutputFollowing();
   prev->setSelected(true);
 
   UI_UpdateCachedTexture();
 
   ResourceId id = m_Following.GetResourceId(m_Ctx);
 
+  UI_OnTextureSelectionChanged(false);
   if(id != ResourceId())
-  {
-    UI_OnTextureSelectionChanged(false);
     ui->renderContainer->show();
-  }
 }
 
-void TextureViewer::RT_FetchCurrentPixel(IReplayController *r, uint32_t x, uint32_t y,
+TextureViewer::ViewRequest TextureViewer::CurrentViewRequest() const
+{
+  ViewRequest request;
+  request.display = m_TexDisplay;
+  if(m_CachedTexture)
+    request.texture = *m_CachedTexture;
+  request.pickedPoint = m_PickedPoint;
+  request.hoverPixel = m_CurHoverPixel;
+  request.eventId = m_Ctx.CurEvent();
+  request.historyEvent = ActiveRenderTargetHistoryEvent();
+  request.serial = m_DisplayRequestSerial.load(std::memory_order_acquire);
+  request.eventSerial = m_EventRequestSerial.load(std::memory_order_acquire);
+  request.rangeMin = ui->rangeHistogram->rangeMin();
+  request.rangeMax = ui->rangeHistogram->rangeMax();
+  request.visualise = m_Visualise;
+  request.clearBeforeReveal = m_PresentationSuspended;
+  return request;
+}
+
+bool TextureViewer::IsCurrentViewRequest(const ViewRequest &request) const
+{
+  return m_DisplayRequestSerial.load(std::memory_order_acquire) == request.serial &&
+         m_EventRequestSerial.load(std::memory_order_acquire) == request.eventSerial;
+}
+
+void TextureViewer::RT_FetchCurrentPixel(IReplayController *r, const ViewRequest &request,
+                                         const TextureDisplay &display, uint32_t x, uint32_t y,
                                          PixelValue &pickValue, PixelValue &realValue)
 {
-  TextureDescription *texptr = GetCurrentTexture();
-
-  if(texptr == NULL)
+  if(request.texture.resourceId == ResourceId() || m_Output == NULL)
     return;
 
-  if(m_TexDisplay.flipY)
-    y = (texptr->height - 1) - y;
+  if(display.flipY)
+    y = (request.texture.height - 1) - y;
 
-  x = qMax(0U, MipCoordFromBase(x, texptr->width));
-  y = qMax(0U, MipCoordFromBase(y, texptr->height));
+  x = ::MipCoordFromBase(x, request.display.subresource.mip, request.texture.width);
+  y = ::MipCoordFromBase(y, request.display.subresource.mip, request.texture.height);
 
-  ResourceId id = m_TexDisplay.resourceId;
-  Subresource sub = m_TexDisplay.subresource;
-  CompType typeCast = m_TexDisplay.typeCast;
+  ResourceId id = display.resourceId;
+  Subresource sub = display.subresource;
+  CompType typeCast = display.typeCast;
 
-  if(m_TexDisplay.overlay == DebugOverlay::QuadOverdrawDraw ||
-     m_TexDisplay.overlay == DebugOverlay::QuadOverdrawPass ||
-     m_TexDisplay.overlay == DebugOverlay::TriangleSizeDraw ||
-     m_TexDisplay.overlay == DebugOverlay::TriangleSizePass)
+  if(display.overlay == DebugOverlay::QuadOverdrawDraw ||
+     display.overlay == DebugOverlay::QuadOverdrawPass ||
+     display.overlay == DebugOverlay::TriangleSizeDraw ||
+     display.overlay == DebugOverlay::TriangleSizePass)
   {
     ResourceId overlayResId = m_Output->GetDebugOverlayTexID();
 
@@ -781,10 +1030,10 @@ void TextureViewer::RT_FetchCurrentPixel(IReplayController *r, uint32_t x, uint3
 
   realValue = r->PickPixel(id, x, y, sub, typeCast);
 
-  if(m_TexDisplay.customShaderId != ResourceId())
+  if(display.customShaderId != ResourceId())
   {
     pickValue = r->PickPixel(m_Output->GetCustomShaderTexID(), x, y,
-                             {m_TexDisplay.subresource.mip, 0, 0}, CompType::Typeless);
+                             {display.subresource.mip, 0, 0}, CompType::Typeless);
   }
   else
   {
@@ -792,85 +1041,705 @@ void TextureViewer::RT_FetchCurrentPixel(IReplayController *r, uint32_t x, uint3
   }
 }
 
-void TextureViewer::RT_PickPixelsAndUpdate(IReplayController *r)
+void TextureViewer::RT_PickPixelsAndUpdate(IReplayController *r, const ViewRequest &request,
+                                           bool hover)
 {
-  PixelValue pickValue, realValue;
+  const QPoint point = hover ? request.hoverPixel : request.pickedPoint;
+  PixelValue pickValue = {}, realValue = {};
 
-  if(m_PickedPoint.x() < 0 || m_PickedPoint.y() < 0)
+  if(!IsCurrentViewRequest(request) || r->GetCurrentEventID() != request.eventId ||
+     m_Output == NULL || request.texture.resourceId == ResourceId() || point.x() < 0 || point.y() < 0)
     return;
 
-  uint32_t x = (uint32_t)m_PickedPoint.x();
-  uint32_t y = (uint32_t)m_PickedPoint.y();
+  TextureDisplay analysisDisplay;
+  const bool haveSnapshot =
+      ResolveTextureHistorySnapshot(r, request.historyEvent, request.display, analysisDisplay);
+  ScopedTextureHistoryReplay historyReplay(r, haveSnapshot ? 0 : request.historyEvent);
 
-  RT_FetchCurrentPixel(r, x, y, pickValue, realValue);
+  uint32_t x = (uint32_t)point.x();
+  uint32_t y = (uint32_t)point.y();
 
-  m_Output->SetPixelContextLocation(x, y);
+  RT_FetchCurrentPixel(r, request, analysisDisplay, x, y, pickValue, realValue);
 
-  m_CurHoverValue = pickValue;
+  if(!hover)
+  {
+    if(haveSnapshot)
+    {
+      x = ::MipCoordFromBase(x, request.display.subresource.mip, request.texture.width);
+      y = ::MipCoordFromBase(y, request.display.subresource.mip, request.texture.height);
+    }
+    m_Output->SetPixelContextLocation(x, y);
+  }
 
-  m_CurPixelValue = pickValue;
-  m_CurRealValue = realValue;
-
-  GUIInvoke::call(this, [this]() { UI_UpdateStatusText(); });
+  QPointer<TextureViewer> self(this);
+  GUIInvoke::call(this, [self, request, point, hover, pickValue, realValue]() {
+    if(!self || !self->IsCurrentViewRequest(request) ||
+       point != (hover ? self->m_CurHoverPixel : self->m_PickedPoint))
+      return;
+    self->m_CurHoverValue = pickValue;
+    if(!hover)
+    {
+      self->m_CurPixelValue = pickValue;
+      self->m_CurRealValue = realValue;
+    }
+    self->UI_UpdateStatusText();
+  });
 }
 
-void TextureViewer::RT_PickHoverAndUpdate(IReplayController *r)
-{
-  PixelValue pickValue, realValue;
-
-  uint32_t x = (uint32_t)m_CurHoverPixel.x();
-  uint32_t y = (uint32_t)m_CurHoverPixel.y();
-
-  RT_FetchCurrentPixel(r, x, y, pickValue, realValue);
-
-  m_CurHoverValue = pickValue;
-
-  GUIInvoke::call(this, [this]() { UI_UpdateStatusText(); });
-}
-
-void TextureViewer::RT_UpdateAndDisplay(IReplayController *r)
+void TextureViewer::RT_UpdateAndDisplay(IReplayController *, const TextureDisplay &display,
+                                        uint32_t historyEvent)
 {
   if(m_Output != NULL)
-    m_Output->SetTextureDisplay(m_TexDisplay);
-
-  GUIInvoke::call(this, [this]() { ui->render->update(); });
+  {
+    if(historyEvent != 0)
+      m_Output->DisplayTextureAtEvent(historyEvent, display);
+    else
+    {
+      m_Output->SetTextureDisplay(display);
+      // SetTextureDisplay only changes replay-side presentation state. Draw and present it in the
+      // same coalesced callback so a queued QWidget paint cannot add a second replay-thread hop.
+      m_Output->Display();
+    }
+  }
 }
 
-void TextureViewer::RT_UpdateVisualRange(IReplayController *r)
+void TextureViewer::SuspendTexturePresentation()
 {
-  TextureDescription *texptr = GetCurrentTexture();
+  // Reparenting the shared native window retains its last presented backbuffer. Invalidate queued
+  // work and hide it before moving the layout, so a history image cannot become the current tab's
+  // first visible frame. A running replay may finish, but only the matching request can reveal it.
+  m_DisplayRequestSerial.fetch_add(1, std::memory_order_acq_rel);
+  ui->render->SetOutputEventId(0);
+  ui->pixelContext->SetOutputEventId(0);
+  // i18n-ignore: internal presentation-evidence properties for UI regression fixtures.
+  ui->render->setProperty("eidDisplayedEvent", QVariant());
+  // i18n-ignore: internal presentation-evidence properties for UI regression fixtures.
+  ui->render->setProperty("eidDisplayedResource", QVariant());
+  if(m_Output && m_Ctx.IsCaptureLoaded())
+  {
+    m_PresentationSuspended = true;
+    m_PresentationPending = true;
+    // i18n-ignore: internal presentation-evidence property for UI regression fixtures.
+    ui->render->setProperty("eidPresentationPending", true);
+    ui->render->hide();
+    ui->pixelContext->hide();
+  }
+}
 
-  if(!m_Visualise || texptr == NULL || m_Output == NULL)
+void TextureViewer::CapturePresentationWitness()
+{
+  // i18n-ignore: opt-in profiling environment and evidence property identifiers, never UI text.
+  if(qgetenv("RENDERDOC_EID_TIMING") != "1")
+    return;
+  QImage image;
+  if(m_Ctx.IsCaptureLoaded() && m_Output && !m_PresentationSuspended)
+  {
+    const ViewRequest request = CurrentViewRequest();
+    m_Ctx.Replay().BlockInvoke([this, request, &image](IReplayController *r) {
+      if(!IsCurrentViewRequest(request) || r->GetCurrentEventID() != request.eventId)
+        return;
+      // Read the existing output, without Display(), rebinding, or an alternate output. A test
+      // must observe a stale output image if one exists, not repair it by rendering its reference.
+      const rdcpair<int32_t, int32_t> dimensions = m_Output->GetDimensions();
+      if(dimensions.first <= 0 || dimensions.second <= 0)
+        return;
+      const uint64_t expected = uint64_t(dimensions.first) * dimensions.second * 3;
+      if(expected > 256ULL * 1024 * 1024)
+        return;
+      const bytebuf pixels = m_Output->ReadbackOutputTexture();
+      if(expected != pixels.size() || !IsCurrentViewRequest(request))
+        return;
+      image = QImage(pixels.data(), dimensions.first, dimensions.second, dimensions.first * 3,
+                     QImage::Format_RGB888).copy();
+    });
+    if(!IsCurrentViewRequest(request))
+      image = QImage();
+  }
+  // i18n-ignore: one explicitly requested diagnostic frame; the fixture clears it after reading.
+  setProperty("eidPresentationWitness", image);
+}
+
+void TextureViewer::WhenPresentationReady(uint32_t eventId, std::function<void()> completed)
+{
+  if(!m_Ctx.IsCaptureLoaded() || !m_Output || !isVisible() || m_Ctx.CurEvent() != eventId ||
+     (!m_PresentationPending &&
+      m_CompletedDisplayRequestSerial == m_DisplayRequestSerial.load(std::memory_order_acquire)))
+  {
+    completed();
+    return;
+  }
+  m_PresentationWaiters.push_back(std::move(completed));
+}
+
+void TextureViewer::CompletePresentationWaiters()
+{
+  // Detach before callbacks: a completion can navigate, close a view or request another update.
+  std::vector<std::function<void()>> waiters;
+  waiters.swap(m_PresentationWaiters);
+  for(const auto &completed : waiters)
+    completed();
+}
+
+void TextureViewer::QueueUpdateAndDisplay(bool updateAnalysis)
+{
+  // Capture-close notifications also repaint widgets. They must not create new native outputs
+  // after the close barrier or recreate a preview child whose capture has already been detached.
+  if(!m_Ctx.IsCaptureLoaded() || !m_Output)
+    return;
+  if(m_RetargetingRenderTargetHistory || m_UpdatingTextureState)
     return;
 
-  TextureDescription &tex = *texptr;
+  m_AnalysisPending = m_AnalysisPending || updateAnalysis;
+
+  QPointer<TextureViewer> self(this);
+  m_DisplayRequestSerial.fetch_add(1, std::memory_order_acq_rel);
+  ViewRequest request = CurrentViewRequest();
+  // i18n-ignore: internal presentation identities used by isolated regression fixtures.
+  ui->render->setProperty("eidRequestedSerial", qulonglong(request.serial));
+  // i18n-ignore: internal presentation-evidence property, never shown to the user.
+  ui->render->setProperty("eidPresentationPending", true);
+  CaptureNativeThumbnailBindings(request);
+  m_Ctx.Replay().AsyncInvoke(
+      // i18n-ignore: internal replay-request coalescing tag, never shown to the user.
+      lit("TextureViewerHistoryDisplay"), [self, request, updateAnalysis](IReplayController *r) {
+        if(!self || !self->IsCurrentViewRequest(request) || r->GetCurrentEventID() != request.eventId)
+          return;
+        self->RT_ExecuteDisplayRequest(r, request, updateAnalysis);
+      });
+}
+
+void TextureViewer::CaptureNativeThumbnailBindings(ViewRequest &request)
+{
+  // Capture only visible preview bindings on the GUI thread. Their cached native outputs draw
+  // directly from replay textures; no thumbnail pixels or readback buffers cross to Qt.
+  for(ThumbnailStrip *strip : {ui->outputThumbs, ui->inputThumbs})
+  {
+    for(ResourcePreview *preview : strip->thumbs())
+    {
+      if(!preview->isActive() || !preview->isVisible() || preview->visibleRegion().isEmpty())
+        continue;
+      ViewRequest::ThumbnailBinding binding;
+      binding.preview = preview;
+      binding.size = preview->GetThumbSize() * preview->devicePixelRatioF();
+      if(preview->NativePresentationMatches(request.eventSerial, binding.size))
+        continue;
+      binding.window = preview->GetWidgetWindowingData();
+      binding.resource = preview->property("id").value<ResourceId>();
+      binding.subresource = {preview->property("mip").toUInt(), preview->property("slice").toUInt(),
+                             0};
+      binding.typeCast = (CompType)preview->property("cast").toUInt();
+      const TextureDescription *texture = m_Ctx.GetTexture(binding.resource);
+      binding.depth = texture && ((texture->creationFlags & TextureCategory::DepthTarget) ||
+                                  texture->format.compType == CompType::Depth);
+      request.thumbnails.push_back(binding);
+    }
+  }
+}
+
+void TextureViewer::QueueNativeThumbnailRefresh()
+{
+  if(!m_Ctx.IsCaptureLoaded() || !m_Output || m_UpdatingTextureState)
+    return;
+  ViewRequest request = CurrentViewRequest();
+  CaptureNativeThumbnailBindings(request);
+  if(request.thumbnails.empty())
+    return;
+  QPointer<TextureViewer> self(this);
+  m_Ctx.Replay().AsyncInvoke(
+      // i18n-ignore: coalesced native-preview expose/resize queue; not a new main-image request.
+      lit("TextureViewerNativeThumbnails"), [self, request](IReplayController *r) {
+        if(self && self->IsCurrentViewRequest(request) && r->GetCurrentEventID() == request.eventId)
+          self->RT_UpdateNativeThumbnails(r, request);
+      });
+}
+
+void TextureViewer::RT_ExecuteDisplayRequest(IReplayController *r, const ViewRequest &request,
+                                             bool updateAnalysis)
+{
+  QPointer<TextureViewer> self(this);
+  if(request.clearBeforeReveal)
+  {
+    // A hidden native child does not receive its final resize until show(). Clear the old
+    // surface before that show, then bind the final source only after the visible layout is
+    // settled. No history replay or current-event navigation is needed for this clear.
+    TextureDisplay blank = request.display;
+    blank.resourceId = ResourceId();
+    blank.customShaderId = ResourceId();
+    blank.overlay = DebugOverlay::NoOverlay;
+    blank.decodeYUV = false;
+    self->RT_UpdateAndDisplay(r, blank, 0);
+  }
+  else
+  {
+    self->RT_UpdateAndDisplay(r, request.display, request.historyEvent);
+  }
+  if(!self->IsCurrentViewRequest(request))
+    return;
+  if(self->m_Output && r->GetFatalErrorStatus().code == ResultCode::Succeeded)
+  {
+    const rdcpair<int32_t, int32_t> renderedDimensions = self->m_Output->GetDimensions();
+    GUIInvoke::call(qApp, [self, request, updateAnalysis, renderedDimensions]() {
+      if(!self || !self->IsCurrentViewRequest(request) || self->m_Ctx.CurEvent() != request.eventId)
+        return;
+      if(request.clearBeforeReveal)
+      {
+        // Keep the paint gate and completion identity closed throughout show()/resize.
+        // Those synchronous resize callbacks update fitted scale/scrollbars, but must not
+        // race an intermediate request ahead of the final visible layout.
+        self->m_PresentationSuspended = false;
+        {
+          QScopedValueRollback<bool> retargeting(self->m_RetargetingRenderTargetHistory, true);
+          self->ui->render->show();
+          self->ui->pixelContext->show();
+          self->ui->renderLayout->activate();
+          self->ui->render->layout()->activate();
+          self->ui->pixelContext->layout()->activate();
+        }
+        GUIInvoke::defer(qApp, [self, request, updateAnalysis]() {
+          if(self && self->IsCurrentViewRequest(request) && self->m_Ctx.CurEvent() == request.eventId)
+            self->QueueUpdateAndDisplay(updateAnalysis);
+        });
+        return;
+      }
+      if(self->m_PresentationPending &&
+         !TexturePresentationMatchesCanvas(
+             renderedDimensions, QSize(self->realRenderWidth(), self->realRenderHeight())))
+      {
+        // A later layout/resize may have overtaken the worker without changing EID. It is
+        // not a completed presentation of this canvas; request the settled dimensions.
+        if(self->ui->render->isVisible())
+          self->QueueUpdateAndDisplay(updateAnalysis);
+        return;
+      }
+      // Open native painting only after this request has actually bound and displayed its
+      // source. A stale callback must not reopen the gate after a newer tab hid the surface.
+      self->ui->render->SetOutputEventId(request.eventId);
+      self->ui->pixelContext->SetOutputEventId(request.eventId);
+      // i18n-ignore: internal completion-evidence property for the replay benchmark.
+      self->ui->render->setProperty("eidDisplayedEvent",
+                                    request.historyEvent ? request.historyEvent : request.eventId);
+      // i18n-ignore: internal completion-evidence property for the replay benchmark.
+      self->ui->render->setProperty("eidDisplayedResource", ToQStr(request.display.resourceId));
+      // i18n-ignore: internal completion-evidence properties for UI regression fixtures.
+      self->ui->render->setProperty("eidPresentationSerial", qulonglong(request.serial));
+      // i18n-ignore: internal completion-evidence properties for UI regression fixtures.
+      self->ui->render->setProperty("eidPresentationPending", false);
+      self->m_PresentationPending = false;
+    });
+    // Reveal the main image promptly. The full-update completion still joins the native
+    // thumbnail batch and the latest display serial; optional analysis starts afterwards.
+    if(!request.clearBeforeReveal && self->IsCurrentViewRequest(request))
+    {
+      self->RT_UpdateNativeThumbnails(r, request);
+      GUIInvoke::call(qApp, [self, request]() {
+        if(!self || !self->IsCurrentViewRequest(request) ||
+           self->m_Ctx.CurEvent() != request.eventId || self->m_PresentationPending)
+          return;
+        self->m_CompletedDisplayRequestSerial = request.serial;
+        if(self->m_AnalysisPending)
+          self->m_AnalysisTimer->start();
+        self->CompletePresentationWaiters();
+      });
+    }
+  }
+  else
+  {
+    GUIInvoke::call(qApp, [self]() {
+      if(self)
+        self->CompletePresentationWaiters();
+    });
+  }
+}
+
+void TextureViewer::CaptureThumbnailWitnesses()
+{
+  // Explicit diagnostic readback only. Ordinary preview drawing never invokes this slot.
+  if(qEnvironmentVariableIntValue("RENDERDOC_EID_TIMING") != 1 || !m_Ctx.IsCaptureLoaded())
+    return;
+  struct Witness
+  {
+    ResourcePreview *preview;
+    ResourceId resource;
+    QImage image;
+  };
+  std::vector<Witness> witnesses;
+  const uint32_t eventId = m_Ctx.CurEvent();
+  for(ThumbnailStrip *strip : {ui->outputThumbs, ui->inputThumbs})
+    for(ResourcePreview *preview : strip->thumbs())
+      if(preview->isActive() && preview->isVisible() && !preview->visibleRegion().isEmpty())
+        witnesses.push_back({preview, preview->property("id").value<ResourceId>(), QImage()});
+  m_Ctx.Replay().BlockInvoke([this, eventId, &witnesses](IReplayController *r) {
+    if(r->GetCurrentEventID() != eventId)
+      return;
+    for(Witness &witness : witnesses)
+    {
+      auto it = m_NativeThumbnailOutputs.find(witness.preview);
+      if(it == m_NativeThumbnailOutputs.end())
+        continue;
+      const auto dimensions = it->second->GetDimensions();
+      if(dimensions.first <= 0 || dimensions.second <= 0 ||
+         uint64_t(dimensions.first) * dimensions.second > 16 * 1024 * 1024)
+        continue;
+      const bytebuf bytes = it->second->ReadbackOutputTexture();
+      if(bytes.size() != size_t(dimensions.first) * dimensions.second * 3)
+        continue;
+      witness.image = QImage(bytes.data(), dimensions.first, dimensions.second,
+                             dimensions.first * 3, QImage::Format_RGB888)
+                          .copy();
+    }
+  });
+  QVariantList values;
+  for(const Witness &witness : witnesses)
+  {
+    // i18n-ignore: opt-in pixel evidence fields, never user-facing labels.
+    values.push_back(QVariantMap{
+        {lit("resource"),    // i18n-ignore: diagnostic resource identity key.
+         ToQStr(witness.resource)},
+        {lit("event"), eventId},                           // i18n-ignore: diagnostic event ID key.
+        {lit("image"), witness.image},                     // i18n-ignore: diagnostic image key.
+        {lit("mip"), witness.preview->property("mip")},    // i18n-ignore: diagnostic mip key.
+        {lit("slice"), witness.preview->property("slice")},    // i18n-ignore: diagnostic slice key.
+        {lit("cast"), witness.preview->property("cast")}});    // i18n-ignore: diagnostic type-cast key.
+  }
+  // i18n-ignore: explicitly requested native-surface evidence, consumed only by regression fixtures.
+  setProperty("replayThumbnailWitnesses", values);
+}
+
+void TextureViewer::RT_UpdateNativeThumbnails(IReplayController *r, const ViewRequest &request)
+{
+  for(const ViewRequest::ThumbnailBinding &binding : request.thumbnails)
+  {
+    if(!IsCurrentViewRequest(request) || r->GetCurrentEventID() != request.eventId || !binding.preview)
+      return;
+    IReplayOutput *&output = m_NativeThumbnailOutputs[binding.preview.data()];
+    if(!output)
+      output = r->CreateOutput(binding.window, ReplayOutputType::Texture);
+    if(!output)
+      continue;
+    TextureDisplay display;
+    display.resourceId = binding.resource;
+    display.subresource = binding.subresource;
+    display.typeCast = binding.typeCast;
+    display.red = display.green = display.blue = true;
+    display.alpha = false;
+    display.hdrMultiplier = -1.0f;
+    display.linearDisplayAsGamma = true;
+    display.scale = -1.0f;
+    display.backgroundColor = FloatVector(0.0f, 0.0f, 0.0f, 1.0f);
+    if(binding.typeCast == CompType::SNorm)
+      display.rangeMin = -1.0f;
+    if(binding.depth)
+      display.green = display.blue = false;
+    output->SetTextureDisplay(display);
+    output->Display();
+  }
+  QPointer<TextureViewer> self(this);
+  GUIInvoke::call(this, [self, request]() {
+    if(!self || !self->IsCurrentViewRequest(request))
+      return;
+    for(const ViewRequest::ThumbnailBinding &binding : request.thumbnails)
+      if(binding.preview)
+        binding.preview->MarkNativePresentation(request.eventSerial, binding.size);
+  });
+}
+
+void TextureViewer::QueueDeferredAnalysis()
+{
+  if(!m_Ctx.IsCaptureLoaded() || !isVisible() || !m_Output)
+    return;
+  if(m_Ctx.IsScrubbing())
+  {
+    m_AnalysisTimer->start();
+    return;
+  }
+  const ViewRequest request = CurrentViewRequest();
+  QPointer<TextureViewer> self(this);
+  m_AnalysisPending = false;
+  m_Ctx.Replay().AsyncInvoke(
+      // i18n-ignore: internal coalescing tag for optional idle-time texture analysis.
+      lit("TextureViewerDeferredAnalysis"), [self, request](IReplayController *r) {
+        if(!self || !self->IsCurrentViewRequest(request) || r->GetCurrentEventID() != request.eventId)
+          return;
+        self->RT_PickPixelsAndUpdate(r, request);
+        self->RT_PickPixelsAndUpdate(r, request, true);
+        self->RT_UpdateVisualRange(r, request);
+      });
+}
+
+void TextureViewer::CancelReplayBackgroundWork()
+{
+  if(m_RenderTargetHistory)
+    m_RenderTargetHistory->OnReplayInput();
+}
+
+void TextureViewer::QueuePickPixelsAndUpdate(bool hover)
+{
+  if(m_RetargetingRenderTargetHistory || m_UpdatingTextureState)
+    return;
+  QPointer<TextureViewer> self(this);
+  const ViewRequest request = CurrentViewRequest();
+  // i18n-ignore: internal replay-request coalescing tags, never shown to the user.
+  m_Ctx.Replay().AsyncInvoke(hover ? lit("PickPixelHover") : lit("PickPixelClick"),
+                             [self, request, hover](IReplayController *r) {
+                               if(self)
+                                 self->RT_PickPixelsAndUpdate(r, request, hover);
+                             });
+}
+
+void TextureViewer::QueueUpdateVisualRange()
+{
+  if(m_RetargetingRenderTargetHistory || m_UpdatingTextureState)
+    return;
+  QPointer<TextureViewer> self(this);
+  const ViewRequest request = CurrentViewRequest();
+  // i18n-ignore: internal replay-request coalescing tag, never shown to the user.
+  m_Ctx.Replay().AsyncInvoke(lit("TextureViewerHistogram"), [self, request](IReplayController *r) {
+    if(self)
+      self->RT_UpdateVisualRange(r, request);
+  });
+}
+
+uint32_t TextureViewer::ActiveRenderTargetHistoryEvent() const
+{
+  // This accessor is used on the replay thread. Visibility is encoded by storing 0 when the
+  // embedded panel is hidden, so no QWidget is ever touched outside the GUI thread.
+  return m_RenderTargetHistoryEvent.load(std::memory_order_relaxed);
+}
+
+void TextureViewer::CloseAIAnnotation()
+{
+  ++m_AIAnnotationSerial;
+  m_AIAnnotationStack->setCurrentIndex(0);
+  if(m_AIAnnotation)
+  {
+    m_AIAnnotationStack->removeWidget(m_AIAnnotation);
+    m_AIAnnotation->deleteLater();
+    m_AIAnnotation.clear();
+  }
+}
+
+bool TextureViewer::MatchesAIAnnotation(const QJsonObject &context) const
+{
+  const ViewRequest request = CurrentViewRequest();
+  const QJsonObject capture = context.value(QLatin1String("capture")).toObject();
+  const QJsonObject resource = context.value(QLatin1String("resource")).toObject();
+  const QJsonObject annotation = context.value(QLatin1String("annotation")).toObject();
+  return capture.value(QLatin1String("eventId")).toDouble() ==
+             (request.historyEvent ? request.historyEvent : request.eventId) &&
+         resource.value(QLatin1String("resourceId")).toString() ==
+             ToQStr(request.display.resourceId) &&
+         resource.value(QLatin1String("mip")).toDouble() == request.display.subresource.mip &&
+         resource.value(QLatin1String("slice")).toDouble() == request.display.subresource.slice &&
+         resource.value(QLatin1String("sample")).toDouble() == request.display.subresource.sample &&
+         annotation.value(QLatin1String("flipY")).toBool() == request.display.flipY &&
+         annotation.value(QLatin1String("rangeMin")).toDouble() == request.display.rangeMin &&
+         annotation.value(QLatin1String("rangeMax")).toDouble() == request.display.rangeMax &&
+         annotation.value(QLatin1String("channels")).toArray() ==
+             QJsonArray({request.display.red, request.display.green, request.display.blue,
+                         request.display.alpha}) &&
+         annotation.value(QLatin1String("typeCast")).toString() == ToQStr(request.display.typeCast) &&
+         annotation.value(QLatin1String("overlay")).toString() == ToQStr(request.display.overlay) &&
+         annotation.value(QLatin1String("customShaderId")).toString() ==
+             ToQStr(request.display.customShaderId) &&
+         annotation.value(QLatin1String("decodeYUV")).toBool() == request.display.decodeYUV &&
+         annotation.value(QLatin1String("linearDisplayAsGamma")).toBool() ==
+             request.display.linearDisplayAsGamma;
+}
+
+void TextureViewer::EditAIAnnotation(
+    const QImage &original, const QString &title, const QJsonObject &context,
+    std::function<bool(const QImage &, const QImage &, const QJsonObject &)> accept)
+{
+  // An in-progress editor owns its unsaved strokes. Bring it forward instead of replacing it.
+  if(m_AIAnnotation)
+  {
+    m_AIAnnotationStack->setCurrentWidget(m_AIAnnotation);
+    m_AIAnnotation->setFocus();
+    return;
+  }
+  ++m_AIAnnotationSerial;
+  QRectF imageViewRect;
+  if(MatchesAIAnnotation(context))
+  {
+    // TextureDisplay uses physical pixels and the full base-level extent, even for a mip.
+    // The immutable AI snapshot can be downsampled; map its whole image onto the same
+    // logical rectangle instead of fitting it to the smaller annotation canvas.
+    const ViewRequest request = CurrentViewRequest();
+    const qreal dpr = ui->render->devicePixelRatioF();
+    imageViewRect = QRectF(
+        QPointF(ui->render->mapToGlobal(QPoint())) +
+            QPointF(request.display.xOffset / dpr, request.display.yOffset / dpr),
+        QSizeF(request.texture.width, request.texture.height) * (request.display.scale / dpr));
+  }
+  QPointer<TextureViewer> self(this);
+  m_AIAnnotation = new AITextureAnnotation(
+      original, title, context, accept,
+      [self]() {
+        if(self)
+          self->CloseAIAnnotation();
+      },
+      m_AIAnnotationStack);
+  m_AIAnnotationStack->addWidget(m_AIAnnotation);
+  m_AIAnnotationStack->setCurrentWidget(m_AIAnnotation);
+  if(imageViewRect.isValid())
+    m_AIAnnotation->SetImageViewRect(imageViewRect);
+}
+
+void TextureViewer::BeginAIAnnotation(
+    const QJsonObject &captureBinding,
+    std::function<bool(const QImage &, const QImage &, const QJsonObject &)> accept,
+    std::function<void(const QString &)> error)
+{
+  if(m_AIAnnotation)
+  {
+    m_AIAnnotationStack->setCurrentWidget(m_AIAnnotation);
+    m_AIAnnotation->setFocus();
+    return;
+  }
+  const ViewRequest request = CurrentViewRequest();
+  const uint32_t eventId = request.historyEvent ? request.historyEvent : request.eventId;
+  if(!m_Ctx.IsCaptureLoaded() || request.texture.resourceId == ResourceId() ||
+     request.display.resourceId == ResourceId() || eventId == 0)
+  {
+    error(tr("Select a render target in the Texture Viewer before drawing."));
+    return;
+  }
+  const uint64_t serial = ++m_AIAnnotationSerial;
+  const int mip = qMin(31U, request.display.subresource.mip);
+  const QSize textureSize(qMax(1U, request.texture.width >> mip),
+                          qMax(1U, request.texture.height >> mip));
+  // The editor inherits the live viewport transform. Capture its source at one
+  // texel per pixel so opening the brush never adds a second resampling step.
+  const QSize imageSize = textureSize;
+  if(qint64(imageSize.width()) * imageSize.height() > 64LL * 1024 * 1024)
+  {
+    error(tr("The render target image could not be read for annotation."));
+    return;
+  }
+  QJsonObject context =
+      ReplayLabAIResourceContext(m_Ctx, request.display.resourceId, "texture-viewer");
+  QJsonObject capture = captureBinding;
+  capture[QLatin1String("eventId")] = double(eventId);
+  capture[QLatin1String("selectedEventId")] = double(m_Ctx.CurSelectedEvent());
+  context[QLatin1String("capture")] = capture;
+  QJsonObject origin = context.value(QLatin1String("origin")).toObject();
+  origin[QLatin1String("kind")] = QLatin1String("rt-annotation");
+  context[QLatin1String("origin")] = origin;
+  QJsonObject resource = context.value(QLatin1String("resource")).toObject();
+  resource[QLatin1String("mip")] = double(request.display.subresource.mip);
+  resource[QLatin1String("slice")] = double(request.display.subresource.slice);
+  resource[QLatin1String("sample")] = double(request.display.subresource.sample);
+  context[QLatin1String("resource")] = resource;
+  QJsonObject annotation;
+  annotation[QLatin1String("schema")] = QLatin1String("replaylab-rt-annotation/v1");
+  annotation[QLatin1String("pairId")] = QUuid::createUuid().toString().mid(1, 36);
+  annotation[QLatin1String("coordinateSpace")] = QLatin1String("display-normalized-top-left");
+  annotation[QLatin1String("imageWidth")] = imageSize.width();
+  annotation[QLatin1String("imageHeight")] = imageSize.height();
+  annotation[QLatin1String("textureWidth")] = textureSize.width();
+  annotation[QLatin1String("textureHeight")] = textureSize.height();
+  annotation[QLatin1String("flipY")] = request.display.flipY;
+  annotation[QLatin1String("rangeMin")] = request.display.rangeMin;
+  annotation[QLatin1String("rangeMax")] = request.display.rangeMax;
+  annotation[QLatin1String("typeCast")] = ToQStr(request.display.typeCast);
+  annotation[QLatin1String("channels")] = QJsonArray(
+      {request.display.red, request.display.green, request.display.blue, request.display.alpha});
+  annotation[QLatin1String("overlay")] = ToQStr(request.display.overlay);
+  annotation[QLatin1String("customShaderId")] = ToQStr(request.display.customShaderId);
+  annotation[QLatin1String("decodeYUV")] = request.display.decodeYUV;
+  annotation[QLatin1String("linearDisplayAsGamma")] = request.display.linearDisplayAsGamma;
+  context[QLatin1String("annotation")] = annotation;
+  const QString title = tr("Annotate EID %1 | %2 | MIP %3, slice %4")
+                            .arg(eventId)
+                            .arg(m_Ctx.GetResourceName(request.display.resourceId))
+                            .arg(request.display.subresource.mip)
+                            .arg(request.display.subresource.slice);
+  QPointer<TextureViewer> self(this);
+  m_Ctx.Replay().AsyncInvoke([self, serial, request, eventId, imageSize, context, title, accept,
+                              error](IReplayController *r) {
+    QImage image;
+    QString diagnostic;
+    if(!self || !self->IsCurrentViewRequest(request) || r->GetCurrentEventID() != request.eventId)
+      diagnostic = tr("The texture changed while preparing the annotation. Click the brush again.");
+    else
+    {
+      TextureDisplay display = request.display;
+      display.scale = 1.0f;
+      display.xOffset = display.yOffset = 0;
+      const uint64_t generation = r->GetShaderReplacementGeneration(0);
+      IReplayOutput *output =
+          r->CreateOutput(CreateHeadlessWindowingData(imageSize.width(), imageSize.height()),
+                          ReplayOutputType::Texture);
+      if(output)
+      {
+        output->DisplayTextureAtEvent(eventId, display);
+        const bytebuf pixels = output->ReadbackOutputTexture();
+        if(pixels.size() == uint64_t(imageSize.width()) * imageSize.height() * 3 &&
+           r->GetShaderReplacementGeneration(0) == generation)
+          image = QImage(pixels.data(), imageSize.width(), imageSize.height(),
+                         imageSize.width() * 3, QImage::Format_RGB888)
+                      .copy();
+        output->Shutdown();
+      }
+      if(image.isNull())
+        diagnostic = tr("The render target image could not be read for annotation.");
+    }
+    GUIInvoke::call(qApp, [self, serial, request, image, context, title, accept, error, diagnostic]() {
+      if(!self || self->m_AIAnnotationSerial != serial)
+        return;
+      if(!diagnostic.isEmpty() || !self->IsCurrentViewRequest(request))
+      {
+        error(diagnostic.isEmpty()
+                  ? tr("The texture changed while preparing the annotation. Click the brush again.")
+                  : diagnostic);
+        return;
+      }
+      self->EditAIAnnotation(image, title, context, accept);
+    });
+  });
+}
+
+void TextureViewer::RT_UpdateVisualRange(IReplayController *r, const ViewRequest &request)
+{
+  if(!IsCurrentViewRequest(request) || r->GetCurrentEventID() != request.eventId ||
+     !request.visualise || request.texture.resourceId == ResourceId() || m_Output == NULL)
+    return;
+
+  TextureDisplay analysisDisplay;
+  const bool haveSnapshot =
+      ResolveTextureHistorySnapshot(r, request.historyEvent, request.display, analysisDisplay);
+  ScopedTextureHistoryReplay historyReplay(r, haveSnapshot ? 0 : request.historyEvent);
+
+  const TextureDescription &tex = request.texture;
+  const TextureDisplay &display = request.display;
 
   ResourceFormat fmt = tex.format;
 
   bool uintTex = (tex.format.compType == CompType::UInt);
   bool sintTex = (tex.format.compType == CompType::SInt);
 
-  if(tex.format.compType == CompType::Typeless && m_TexDisplay.typeCast == CompType::UInt)
+  if(tex.format.compType == CompType::Typeless && display.typeCast == CompType::UInt)
     uintTex = true;
 
-  if(tex.format.compType == CompType::Typeless && m_TexDisplay.typeCast == CompType::SInt)
+  if(tex.format.compType == CompType::Typeless && display.typeCast == CompType::SInt)
     sintTex = true;
 
-  if(m_TexDisplay.customShaderId != ResourceId())
+  if(display.customShaderId != ResourceId())
     fmt.compCount = 4;
 
   rdcfixedarray<bool, 4> channels = {
-      m_TexDisplay.red ? true : false,
-      m_TexDisplay.green && fmt.compCount > 1,
-      m_TexDisplay.blue && fmt.compCount > 2,
-      m_TexDisplay.alpha && fmt.compCount > 3,
+      display.red ? true : false,
+      display.green && fmt.compCount > 1,
+      display.blue && fmt.compCount > 2,
+      display.alpha && fmt.compCount > 3,
   };
 
-  ResourceId textureId = m_TexDisplay.resourceId;
-  Subresource sub = m_TexDisplay.subresource;
-  CompType typeCast = m_TexDisplay.typeCast;
+  ResourceId textureId = analysisDisplay.resourceId;
+  Subresource sub = analysisDisplay.subresource;
+  CompType typeCast = analysisDisplay.typeCast;
 
-  if(m_TexDisplay.customShaderId != ResourceId() && m_Output->GetCustomShaderTexID() != ResourceId())
+  if(analysisDisplay.customShaderId != ResourceId() &&
+     m_Output->GetCustomShaderTexID() != ResourceId())
   {
     textureId = m_Output->GetCustomShaderTexID();
     sub.slice = sub.sample = 0;
@@ -884,7 +1753,7 @@ void TextureViewer::RT_UpdateVisualRange(IReplayController *r)
   // When we do this, after we have the histogram we set the appropriate bucket to max - to still
   // show that there was data there but it's "clamped".
   float excludedBucket[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
-  const float rangeSize = ui->rangeHistogram->rangeMax() - ui->rangeHistogram->rangeMin();
+  const float rangeSize = request.rangeMax - request.rangeMin;
   for(int i = 0; i < 4; i++)
   {
     if(min.uintValue[i] == max.uintValue[i])
@@ -892,17 +1761,16 @@ void TextureViewer::RT_UpdateVisualRange(IReplayController *r)
       channels[i] = false;
 
       if(uintTex)
-        excludedBucket[i] = (float(min.uintValue[i]) - ui->rangeHistogram->rangeMin()) / rangeSize;
+        excludedBucket[i] = (float(min.uintValue[i]) - request.rangeMin) / rangeSize;
       else if(sintTex)
-        excludedBucket[i] = (float(min.intValue[i]) - ui->rangeHistogram->rangeMin()) / rangeSize;
+        excludedBucket[i] = (float(min.intValue[i]) - request.rangeMin) / rangeSize;
       else
-        excludedBucket[i] = (min.floatValue[i] - ui->rangeHistogram->rangeMin()) / rangeSize;
+        excludedBucket[i] = (min.floatValue[i] - request.rangeMin) / rangeSize;
     }
   }
 
   rdcarray<uint32_t> histogram =
-      r->GetHistogram(textureId, sub, typeCast, ui->rangeHistogram->rangeMin(),
-                      ui->rangeHistogram->rangeMax(), channels);
+      r->GetHistogram(textureId, sub, typeCast, request.rangeMin, request.rangeMax, channels);
 
   if(!histogram.empty())
   {
@@ -925,10 +1793,12 @@ void TextureViewer::RT_UpdateVisualRange(IReplayController *r)
       }
     }
 
-    GUIInvoke::call(this, [this, histogramVec]() {
-      ui->rangeHistogram->setHistogramRange(ui->rangeHistogram->rangeMin(),
-                                            ui->rangeHistogram->rangeMax());
-      ui->rangeHistogram->setHistogramData(histogramVec);
+    QPointer<TextureViewer> self(this);
+    GUIInvoke::call(this, [self, request, histogramVec]() {
+      if(!self || !self->IsCurrentViewRequest(request) || !self->m_Visualise)
+        return;
+      self->ui->rangeHistogram->setHistogramRange(request.rangeMin, request.rangeMax);
+      self->ui->rangeHistogram->setHistogramData(histogramVec);
     });
   }
 }
@@ -1219,10 +2089,14 @@ void TextureViewer::UI_UpdateTextureDetails()
       }
     }
 
+    if(m_CachedTexture == &m_TemporaryPreviewTexture && m_TemporaryPreviewActive)
+      title = tr("Visual debug preview - RGBA32F");
     ui->renderContainer->setWindowTitle(title);
   }
 
-  ui->texStatusName->setText(m_Ctx.GetResourceName(current.resourceId) + lit(" - "));
+  ui->texStatusName->setText((m_CachedTexture == &m_TemporaryPreviewTexture && m_TemporaryPreviewActive
+                                ? tr("Visual debug preview - RGBA32F")
+                                : QString(m_Ctx.GetResourceName(current.resourceId))) + lit(" - "));
 
   status = QString();
 
@@ -1291,7 +2165,15 @@ void TextureViewer::UI_OnTextureSelectionChanged(bool newAction)
   m_HighWaterStatusLength = 0;
 
   if(texptr == NULL)
+  {
+    m_TexDisplay.resourceId = ResourceId();
+    UI_UpdateTextureDetails();
+    QueueUpdateAndDisplay();
     return;
+  }
+
+  const bool wasUpdating = m_UpdatingTextureState;
+  QScopedValueRollback<bool> updating(m_UpdatingTextureState, true);
 
   TextureDescription &tex = *texptr;
 
@@ -1327,7 +2209,9 @@ void TextureViewer::UI_OnTextureSelectionChanged(bool newAction)
   m_TexDisplay.resourceId = tex.resourceId;
 
   // interpret the texture according to the currently following type.
-  if(!currentTextureIsLocked())
+  if(m_CachedTexture == &m_TemporaryPreviewTexture && m_TemporaryPreviewActive)
+    m_TexDisplay.typeCast = CompType::Float;
+  else if(!currentTextureIsLocked())
     m_TexDisplay.typeCast = m_Following.GetTypeHint(m_Ctx);
   else
     m_TexDisplay.typeCast = CompType::Typeless;
@@ -1388,6 +2272,7 @@ void TextureViewer::UI_OnTextureSelectionChanged(bool newAction)
 
   m_TexDisplay.subresource.mip = 0;
   m_TexDisplay.subresource.slice = 0;
+  m_TexDisplay.subresource.sample = 0;
 
   bool usemipsettings = true;
   bool useslicesettings = true;
@@ -1399,8 +2284,7 @@ void TextureViewer::UI_OnTextureSelectionChanged(bool newAction)
 
     // add an option to display unweighted average resolved value,
     // to get an idea of how the samples average
-    if(tex.format.compType != CompType::UInt && tex.format.compType != CompType::SInt &&
-       tex.format.compType != CompType::Depth && !(tex.creationFlags & TextureCategory::DepthTarget))
+    if(CanAverageTextureSamples(tex, m_TexDisplay.typeCast))
       ui->mipLevel->addItem(tr("Average val"));
 
     ui->mipLabel->setText(tr("Sample"));
@@ -1600,17 +2484,10 @@ void TextureViewer::UI_OnTextureSelectionChanged(bool newAction)
   UI_UpdateTextureDetails();
   UI_UpdateChannels();
 
+  m_UpdatingTextureState = wasUpdating;
+  QueueUpdateAndDisplay(true);
   if(ui->autoFit->isChecked())
     AutoFitRange();
-
-  m_Ctx.Replay().AsyncInvoke([this](IReplayController *r) {
-    RT_UpdateAndDisplay(r);
-
-    if(m_Output != NULL)
-      RT_PickPixelsAndUpdate(r);
-
-    RT_UpdateVisualRange(r);
-  });
 
   HighlightUsage();
 }
@@ -1861,9 +2738,10 @@ void TextureViewer::UI_UpdateChannels()
 #undef DISABLE
 
   m_TexDisplay.flipY = ui->flip_y->isChecked();
+  setProperty("textureDisplayFlipY", m_TexDisplay.flipY);
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
-  INVOKE_MEMFN(RT_UpdateVisualRange);
+  QueueUpdateAndDisplay();
+  QueueUpdateVisualRange();
   UI_UpdateStatusText();
 }
 
@@ -1906,6 +2784,18 @@ void TextureViewer::SetupTextureTabs()
         ui->outputThumbs, ToolWindowManager::AreaReference(ToolWindowManager::AddTo,
                                                            ui->dockarea->areaOf(ui->inputThumbs)));
 
+  QWidget *resourcePanels[] = {ui->inputThumbs, ui->outputThumbs};
+  for(QWidget *panel : resourcePanels)
+  {
+    ToolWindowManagerArea *area = ui->dockarea->areaOf(panel);
+    if(area)
+    {
+      // i18n-ignore: internal QObject property identifier, never shown to the user.
+      area->tabBar()->setProperty("_renderdoc_ultra_bright_selected_tabs", true);
+      area->tabBar()->update();
+    }
+  }
+
   if(ui->dockarea->areaOf(ui->pixelContextLayout) == NULL)
     ui->dockarea->moveToolWindow(
         ui->pixelContextLayout,
@@ -1913,6 +2803,86 @@ void TextureViewer::SetupTextureTabs()
                                          ui->dockarea->areaOf(ui->outputThumbs), 0.25f));
 
   ui->renderContainer->setLayout(ui->renderLayout);
+}
+
+QWidget *TextureViewer::CurrentTextureTab() const
+{
+  ToolWindowManagerArea *textureTabs = ui->dockarea->areaOf(ui->renderContainer);
+  return textureTabs ? textureTabs->currentWidget() : NULL;
+}
+
+bool TextureViewer::HasRenderTargetHistoryBinding(QWidget *tab) const
+{
+  if(!tab)
+    return false;
+
+  const RenderTargetHistoryPolicy::TabBinding binding = {
+      tab->property(RenderTargetHistoryEnabledProperty).toBool(),
+      tab->property(RenderTargetHistoryEventProperty).toUInt(),
+  };
+  return RenderTargetHistoryPolicy::ResolveTabPresentation(tab == ui->renderContainer, &binding)
+      .visible;
+}
+
+void TextureViewer::ActivateRenderTargetHistoryForTab(QWidget *tab, uint32_t fallbackEvent)
+{
+  m_RenderTargetHistoryEvent = 0;
+
+  if(!m_RenderTargetHistory)
+    return;
+
+  const RenderTargetHistoryPolicy::TabBinding binding = {
+      tab && tab->property(RenderTargetHistoryEnabledProperty).toBool(),
+      tab ? tab->property(RenderTargetHistoryEventProperty).toUInt() : 0,
+  };
+  const RenderTargetHistoryPolicy::TabPresentation presentation =
+      RenderTargetHistoryPolicy::ResolveTabPresentation(tab == ui->renderContainer, &binding);
+
+  if(!presentation.visible || !tab)
+  {
+    m_RenderTargetHistory->Deactivate();
+    return;
+  }
+
+  const ResourceId resource = tab->property("id").value<ResourceId>();
+  if(resource == ResourceId() || resource != m_TexDisplay.resourceId)
+  {
+    m_RenderTargetHistory->Deactivate();
+    return;
+  }
+
+  uint32_t anchorEvent = presentation.activeEvent;
+  if(anchorEvent == 0)
+    anchorEvent = fallbackEvent;
+
+  const bool wasRetargetingHistory = m_RetargetingRenderTargetHistory;
+  m_RetargetingRenderTargetHistory = true;
+  m_RenderTargetHistory->show();
+  m_RenderTargetHistory->SetTarget(resource, m_TexDisplay.subresource, m_TexDisplay.typeCast,
+                                   anchorEvent);
+
+  const uint32_t selectedEvent = m_RenderTargetHistory->SelectedEvent();
+  if(selectedEvent != 0)
+    tab->setProperty(RenderTargetHistoryEventProperty, selectedEvent);
+  m_RenderTargetHistoryEvent = selectedEvent;
+  m_RetargetingRenderTargetHistory = wasRetargetingHistory;
+
+  if(!wasRetargetingHistory && selectedEvent != 0)
+    QueueUpdateAndDisplay();
+}
+
+void TextureViewer::CloseTextureTab(QWidget *tab)
+{
+  if(!tab || tab == ui->renderContainer)
+    return;
+
+  const ResourceId id = tab->property("id").value<ResourceId>();
+  if(id != ResourceId())
+    m_LockedTabs.remove(id);
+
+  tab->setProperty(RenderTargetHistoryEnabledProperty, false);
+  tab->setProperty(RenderTargetHistoryEventProperty, QVariant());
+  ui->dockarea->removeToolWindow(tab);
 }
 
 void TextureViewer::RemoveTextureTabs(int firstIndex)
@@ -1927,7 +2897,7 @@ void TextureViewer::RemoveTextureTabs(int firstIndex)
       i++;
       continue;
     }
-    textureTabs->removeTab(i);
+    CloseTextureTab(textureTabs->widget(i));
   }
 }
 
@@ -1954,10 +2924,9 @@ void TextureViewer::textureTab_Menu(const QPoint &pos)
   contextMenu.addAction(&closeOtherTabs);
   contextMenu.addAction(&closeRightTabs);
 
-  QObject::connect(&closeTab, &QAction::triggered, [textureTabs, tabIndex]() {
-    // remove the tab at this index
-    textureTabs->removeTab(tabIndex);
-  });
+  QWidget *selectedTab = textureTabs->widget(tabIndex);
+  QObject::connect(&closeTab, &QAction::triggered,
+                   [this, selectedTab]() { CloseTextureTab(selectedTab); });
 
   QObject::connect(&closeRightTabs, &QAction::triggered,
                    [this, tabIndex]() { RemoveTextureTabs(tabIndex + 1); });
@@ -1969,12 +2938,24 @@ void TextureViewer::textureTab_Menu(const QPoint &pos)
 
 void TextureViewer::textureTab_Changed(int index)
 {
+  if(!m_UpdatingTemporaryOutputFollow)
+    m_TemporaryOutputFollowToken = 0;
   ToolWindowManagerArea *textureTabs = ui->dockarea->areaOf(ui->renderContainer);
 
   if(!textureTabs)
     return;
 
   QWidget *w = textureTabs->widget(index);
+
+  SuspendTexturePresentation();
+  const bool wasRetargetingHistory = m_RetargetingRenderTargetHistory;
+  QScopedValueRollback<bool> retargeting(m_RetargetingRenderTargetHistory, true);
+
+  // History presentation belongs to an explicitly linked locked tab. Clear the old transient
+  // event before rebuilding the shared texture controls for the newly selected tab.
+  m_RenderTargetHistoryEvent = 0;
+  if(m_RenderTargetHistory)
+    m_RenderTargetHistory->Deactivate();
 
   if(w)
   {
@@ -1989,6 +2970,18 @@ void TextureViewer::textureTab_Changed(int index)
   }
 
   UI_OnTextureSelectionChanged(false);
+
+  // OpenRenderTargetHistory performs one explicit activation after it has attached the binding to
+  // a newly-created tab. Ordinary user tab switches restore that tab's own selected EID here.
+  if(!wasRetargetingHistory)
+    ActivateRenderTargetHistoryForTab(w, m_Ctx.CurEvent());
+
+  // Queue the final tab identity once. In particular, entering a history tab must not race an
+  // intermediate current-event display scheduled before its historical binding was restored.
+  m_RetargetingRenderTargetHistory = wasRetargetingHistory;
+  QueueUpdateAndDisplay(true);
+  if(ui->autoFit->isChecked())
+    AutoFitRange();
 }
 
 void TextureViewer::textureTab_Closing(int index)
@@ -2027,10 +3020,12 @@ void TextureViewer::textureTab_Closing(int index)
 
 ResourcePreview *TextureViewer::UI_CreateThumbnail(ThumbnailStrip *strip)
 {
-  ResourcePreview *prev = new ResourcePreview(true);
+  ResourcePreview *prev = new ResourcePreview(m_Ctx, m_Output);
 
   QObject::connect(prev, &ResourcePreview::clicked, this, &TextureViewer::thumb_clicked);
   QObject::connect(prev, &ResourcePreview::doubleClicked, this, &TextureViewer::thumb_doubleClicked);
+  QObject::connect(prev, &ResourcePreview::resourceLinkActivated, this,
+                   &TextureViewer::thumb_resourceLinkActivated);
   QObject::connect(prev, &ResourcePreview::resized, this, &TextureViewer::UI_PreviewResized);
 
   prev->setActive(false);
@@ -2064,24 +3059,31 @@ void TextureViewer::ViewTexture(ResourceId ID, CompType typeCast, bool focus)
     return;
   }
 
+  if(!m_UpdatingTemporaryOutputFollow)
+    m_TemporaryOutputFollowToken = 0;
+
   if(typeCast != CompType::Typeless)
     m_TextureSettings[ID].typeCast = typeCast;
 
   if(m_LockedTabs.contains(ID))
   {
-    if(focus)
-      ToolWindowManager::raiseToolWindow(this);
-
     QWidget *w = m_LockedTabs[ID];
     ToolWindowManagerArea *textureTabs = ui->dockarea->areaOf(ui->renderContainer);
-
-    int idx = textureTabs->indexOf(w);
+    const int idx = textureTabs ? textureTabs->indexOf(w) : -1;
 
     if(idx >= 0)
+    {
+      if(focus)
+        ToolWindowManager::raiseToolWindow(this);
       textureTabs->setCurrentIndex(idx);
 
-    INVOKE_MEMFN(RT_UpdateAndDisplay);
-    return;
+      QueueUpdateAndDisplay();
+      return;
+    }
+
+    // Context-menu tab removal in older layouts could leave a detached widget in this map. Drop
+    // the stale entry and create a fresh locked tab below.
+    m_LockedTabs.remove(ID);
   }
 
   TextureDescription *tex = m_Ctx.GetTexture(ID);
@@ -2116,7 +3118,7 @@ void TextureViewer::ViewTexture(ResourceId ID, CompType typeCast, bool focus)
 
     m_LockedTabs[ID] = lockedContainer;
 
-    INVOKE_MEMFN(RT_UpdateAndDisplay);
+    QueueUpdateAndDisplay();
     return;
   }
 
@@ -2168,6 +3170,131 @@ void TextureViewer::ViewFollowedResource(FollowType followType, ShaderStage stag
   qWarning() << "Couldn't find matching bound resource";
 }
 
+bool TextureViewer::FollowBoundTexture(ResourceId id, const QString &attachmentKind)
+{
+  static const QMap<QString, FollowType> kinds = {
+      {QLatin1String("srv"), FollowType::ReadOnly},
+      {QLatin1String("uav"), FollowType::ReadWrite},
+      {QLatin1String("dsv"), FollowType::OutputDepth},
+      {QLatin1String("dsr"), FollowType::OutputDepthResolve},
+      {QLatin1String("rtv"), FollowType::OutputColor},
+      {QLatin1String("present"), FollowType::OutputColor},
+  };
+  const auto kind = kinds.constFind(attachmentKind);
+  if(!attachmentKind.isEmpty() && kind == kinds.constEnd())
+    return false;
+  ResourcePreview *selection = nullptr;
+  for(const auto &thumbs : {ui->outputThumbs->thumbs(), ui->inputThumbs->thumbs()})
+  {
+    for(ResourcePreview *preview : thumbs)
+    {
+      if(!preview->isActive() || preview->property("id").value<ResourceId>() != id)
+        continue;
+      const Following follow = preview->property("f").value<Following>();
+      if(kind != kinds.constEnd() && follow.Type != *kind)
+        continue;
+      if(!selection || follow == m_Following)
+        selection = preview;
+    }
+  }
+  ToolWindowManagerArea *tabs = ui->dockarea->areaOf(ui->renderContainer);
+  if(!selection || !tabs)
+    return false;
+  SelectPreview(selection);
+  tabs->setCurrentWidget(ui->renderContainer);
+  return GetCurrentResource() == id;
+}
+
+uint64_t TextureViewer::BeginTemporaryOutputFollow(uint32_t index)
+{
+  if(m_TemporaryOutputFollowToken != 0 || !m_Ctx.IsCaptureLoaded())
+    return 0;
+
+  m_BeforeTemporaryOutputFollow = m_Following;
+  m_BeforeTemporaryOutputTab = CurrentTextureTab();
+  m_BeforeTemporaryOutputResource = m_TexDisplay.resourceId;
+  m_BeforeTemporaryOutputType = m_TexDisplay.typeCast;
+  m_BeforeTemporaryOutputSubresource = m_TexDisplay.subresource;
+  const uint64_t token = ++m_NextTemporaryOutputFollowToken;
+  m_TemporaryOutputFollowToken = token;
+  if(!UpdateTemporaryOutputFollow(token, index))
+  {
+    m_TemporaryOutputFollowToken = 0;
+    return 0;
+  }
+  ToolWindowManager::raiseToolWindow(this);
+  return token;
+}
+
+bool TextureViewer::UpdateTemporaryOutputFollow(uint64_t token, uint32_t index)
+{
+  if(token == 0 || token != m_TemporaryOutputFollowToken || !m_Ctx.IsCaptureLoaded())
+    return false;
+  QScopedValueRollback<bool> changing(m_UpdatingTemporaryOutputFollow, true);
+  m_TemporaryPreviewActive = false;
+  ViewFollowedResource(FollowType::OutputColor, ShaderStage::Pixel, index, 0);
+  return CurrentTextureTab() == ui->renderContainer && m_Following.Type == FollowType::OutputColor &&
+         m_Following.index >= 0 && uint32_t(m_Following.index) == index;
+}
+
+bool TextureViewer::ShowTemporaryTexturePreview(uint64_t token, const TextureDescription &texture)
+{
+  if(token == 0 || token != m_TemporaryOutputFollowToken || !m_Ctx.IsCaptureLoaded() ||
+     texture.resourceId == ResourceId() || texture.width == 0 || texture.height == 0 ||
+     texture.format.compCount != 4 || texture.format.compByteWidth != 4 ||
+     texture.format.compType != CompType::Float || CurrentTextureTab() != ui->renderContainer)
+    return false;
+  QScopedValueRollback<bool> changing(m_UpdatingTemporaryOutputFollow, true);
+  m_TemporaryPreviewTexture = texture;
+  m_TemporaryPreviewActive = true;
+  m_TemporaryPreviewEvent = m_Ctx.CurEvent();
+  UI_UpdateCachedTexture();
+  UI_OnTextureSelectionChanged(false);
+  m_TexDisplay.typeCast = CompType::Float;
+  SetSelectedSubresource(Subresource());
+  UI_UpdateTextureDetails();
+  QueueUpdateAndDisplay();
+  return true;
+}
+
+bool TextureViewer::EndTemporaryOutputFollow(uint64_t token)
+{
+  if(token == 0 || token != m_TemporaryOutputFollowToken || !m_Ctx.IsCaptureLoaded())
+    return false;
+  m_TemporaryOutputFollowToken = 0;
+  m_TemporaryPreviewActive = false;
+  QScopedValueRollback<bool> changing(m_UpdatingTemporaryOutputFollow, true);
+  ToolWindowManagerArea *textureTabs = ui->dockarea->areaOf(ui->renderContainer);
+  if(!textureTabs || !m_BeforeTemporaryOutputTab ||
+     textureTabs->indexOf(m_BeforeTemporaryOutputTab) < 0)
+  {
+    // The user may close the saved tab while the temporary dynamic view is
+    // active. Detach its descriptor even though that tab cannot be restored.
+    UI_UpdateCachedTexture();
+    UI_OnTextureSelectionChanged(false);
+    return false;
+  }
+
+  m_Following = m_BeforeTemporaryOutputFollow;
+  UI_RememberOutputFollowing();
+  for(ResourcePreview *preview : ui->outputThumbs->thumbs())
+    preview->setSelected(preview->property("f").value<Following>() == m_Following);
+  for(ResourcePreview *preview : ui->inputThumbs->thumbs())
+    preview->setSelected(preview->property("f").value<Following>() == m_Following);
+  textureTabs->setCurrentWidget(m_BeforeTemporaryOutputTab);
+  UI_UpdateCachedTexture();
+  UI_OnTextureSelectionChanged(false);
+  if(m_TexDisplay.resourceId == m_BeforeTemporaryOutputResource)
+  {
+    m_TexDisplay.typeCast = m_BeforeTemporaryOutputType;
+    m_TextureSettings[m_TexDisplay.resourceId].typeCast = m_BeforeTemporaryOutputType;
+    SetSelectedSubresource(m_BeforeTemporaryOutputSubresource);
+    UI_UpdateTextureDetails();
+    QueueUpdateAndDisplay();
+  }
+  return true;
+}
+
 ResourceId TextureViewer::GetCurrentResource()
 {
   TextureDescription *tex = GetCurrentTexture();
@@ -2188,14 +3315,46 @@ void TextureViewer::SetSelectedSubresource(Subresource sub)
     return;
 
   if(tex->mips > 1)
-    ui->mipLevel->setCurrentIndex(qMin(sub.mip, tex->mips - 1));
+  {
+    m_TexDisplay.subresource.mip = qMin(sub.mip, tex->mips - 1);
+    m_TexDisplay.subresource.sample = 0;
+    ui->mipLevel->setCurrentIndex((int)m_TexDisplay.subresource.mip);
+  }
   else if(tex->msSamp > 1)
-    ui->mipLevel->setCurrentIndex(qMin(sub.sample, tex->msSamp - 1));
-
-  if(tex->depth > 1)
-    ui->sliceFace->setCurrentIndex(qMin(sub.slice, tex->depth - 1));
+  {
+    if(sub.sample == TextureDisplay::ResolveSamples && ui->mipLevel->count() > (int)tex->msSamp)
+    {
+      m_TexDisplay.subresource.sample = TextureDisplay::ResolveSamples;
+      ui->mipLevel->setCurrentIndex((int)tex->msSamp);
+    }
+    else if(sub.sample == TextureDisplay::ResolveSamples)
+    {
+      // Integer and depth multisample textures have no average/resolve entry. Sample 0 is the
+      // stable default; clamping ~0U would incorrectly select the last physical sample.
+      m_TexDisplay.subresource.sample = 0;
+      ui->mipLevel->setCurrentIndex(0);
+    }
+    else
+    {
+      m_TexDisplay.subresource.sample = qMin(sub.sample, tex->msSamp - 1);
+      ui->mipLevel->setCurrentIndex((int)m_TexDisplay.subresource.sample);
+    }
+    m_TexDisplay.subresource.mip = 0;
+  }
   else
-    ui->sliceFace->setCurrentIndex(qMin(sub.slice, tex->arraysize - 1));
+  {
+    m_TexDisplay.subresource.mip = 0;
+    m_TexDisplay.subresource.sample = 0;
+  }
+
+  const uint32_t slices = tex->depth > 1
+                              ? qMax(1U, tex->depth >> m_TexDisplay.subresource.mip)
+                              : qMax(1U, tex->arraysize);
+  m_TexDisplay.subresource.slice = qMin(sub.slice, slices - 1);
+  if(tex->depth > 1)
+    ui->sliceFace->setCurrentIndex((int)m_TexDisplay.subresource.slice);
+  else
+    ui->sliceFace->setCurrentIndex((int)m_TexDisplay.subresource.slice);
 }
 
 void TextureViewer::GotoLocation(uint32_t x, uint32_t y)
@@ -2226,8 +3385,8 @@ void TextureViewer::GotoLocation(uint32_t x, uint32_t y)
   setScrollPosition(scrollPos);
 
   if(m_Output != NULL)
-    INVOKE_MEMFN(RT_PickPixelsAndUpdate);
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
+    QueuePickPixelsAndUpdate();
+  QueueUpdateAndDisplay();
 
   UI_UpdateStatusText();
 }
@@ -2294,12 +3453,146 @@ uint32_t TextureViewer::GetChannelVisibilityBits()
   return ret;
 }
 
+void TextureViewer::SetFlipY(bool flipped)
+{
+  ui->flip_y->setChecked(flipped);
+}
+
+rdcfixedarray<bool, 4> TextureViewer::GetChannelVisibility()
+{
+  return {m_TexDisplay.red, m_TexDisplay.green, m_TexDisplay.blue, m_TexDisplay.alpha};
+}
+
 void TextureViewer::SetChannelVisibility(bool red, bool green, bool blue, bool alpha)
 {
   ui->channelRed->setChecked(red);
   ui->channelGreen->setChecked(green);
   ui->channelBlue->setChecked(blue);
   ui->channelAlpha->setChecked(alpha);
+}
+
+RenderTargetHistoryView *TextureViewer::OpenRenderTargetHistory(
+    ResourceId resource, const Subresource &subresource, CompType typeCast, uint32_t anchorEID)
+{
+  if(resource == ResourceId() || !m_Ctx.GetTexture(resource))
+    return NULL;
+
+  SuspendTexturePresentation();
+  const bool wasRetargetingHistory = m_RetargetingRenderTargetHistory;
+  m_RetargetingRenderTargetHistory = true;
+
+  // Stop transient event display before ViewTexture can synchronously refresh an existing tab.
+  m_RenderTargetHistoryEvent = 0;
+  ViewTexture(resource, typeCast, true);
+
+  ToolWindowManagerArea *textureTabs = ui->dockarea->areaOf(ui->renderContainer);
+  QWidget *historyTab = m_LockedTabs.value(resource, NULL);
+  if(!textureTabs || !historyTab || textureTabs->indexOf(historyTab) < 0)
+  {
+    if(m_RenderTargetHistory)
+      m_RenderTargetHistory->Deactivate();
+    m_RetargetingRenderTargetHistory = wasRetargetingHistory;
+    // The shared surface was suspended above. Complete an ordinary display even if docking could
+    // not produce the requested history tab; never reveal the previous historical backbuffer.
+    QueueUpdateAndDisplay(true);
+    return NULL;
+  }
+
+  historyTab->setProperty(RenderTargetHistoryEnabledProperty, true);
+  historyTab->setProperty(RenderTargetHistoryEventProperty, anchorEID);
+
+  // Selecting the already-current locked tab does not emit currentChanged. Apply a new descriptor
+  // interpretation explicitly so the main image and MSAA sample controls match the clicked link.
+  if(typeCast != CompType::Typeless && m_TexDisplay.typeCast != typeCast)
+  {
+    m_TextureSettings[resource].typeCast = typeCast;
+    m_TexDisplay.typeCast = typeCast;
+    UI_OnTextureSelectionChanged(false);
+  }
+  SetSelectedSubresource(subresource);
+  m_RetargetingRenderTargetHistory = wasRetargetingHistory;
+
+  if(!m_RenderTargetHistory)
+  {
+    m_RenderTargetHistory = new RenderTargetHistoryView(*this, m_Ctx, m_MainHistorySplitter);
+    m_MainHistorySplitter->addWidget(m_RenderTargetHistory);
+    m_MainHistorySplitter->setStretchFactor(0, 1);
+    m_MainHistorySplitter->setStretchFactor(1, 0);
+  }
+
+  ActivateRenderTargetHistoryForTab(historyTab, anchorEID);
+  if(ActiveRenderTargetHistoryEvent() == 0 && !wasRetargetingHistory)
+    QueueUpdateAndDisplay();
+  if(ui->autoFit->isChecked())
+    AutoFitRange();
+
+  const int totalHeight = qMax(height(), 400);
+  m_MainHistorySplitter->setSizes({qMax(180, totalHeight - 230), 230});
+  ToolWindowManager::raiseToolWindow(this);
+  return m_RenderTargetHistory;
+}
+
+void TextureViewer::CloseRenderTargetHistory()
+{
+  if(!m_RenderTargetHistory)
+    return;
+
+  SuspendTexturePresentation();
+  QWidget *historyTab = CurrentTextureTab();
+  if(HasRenderTargetHistoryBinding(historyTab))
+  {
+    historyTab->setProperty(RenderTargetHistoryEnabledProperty, false);
+    historyTab->setProperty(RenderTargetHistoryEventProperty, QVariant());
+  }
+
+  m_RenderTargetHistoryEvent = 0;
+  m_RenderTargetHistory->Deactivate();
+  QueueUpdateAndDisplay();
+}
+
+void TextureViewer::RenderTargetHistorySelectionChanged(uint32_t eventId)
+{
+  QWidget *historyTab = CurrentTextureTab();
+  if(!m_RenderTargetHistory || !m_RenderTargetHistory->isVisible() ||
+     !HasRenderTargetHistoryBinding(historyTab))
+    return;
+
+  const ResourceId resource = historyTab->property("id").value<ResourceId>();
+  if(resource == ResourceId() || m_RenderTargetHistory->Resource() != resource)
+    return;
+
+  historyTab->setProperty(RenderTargetHistoryEventProperty, eventId);
+  const uint32_t previous = m_RenderTargetHistoryEvent.exchange(eventId);
+  if(previous != eventId && !m_RetargetingRenderTargetHistory)
+    QueueUpdateAndDisplay();
+}
+
+void TextureViewer::UpdateRenderTargetHistorySubresource()
+{
+  QWidget *historyTab = CurrentTextureTab();
+  if(m_RetargetingRenderTargetHistory || !m_RenderTargetHistory ||
+     !m_RenderTargetHistory->isVisible() || !HasRenderTargetHistoryBinding(historyTab) ||
+     m_TexDisplay.resourceId == ResourceId())
+    return;
+
+  const ResourceId resource = historyTab->property("id").value<ResourceId>();
+  if(resource != m_TexDisplay.resourceId)
+    return;
+
+  uint32_t anchor = historyTab->property(RenderTargetHistoryEventProperty).toUInt();
+  if(anchor == 0)
+    anchor = m_Ctx.CurEvent();
+
+  const bool wasRetargetingHistory = m_RetargetingRenderTargetHistory;
+  m_RetargetingRenderTargetHistory = true;
+  m_RenderTargetHistoryEvent = 0;
+  m_RenderTargetHistory->SetTarget(m_TexDisplay.resourceId, m_TexDisplay.subresource,
+                                   m_TexDisplay.typeCast, anchor);
+  const uint32_t selectedEvent = m_RenderTargetHistory->SelectedEvent();
+  if(selectedEvent != 0)
+    historyTab->setProperty(RenderTargetHistoryEventProperty, selectedEvent);
+  m_RenderTargetHistoryEvent = selectedEvent;
+  m_RetargetingRenderTargetHistory = wasRetargetingHistory;
 }
 
 void TextureViewer::texContextItem_triggered()
@@ -2309,7 +3602,10 @@ void TextureViewer::texContextItem_triggered()
   QVariant eid = act->property("eid");
   if(eid.isValid())
   {
-    m_Ctx.SetEventID({}, eid.toUInt(), eid.toUInt());
+    // Resource-usage menu entries only navigate the static capture. Use the snapshot-aware path;
+    // a viewer which later asks for mutable resource contents will materialise the event lazily.
+    m_Ctx.ScrubToEvent(eid.toUInt());
+    m_Ctx.EndScrub();
     return;
   }
 
@@ -2373,6 +3669,25 @@ void TextureViewer::OpenResourceContextMenu(ResourceId id, bool input,
     contextMenu.addAction(&openLockedTab);
     contextMenu.addAction(&openResourceInspector);
 
+    QJsonObject attachment = ReplayLabAIResourceContext(m_Ctx, id, "texture-viewer");
+    if(id == m_TexDisplay.resourceId)
+    {
+      QJsonObject resource = attachment[QLatin1String("resource")].toObject();
+      resource[QLatin1String("mip")] = int(m_TexDisplay.subresource.mip);
+      resource[QLatin1String("slice")] = int(m_TexDisplay.subresource.slice);
+      if(m_TexDisplay.subresource.sample != ~0U)
+        resource[QLatin1String("sample")] = int(m_TexDisplay.subresource.sample);
+      attachment[QLatin1String("resource")] = resource;
+    }
+    const QString title = tr("Texture: %1 (EID %2)").arg(m_Ctx.GetResourceName(id)).arg(m_Ctx.CurEvent());
+    const QString json = ReplayLabAIResourceJSON(attachment);
+    const QString text = ReplayLabAIResourceJSON(ReplayLabAIResourceDetails(m_Ctx, id, attachment));
+    QAction *addToChat = contextMenu.addAction(tr("Add texture to AI conversation"));
+    addToChat->setObjectName(QStringLiteral("addTextureToAI"));
+    QObject::connect(addToChat, &QAction::triggered, [this, title, text, json]() {
+      m_Ctx.AddTextToAIAssistant(title, text, title, json);
+    });
+
     contextMenu.addSeparator();
     m_Ctx.Extensions().MenuDisplaying(input ? ContextMenu::TextureViewer_InputThumbnail
                                             : ContextMenu::TextureViewer_OutputThumbnail,
@@ -2435,6 +3750,7 @@ void TextureViewer::InitResourcePreview(ResourcePreview *prev, Descriptor res, b
 
     if(m_Ctx.GetTexture(res.resource))
     {
+      prev->setResourceLinkEnabled(true, tr("Open Render Target History"));
       if(res.firstMip >= 0)
         sub.mip = res.firstMip;
       if(res.firstSlice >= 0)
@@ -2442,6 +3758,7 @@ void TextureViewer::InitResourcePreview(ResourcePreview *prev, Descriptor res, b
     }
     else
     {
+      prev->setResourceLinkEnabled(false);
       res.resource = ResourceId();
       res.format = ResourceFormat();
     }
@@ -2449,6 +3766,7 @@ void TextureViewer::InitResourcePreview(ResourcePreview *prev, Descriptor res, b
   else if(m_Following == follow)
   {
     prev->setResourceName(tr("Unused"));
+    prev->setResourceLinkEnabled(false);
     prev->setActive(true);
     prev->setSelected(true);
 
@@ -2458,42 +3776,34 @@ void TextureViewer::InitResourcePreview(ResourcePreview *prev, Descriptor res, b
   else
   {
     prev->setResourceName(QString());
+    prev->setResourceLinkEnabled(false);
     prev->setActive(false);
     prev->setSelected(false);
 
     return;
   }
 
+  if(prev->property("id").value<ResourceId>() != res.resource ||
+     prev->property("mip").toUInt() != sub.mip || prev->property("slice").toUInt() != sub.slice ||
+     prev->property("cast").toUInt() != uint32_t(res.format.compType))
+    prev->ClearThumb();
+
   prev->setProperty("id", QVariant::fromValue(res.resource));
   prev->setProperty("mip", sub.mip);
   prev->setProperty("slice", sub.slice);
   prev->setProperty("cast", uint32_t(res.format.compType));
 
-  GUIInvoke::call(prev, [this, prev] { UI_PreviewResized(prev); });
+  UI_PreviewResized(prev);
 }
 
 void TextureViewer::UI_PreviewResized(ResourcePreview *prev)
 {
-  QSize s = prev->GetThumbSize();
-
-  ResourceId id = prev->property("id").value<ResourceId>();
-  Subresource sub = {0, 0, ~0U};
-  sub.mip = prev->property("mip").toUInt();
-  sub.slice = prev->property("slice").toUInt();
-  CompType typeCast = (CompType)prev->property("cast").toUInt();
-
-  m_Ctx.Replay().AsyncInvoke(lit("preview%1").arg((qulonglong)(void *)prev),
-                             [this, prev, s, sub, id, typeCast](IReplayController *) {
-                               bytebuf data =
-                                   m_Output->DrawThumbnail(s.width(), s.height(), id, sub, typeCast);
-                               // new and swap to move the data into the lambda
-                               bytebuf *copy = new bytebuf;
-                               copy->swap(data);
-                               GUIInvoke::call(prev, [prev, s, copy]() {
-                                 prev->UpdateThumb(s, *copy);
-                                 delete copy;
-                               });
-                             });
+  if(!prev->isActive() || !prev->isVisible() || m_UpdatingTextureState || !m_Output)
+    return;
+  if(prev->NativePresentationMatches(m_EventRequestSerial.load(std::memory_order_acquire),
+                                     prev->GetThumbSize() * prev->devicePixelRatioF()))
+    return;
+  QueueNativeThumbnailRefresh();
 }
 
 void TextureViewer::InitStageResourcePreviews(ShaderStage stage,
@@ -2592,6 +3902,31 @@ void TextureViewer::thumb_doubleClicked(QMouseEvent *e)
   }
 }
 
+void TextureViewer::thumb_resourceLinkActivated()
+{
+  ResourcePreview *preview = qobject_cast<ResourcePreview *>(QObject::sender());
+  if(!preview)
+    return;
+
+  ResourceId resource = preview->property("id").value<ResourceId>();
+  TextureDescription *texture = m_Ctx.GetTexture(resource);
+  if(!texture)
+    return;
+
+  Subresource subresource;
+  subresource.mip = preview->property("mip").toUInt();
+  subresource.slice = preview->property("slice").toUInt();
+
+  CompType typeCast = (CompType)preview->property("cast").toUInt();
+  if(typeCast == CompType::Typeless)
+    typeCast = texture->format.compType;
+  subresource.sample = texture->msSamp > 1 && CanAverageTextureSamples(*texture, typeCast)
+                           ? TextureDisplay::ResolveSamples
+                           : 0;
+
+  RenderTargetHistoryView::Open(m_Ctx, resource, subresource, typeCast, m_Ctx.CurEvent(), this);
+}
+
 void TextureViewer::thumb_clicked(QMouseEvent *e)
 {
   if(e->buttons() & Qt::LeftButton)
@@ -2622,11 +3957,16 @@ void TextureViewer::thumb_clicked(QMouseEvent *e)
     }
     else
     {
-      m_Ctx.Replay().AsyncInvoke([this, id, input](IReplayController *r) {
+      QPointer<TextureViewer> owner(this);
+      const uint64_t serial = m_EventRequestSerial.load(std::memory_order_acquire);
+      m_Ctx.Replay().AsyncInvoke([owner, id, input, serial](IReplayController *r) {
         rdcarray<EventUsage> usage = r->GetUsage(id);
-
-        GUIInvoke::call(this,
-                        [this, id, input, usage]() { OpenResourceContextMenu(id, input, usage); });
+        if(!owner)
+          return;
+        GUIInvoke::call(owner, [owner, id, input, usage, serial]() {
+          if(owner && owner->m_EventRequestSerial.load(std::memory_order_acquire) == serial)
+            owner->OpenResourceContextMenu(id, input, usage);
+        });
       });
     }
   }
@@ -2672,13 +4012,11 @@ void TextureViewer::render_mouseMove(QMouseEvent *e)
         m_PickedPoint.setX(qBound(0, m_PickedPoint.x(), (int)texptr->width - 1));
         m_PickedPoint.setY(qBound(0, m_PickedPoint.y(), (int)texptr->height - 1));
 
-        m_Ctx.Replay().AsyncInvoke(lit("PickPixelClick"),
-                                   [this](IReplayController *r) { RT_PickPixelsAndUpdate(r); });
+        QueuePickPixelsAndUpdate();
       }
       else if(e->buttons() == Qt::NoButton)
       {
-        m_Ctx.Replay().AsyncInvoke(lit("PickPixelHover"),
-                                   [this](IReplayController *r) { RT_PickHoverAndUpdate(r); });
+        QueuePickPixelsAndUpdate(true);
       }
     }
   }
@@ -2726,7 +4064,7 @@ void TextureViewer::render_resize(QResizeEvent *e)
   UI_UpdateFittedScale();
   UI_CalcScrollbars();
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
+  QueueUpdateAndDisplay();
 }
 
 void TextureViewer::render_keyPress(QKeyEvent *e)
@@ -2735,6 +4073,22 @@ void TextureViewer::render_keyPress(QKeyEvent *e)
 
   if(texptr == NULL)
     return;
+
+  if(ActiveRenderTargetHistoryEvent() != 0 &&
+     !(e->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier)))
+  {
+    int delta = 0;
+    if(e->key() == Qt::Key_Left || e->key() == Qt::Key_Up)
+      delta = -1;
+    else if(e->key() == Qt::Key_Right || e->key() == Qt::Key_Down)
+      delta = 1;
+
+    if(delta != 0 && m_RenderTargetHistory->StepSelection(delta))
+    {
+      e->accept();
+      return;
+    }
+  }
 
   if(e->matches(QKeySequence::Copy))
   {
@@ -2784,10 +4138,7 @@ void TextureViewer::render_keyPress(QKeyEvent *e)
                            qBound(0, m_PickedPoint.y(), (int)texptr->height - 1));
     e->accept();
 
-    m_Ctx.Replay().AsyncInvoke([this](IReplayController *r) {
-      RT_PickPixelsAndUpdate(r);
-      RT_UpdateAndDisplay(r);
-    });
+    QueueUpdateAndDisplay(true);
 
     UI_UpdateStatusText();
   }
@@ -2843,7 +4194,7 @@ void TextureViewer::setScrollPosition(const QPoint &pos)
     ScrollUpdateScrollbars = true;
   }
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
+  QueueUpdateAndDisplay();
 }
 
 void TextureViewer::UI_CalcScrollbars()
@@ -2941,18 +4292,23 @@ void TextureViewer::OnCaptureLoaded()
       backCol.isValid() ? FloatVector(backCol.redF(), backCol.greenF(), backCol.blueF(), 1.0f)
                         : FloatVector();
 
-  m_Ctx.Replay().BlockInvoke([renderData, contextData, this](IReplayController *r) {
-    m_Output = r->CreateOutput(renderData, ReplayOutputType::Texture);
+  const TextureDisplay display = m_TexDisplay;
+  const uint32_t historyEvent = ActiveRenderTargetHistoryEvent();
+  m_Ctx.Replay().BlockInvoke(
+      [renderData, contextData, display, historyEvent, this](IReplayController *r) {
+        m_Output = r->CreateOutput(renderData, ReplayOutputType::Texture);
 
-    m_Output->SetPixelContext(contextData);
+        m_Output->SetPixelContext(contextData);
 
-    ui->render->SetOutput(m_Output);
-    ui->pixelContext->SetOutput(m_Output);
+        ui->render->SetOutput(m_Output);
+        ui->pixelContext->SetOutput(m_Output);
+        ui->render->SetOutputEventId(0);
+        ui->pixelContext->SetOutputEventId(0);
 
-    RT_UpdateAndDisplay(r);
+        RT_UpdateAndDisplay(r, display, historyEvent);
 
-    GUIInvoke::call(this, [this]() { OnEventChanged(m_Ctx.CurEvent()); });
-  });
+        GUIInvoke::call(this, [this]() { OnEventChanged(m_Ctx.CurEvent()); });
+      });
 
   m_Watcher = new QFileSystemWatcher({ConfigFilePath(QString())}, this);
 
@@ -2966,7 +4322,24 @@ void TextureViewer::OnCaptureLoaded()
 
 void TextureViewer::Reset()
 {
+  m_AnalysisTimer->stop();
+  m_AnalysisPending = false;
+  // Capture shutdown owns these IReplayOutputs. Reset follows the replay-queue close barrier.
+  m_NativeThumbnailOutputs.clear();
+  CloseAIAnnotation();
+  m_TemporaryOutputFollowToken = 0;
+  m_BeforeTemporaryOutputTab.clear();
+  m_PresentationSuspended = false;
+  m_PresentationPending = false;
+  // i18n-ignore: internal completion-evidence properties for UI regression fixtures.
+  ui->render->setProperty("eidPresentationPending", QVariant());
+  // i18n-ignore: internal completion-evidence properties for UI regression fixtures.
+  ui->render->setProperty("eidPresentationSerial", QVariant());
+  ui->render->show();
+  ui->pixelContext->show();
   m_CachedTexture = NULL;
+  m_OutputPreferences.clear();
+  m_Following = Following(*this, FollowType::OutputColor, ShaderStage::Pixel, 0, 0);
 
   m_PickedPoint.setX(-1);
   m_PickedPoint.setY(-1);
@@ -3099,6 +4472,30 @@ void TextureViewer::refreshTextureList(FilterType filterType, const QString &fil
 
 void TextureViewer::OnCaptureClosed()
 {
+  // i18n-ignore: internal completion-evidence property for the replay benchmark.
+  ui->render->setProperty("eidDisplayedEvent", QVariant());
+  // i18n-ignore: internal completion-evidence property for the replay benchmark.
+  ui->render->setProperty("eidDisplayedResource", QVariant());
+  m_EventRequestSerial.fetch_add(1, std::memory_order_acq_rel);
+  // Invalidate queued callbacks before touching either the output pointer or thumbnail widgets.
+  // The empty blocking invoke is a replay-thread barrier: a callback which had already passed its
+  // serial check finishes before Reset clears m_Output, while stale queued callbacks return at
+  // their first instruction.
+  m_DisplayRequestSerial.fetch_add(1, std::memory_order_acq_rel);
+
+  m_RenderTargetHistoryEvent = 0;
+  if(m_RenderTargetHistory)
+    m_RenderTargetHistory->Deactivate();
+
+  m_Ctx.Replay().BlockInvoke([this](IReplayController *) {
+    // Retire native surfaces while their QWidget handles still exist. The controller owns the
+    // remaining main output until replay shutdown; preview widgets are deleted by Reset below.
+    for(auto &thumbnail : m_NativeThumbnailOutputs)
+      if(thumbnail.second)
+        thumbnail.second->Shutdown();
+    m_NativeThumbnailOutputs.clear();
+  });
+
   Reset();
 
   refreshTextureList();
@@ -3118,10 +4515,32 @@ void TextureViewer::OnCaptureClosed()
   ui->viewTexBuffer->setEnabled(false);
 
   UI_UpdateChannels();
+  CompletePresentationWaiters();
+}
+
+void TextureViewer::OnScrubEvent(uint32_t eventId)
+{
+  m_AnalysisTimer->stop();
+  m_AnalysisPending = false;
+  m_EventRequestSerial.fetch_add(1, std::memory_order_acq_rel);
+  m_DisplayRequestSerial.fetch_add(1, std::memory_order_acq_rel);
+  // A new gesture cancels the old display. Let its navigation cycle advance to the new target;
+  // waiting for a cancelled request here would block the very replay that can replace it.
+  CompletePresentationWaiters();
+
+  // Gesture input only cancels obsolete work. The completed event is published through
+  // OnEventChanged, which selects its current binding before the output can be presented.
+  (void)eventId;
 }
 
 void TextureViewer::OnEventChanged(uint32_t eventId)
 {
+  // A display callback from the previous event can be sitting behind thumbnail work on the replay
+  // queue. Invalidate it before rebuilding this event's UI so it cannot bind stale resources.
+  m_EventRequestSerial.fetch_add(1, std::memory_order_acq_rel);
+  m_DisplayRequestSerial.fetch_add(1, std::memory_order_acq_rel);
+  QScopedValueRollback<bool> updating(m_UpdatingTextureState, true);
+
   bool copy = false, clear = false, compute = false;
   Following::GetActionContext(m_Ctx, copy, clear, compute);
 
@@ -3156,6 +4575,12 @@ void TextureViewer::OnEventChanged(uint32_t eventId)
     count = 1;
   }
 
+  for(uint32_t stage = 0; stage < NumShaderStages; stage++)
+  {
+    m_ReadOnlyResources[stage].clear();
+    m_ReadWriteResources[stage].clear();
+  }
+
   for(int i = 0; i < count; i++)
   {
     ShaderStage stage = stages[i];
@@ -3164,6 +4589,7 @@ void TextureViewer::OnEventChanged(uint32_t eventId)
     m_ReadWriteResources[(uint32_t)stage] = Following::GetReadWriteResources(m_Ctx, stage, true);
   }
 
+  UI_ResolveOutputFollowing();
   UI_UpdateCachedTexture();
 
   TextureDescription *CurrentTexture = GetCurrentTexture();
@@ -3172,9 +4598,16 @@ void TextureViewer::OnEventChanged(uint32_t eventId)
      (CurrentTexture != NULL && m_TexDisplay.resourceId != CurrentTexture->resourceId))
     UI_OnTextureSelectionChanged(true);
 
+  // No displayable binding is unbound for this event. Output fallback above uses only the current
+  // action's bindings; explicit texture tabs retain their ID.
+  if(CurrentTexture == NULL)
+    m_TexDisplay.resourceId = ResourceId();
+
   if(m_Output == NULL)
     return;
 
+  // Rebuilding combo boxes emits display signals. Only queue their final coherent state, before
+  // the resource-preview batch, while the controller still owns this published event.
   UI_CreateThumbnails();
 
   UI_UpdateTextureDetails();
@@ -3275,14 +4708,20 @@ void TextureViewer::OnEventChanged(uint32_t eventId)
 
   if(!m_DescriptorThumbUpdates.empty())
   {
-    m_Ctx.Replay().AsyncInvoke([this](IReplayController *r) {
+    QPointer<TextureViewer> self(this);
+    const uint64_t eventSerial = m_EventRequestSerial.load(std::memory_order_acquire);
+    rdcarray<DescriptorThumbUpdate> updates = m_DescriptorThumbUpdates;
+    m_Ctx.Replay().AsyncInvoke([self, eventId, eventSerial, updates](IReplayController *r) mutable {
+      if(!self || self->m_EventRequestSerial.load(std::memory_order_acquire) != eventSerial ||
+         r->GetCurrentEventID() != eventId)
+        return;
       // we could collate ranges by descriptor store, but in practice we don't expect descriptors to be
       // scattered across multiple stores. So to keep the code simple for now we do a linear sweep
       ResourceId store;
       rdcarray<DescriptorRange> ranges;
       rdcarray<DescriptorLogicalLocation> locations;
 
-      for(const DescriptorThumbUpdate &update : m_DescriptorThumbUpdates)
+      for(const DescriptorThumbUpdate &update : updates)
       {
         if(update.access.descriptorStore != store)
         {
@@ -3309,15 +4748,17 @@ void TextureViewer::OnEventChanged(uint32_t eventId)
       if(store != ResourceId())
         locations.append(r->GetDescriptorLocations(store, ranges));
 
-      for(size_t i = 0; i < m_DescriptorThumbUpdates.size(); i++)
+      for(size_t i = 0; i < updates.size(); i++)
       {
         if(i < locations.size())
-          m_DescriptorThumbUpdates[i].slotName = locations[i].logicalBindName;
+          updates[i].slotName = locations[i].logicalBindName;
       }
 
-      GUIInvoke::call(this, [this]() {
-        for(DescriptorThumbUpdate &update : m_DescriptorThumbUpdates)
-          if(!update.slotName.isEmpty())
+      GUIInvoke::call(qApp, [self, eventSerial, updates]() {
+        if(!self || self->m_EventRequestSerial.load(std::memory_order_acquire) != eventSerial)
+          return;
+        for(const DescriptorThumbUpdate &update : updates)
+          if(update.preview && !update.slotName.isEmpty())
             update.preview->setSlotName(update.slotName);
       });
     });
@@ -3348,10 +4789,11 @@ void TextureViewer::OnEventChanged(uint32_t eventId)
 
   ui->inputThumbs->refreshLayout();
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
-
   if(ui->autoFit->isChecked())
     AutoFitRange();
+  // Publish one coherent visible preview batch after all bindings and final layout are known.
+  m_UpdatingTextureState = false;
+  QueueUpdateAndDisplay(true);
 }
 
 QVariant TextureViewer::persistData()
@@ -3459,7 +4901,7 @@ void TextureViewer::UI_SetScale(float s, int x, int y)
 
   m_TexDisplay.scale = qBound(0.1f, s, 256.0f);
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
+  QueueUpdateAndDisplay();
 
   float scaleDelta = (m_TexDisplay.scale / prevScale);
 
@@ -3556,10 +4998,10 @@ void TextureViewer::on_overlay_currentIndexChanged(int index)
 
 #undef ANALYTICS_OVERLAY
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
+  QueueUpdateAndDisplay();
   if(m_Output != NULL && m_PickedPoint.x() >= 0 && m_PickedPoint.y() >= 0)
   {
-    INVOKE_MEMFN(RT_PickPixelsAndUpdate);
+    QueuePickPixelsAndUpdate();
   }
 }
 
@@ -3600,7 +5042,7 @@ void TextureViewer::range_rangeUpdated()
   if(m_NoRangePaint)
     return;
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
+  QueueUpdateAndDisplay();
 
   if(m_Output == NULL)
   {
@@ -3632,7 +5074,7 @@ void TextureViewer::rangePoint_Update()
 
   ui->rangeHistogram->setRange(black, white);
 
-  INVOKE_MEMFN(RT_UpdateVisualRange);
+  QueueUpdateVisualRange();
 }
 
 void TextureViewer::rangePoint_leave()
@@ -3668,7 +5110,7 @@ void TextureViewer::on_zoomRange_clicked()
 
   ui->rangeHistogram->setRange(black, white);
 
-  INVOKE_MEMFN(RT_UpdateVisualRange);
+  QueueUpdateVisualRange();
 }
 
 void TextureViewer::on_autoFit_clicked()
@@ -3689,7 +5131,7 @@ void TextureViewer::on_reset01_clicked()
 
   ui->autoFit->setChecked(false);
 
-  INVOKE_MEMFN(RT_UpdateVisualRange);
+  QueueUpdateVisualRange();
 }
 
 void TextureViewer::on_visualiseRange_clicked()
@@ -3699,7 +5141,7 @@ void TextureViewer::on_visualiseRange_clicked()
     ui->rangeHistogram->setMinimumSize(QSize(300, 90));
 
     m_Visualise = true;
-    INVOKE_MEMFN(RT_UpdateVisualRange);
+    QueueUpdateVisualRange();
   }
   else
   {
@@ -3713,17 +5155,31 @@ void TextureViewer::on_visualiseRange_clicked()
 void TextureViewer::AutoFitRange()
 {
   // no capture loaded or buffer/empty texture currently being viewed - don't autofit
-  if(!m_Ctx.IsCaptureLoaded() || GetCurrentTexture() == NULL || m_Output == NULL)
+  if(m_RetargetingRenderTargetHistory || m_UpdatingTextureState || !m_Ctx.IsCaptureLoaded() ||
+     GetCurrentTexture() == NULL || m_Output == NULL)
     return;
 
-  m_Ctx.Replay().AsyncInvoke([this](IReplayController *r) {
-    ResourceId textureId = m_TexDisplay.resourceId;
-    Subresource sub = m_TexDisplay.subresource;
-    CompType typeCast = m_TexDisplay.typeCast;
+  QPointer<TextureViewer> self(this);
+  const ViewRequest request = CurrentViewRequest();
+  // i18n-ignore: internal replay-request coalescing tag, never shown to the user.
+  m_Ctx.Replay().AsyncInvoke(lit("TextureViewerAutoFit"), [self, request](IReplayController *r) {
+    if(!self || !self->IsCurrentViewRequest(request) || r->GetCurrentEventID() != request.eventId ||
+       self->m_Output == NULL)
+      return;
+    const uint32_t historyEvent = request.historyEvent;
+    TextureDisplay analysisDisplay;
+    const bool haveSnapshot =
+        ResolveTextureHistorySnapshot(r, historyEvent, request.display, analysisDisplay);
+    ScopedTextureHistoryReplay historyReplay(r, haveSnapshot ? 0 : historyEvent);
 
-    if(m_TexDisplay.customShaderId != ResourceId() && m_Output->GetCustomShaderTexID() != ResourceId())
+    ResourceId textureId = analysisDisplay.resourceId;
+    Subresource sub = analysisDisplay.subresource;
+    CompType typeCast = analysisDisplay.typeCast;
+
+    if(analysisDisplay.customShaderId != ResourceId() &&
+       self->m_Output->GetCustomShaderTexID() != ResourceId())
     {
-      textureId = m_Output->GetCustomShaderTexID();
+      textureId = self->m_Output->GetCustomShaderTexID();
       sub.slice = sub.sample = 0;
       typeCast = CompType::Typeless;
     }
@@ -3737,15 +5193,15 @@ void TextureViewer::AutoFitRange()
 
       bool changeRange = false;
 
-      ResourceFormat fmt = GetCurrentTexture()->format;
+      ResourceFormat fmt = request.texture.format;
 
-      if(m_TexDisplay.customShaderId != ResourceId())
+      if(request.display.customShaderId != ResourceId())
       {
         fmt.compType = CompType::Float;
       }
-      if(fmt.compType == CompType::Typeless && m_TexDisplay.typeCast == CompType::UInt)
+      if(fmt.compType == CompType::Typeless && request.display.typeCast == CompType::UInt)
         fmt.compType = CompType::UInt;
-      if(fmt.compType == CompType::Typeless && m_TexDisplay.typeCast == CompType::SInt)
+      if(fmt.compType == CompType::Typeless && request.display.typeCast == CompType::SInt)
         fmt.compType = CompType::SInt;
 
       for(int i = 0; i < 4; i++)
@@ -3762,25 +5218,25 @@ void TextureViewer::AutoFitRange()
         }
       }
 
-      if(m_TexDisplay.red)
+      if(request.display.red)
       {
         minval = qMin(minval, min.floatValue[0]);
         maxval = qMax(maxval, max.floatValue[0]);
         changeRange = true;
       }
-      if(m_TexDisplay.green && fmt.compCount > 1)
+      if(request.display.green && fmt.compCount > 1)
       {
         minval = qMin(minval, min.floatValue[1]);
         maxval = qMax(maxval, max.floatValue[1]);
         changeRange = true;
       }
-      if(m_TexDisplay.blue && fmt.compCount > 2)
+      if(request.display.blue && fmt.compCount > 2)
       {
         minval = qMin(minval, min.floatValue[2]);
         maxval = qMax(maxval, max.floatValue[2]);
         changeRange = true;
       }
-      if(m_TexDisplay.alpha && fmt.compCount > 3)
+      if(request.display.alpha && fmt.compCount > 3)
       {
         minval = qMin(minval, min.floatValue[3]);
         maxval = qMax(maxval, max.floatValue[3]);
@@ -3789,9 +5245,11 @@ void TextureViewer::AutoFitRange()
 
       if(changeRange)
       {
-        GUIInvoke::call(this, [this, minval, maxval]() {
-          ui->rangeHistogram->setRange(minval, maxval);
-          INVOKE_MEMFN(RT_UpdateVisualRange);
+        GUIInvoke::call(qApp, [self, request, minval, maxval]() {
+          if(!self || !self->IsCurrentViewRequest(request))
+            return;
+          self->ui->rangeHistogram->setRange(minval, maxval);
+          self->QueueUpdateVisualRange();
         });
       }
     }
@@ -3818,7 +5276,7 @@ void TextureViewer::on_backcolorPick_clicked()
   ui->backcolorPick->setChecked(true);
   ui->checkerBack->setChecked(false);
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
+  QueueUpdateAndDisplay();
 
   if(m_Output == NULL)
   {
@@ -3838,7 +5296,7 @@ void TextureViewer::on_checkerBack_clicked()
 
   updateBackgroundColors();
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
+  QueueUpdateAndDisplay();
 
   if(m_Output == NULL)
   {
@@ -3888,14 +5346,15 @@ void TextureViewer::on_mipLevel_currentIndexChanged(int index)
     return;
   }
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
+  UpdateRenderTargetHistorySubresource();
+  QueueUpdateAndDisplay();
 
   if(m_Output != NULL && m_PickedPoint.x() >= 0 && m_PickedPoint.y() >= 0)
   {
-    INVOKE_MEMFN(RT_PickPixelsAndUpdate);
+    QueuePickPixelsAndUpdate();
   }
 
-  INVOKE_MEMFN(RT_UpdateVisualRange);
+  QueueUpdateVisualRange();
 }
 
 void TextureViewer::on_sliceFace_currentIndexChanged(int index)
@@ -3907,13 +5366,14 @@ void TextureViewer::on_sliceFace_currentIndexChanged(int index)
   TextureDescription &tex = *texptr;
   m_TexDisplay.subresource.slice = (uint32_t)qMax(0, index);
 
-  INVOKE_MEMFN(RT_UpdateAndDisplay);
+  UpdateRenderTargetHistorySubresource();
+  QueueUpdateAndDisplay();
 
-  INVOKE_MEMFN(RT_UpdateVisualRange);
+  QueueUpdateVisualRange();
 
   if(m_Output != NULL && m_PickedPoint.x() >= 0 && m_PickedPoint.y() >= 0)
   {
-    INVOKE_MEMFN(RT_PickPixelsAndUpdate);
+    QueuePickPixelsAndUpdate();
   }
 }
 
@@ -4087,8 +5547,10 @@ void TextureViewer::on_saveTex_clicked()
     ResultDetails result = {ResultCode::Succeeded};
     QString fn = saveDialog.filename();
 
-    m_Ctx.Replay().BlockInvoke(
-        [this, &result, fn](IReplayController *r) { result = r->SaveTexture(m_SaveConfig, fn); });
+    m_Ctx.Replay().BlockInvoke([this, &result, fn](IReplayController *r) {
+      ScopedTextureHistoryReplay historyReplay(r, ActiveRenderTargetHistoryEvent());
+      result = r->SaveTexture(m_SaveConfig, fn);
+    });
 
     if(!result.OK())
     {
@@ -4104,6 +5566,9 @@ void TextureViewer::on_debugPixelContext_clicked()
     return;
 
   TextureDescription *texptr = GetCurrentTexture();
+  if(!texptr)
+    return;
+  m_Ctx.CancelReplayBackgroundWork();
 
   int x = MipCoordFromBase(m_PickedPoint.x(), texptr->width);
   int y = MipCoordFromBase(m_PickedPoint.y(), texptr->height);
@@ -4168,6 +5633,7 @@ void TextureViewer::on_pixelHistory_clicked()
 
 void TextureViewer::ShowPixelHistory(bool failedDebug)
 {
+  m_Ctx.CancelReplayBackgroundWork();
   TextureDescription *texptr = GetCurrentTexture();
 
   if(!texptr || !m_Output)
@@ -4825,6 +6291,20 @@ void TextureViewer::customShaderModified(const QString &path)
 #if ENABLE_UNIT_TESTS
 
 #include "3rdparty/catch/catch.hpp"
+
+TEST_CASE("Texture presentation completion requires the rendered canvas dimensions",
+          "[texture][publication]")
+{
+  // The real tab race rendered while the native child was still 674x722, then show() delivered
+  // the current tab's deferred resize to 674x957. EID/ResourceId alone cannot certify that frame.
+  const rdcpair<int32_t, int32_t> historyCanvas = {674, 722};
+  const QSize currentCanvas(674, 957);
+  CHECK_FALSE(TexturePresentationMatchesCanvas(historyCanvas, currentCanvas));
+  CHECK(TexturePresentationMatchesCanvas({674, 957}, currentCanvas));
+  CHECK_FALSE(TexturePresentationMatchesCanvas({674, 957}, QSize(675, 957)));
+  CHECK_FALSE(TexturePresentationMatchesCanvas({0, 0}, QSize(0, 0)));
+  CHECK_FALSE(TexturePresentationMatchesCanvas({-1, 957}, QSize(-1, 957)));
+}
 
 // helper to avoid needing to test every possibility, which being O(n^2) up to with n=65536 can
 // still be a bit slow.

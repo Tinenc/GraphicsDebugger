@@ -116,12 +116,23 @@ void main(out float4 out1 : SV_Target0, out float4 out2 : SV_Target1)
     bbTex[1]->SetName(L"Swapchain 1");
 
     Vec4f col;
+    // Opt-in replay validation needs intermediate draws to change their targets within this
+    // captured frame. The normal reference-tracking test intentionally clears only once above.
+    const char *liveForwardFixture = getenv("RENDERDOC_LIVE_FORWARD_FIXTURE");
+    const bool clearEveryFrame = liveForwardFixture && !strcmp(liveForwardFixture, "1");
 
     while(Running())
     {
       ID3D12GraphicsCommandListPtr cmd = GetCommandBuffer();
 
       Reset(cmd);
+
+      if(clearEveryFrame)
+      {
+        for(int i = 0; i < ARRAY_COUNT(rtvtex) - 1; i++)
+          ClearRenderTargetView(cmd, MakeRTV(rtvtex[i]).CreateCPU(29),
+                                {0.0f, 0.0f, 0.0f, 1.0f});
+      }
 
       // Set null render targets to ensure that these work properly when attached
       cmd->OMSetRenderTargets(0, NULL, FALSE, NULL);

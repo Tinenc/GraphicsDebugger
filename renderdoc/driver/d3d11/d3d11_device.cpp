@@ -25,10 +25,12 @@
 
 #include "d3d11_device.h"
 #include "core/core.h"
+#include "core/api_monitor.h"
 #include "core/settings.h"
 #include "driver/dxgi/dxgi_wrapped.h"
 #include "jpeg-compressor/jpge.h"
 #include "maths/formatpacking.h"
+#include "replay/replay_timing.h"
 #include "serialise/rdcfile.h"
 #include "strings/string_utils.h"
 #include "d3d11_context.h"
@@ -1559,7 +1561,7 @@ RDResult WrappedID3D11Device::ReadLogInitialisation(RDCFile *rdc, bool storeStru
   GetReplay()->WriteFrameRecord().frameInfo.initDataSize =
       chunkInfos[(D3D11Chunk)SystemChunk::InitialContents].totalsize;
 
-  RDCDEBUG("Allocating %llu persistant bytes of memory for the log.",
+  RDCDEBUG("Allocating %llu persistent bytes of memory for the log.",
            GetReplay()->WriteFrameRecord().frameInfo.persistentSize);
 
   if(HasFatalError())
@@ -1572,9 +1574,10 @@ RDResult WrappedID3D11Device::ReadLogInitialisation(RDCFile *rdc, bool storeStru
   return ResultCode::Succeeded;
 }
 
-void WrappedID3D11Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
+bool WrappedID3D11Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
                                     ReplayLogType replayType)
 {
+  ++m_ReplayExecutionSerial;
   bool partial = true;
 
   if(startEventID == 0 && (replayType == eReplay_WithoutDraw || replayType == eReplay_Full))
@@ -1583,10 +1586,13 @@ void WrappedID3D11Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
     partial = false;
   }
 
+  ScopedReplayTiming replayTiming("D3D11", startEventID, endEventID, replayType, partial);
+
   if(!partial)
   {
     RENDERDOC_PROFILEREGION("ApplyInitialContents");
     D3D11MarkerRegion apply("!!!!RenderDoc Internal: ApplyInitialContents");
+    ScopedReplayTimingSection timing(ReplayTimingSection::ApplyInitial);
     GetResourceManager()->ApplyInitialContents();
   }
 
@@ -1599,15 +1605,19 @@ void WrappedID3D11Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
 
   RDResult result = ResultCode::Succeeded;
 
-  if(replayType == eReplay_Full)
-    result = m_pImmediateContext->ReplayLog(m_State, startEventID, endEventID, partial);
-  else if(replayType == eReplay_WithoutDraw)
-    result =
-        m_pImmediateContext->ReplayLog(m_State, startEventID, RDCMAX(1U, endEventID) - 1, partial);
-  else if(replayType == eReplay_OnlyDraw)
-    result = m_pImmediateContext->ReplayLog(m_State, endEventID, endEventID, partial);
-  else
-    RDCFATAL("Unexpected replay type");
+  {
+    ScopedReplayTimingSection timing(ReplayTimingSection::ContextReplay);
+
+    if(replayType == eReplay_Full)
+      result = m_pImmediateContext->ReplayLog(m_State, startEventID, endEventID, partial);
+    else if(replayType == eReplay_WithoutDraw)
+      result =
+          m_pImmediateContext->ReplayLog(m_State, startEventID, RDCMAX(1U, endEventID) - 1, partial);
+    else if(replayType == eReplay_OnlyDraw)
+      result = m_pImmediateContext->ReplayLog(m_State, endEventID, endEventID, partial);
+    else
+      RDCFATAL("Unexpected replay type");
+  }
 
   RDCASSERTEQUAL(result.code, ResultCode::Succeeded);
 
@@ -1620,6 +1630,7 @@ void WrappedID3D11Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
   if(m_pDevice->GetDeviceRemovedReason() != S_OK)
     SET_ERROR_RESULT(m_FatalError, ResultCode::DeviceLost, "Device lost during replay: %s",
                      ToStr(m_pDevice->GetDeviceRemovedReason()).c_str());
+  return result == ResultCode::Succeeded && !HasFatalError();
 }
 
 void WrappedID3D11Device::NewSwapchainBuffer(IUnknown *backbuffer)
@@ -1952,7 +1963,7 @@ void WrappedID3D11Device::DestroyDeadObject(ID3D11DeviceChild *child)
       m_pImmediateContext->RemoveAnnotations(id);
 
     // clean up book-keeping
-    rm->RemoveWrapper(wrapped->GetReal());
+    rm->RemoveWrapper(wrapped, wrapped->GetReal());
     rm->ReleaseResource(id);
     D3D11ResourceRecord *record = GetResourceManager()->GetResourceRecord(id);
     if(record)
@@ -2728,6 +2739,10 @@ HRESULT WrappedID3D11Device::Present(IDXGISwapper *swapper, UINT SyncInterval, U
   m_pImmediateContext->EndFrame();
 
   m_FrameCounter++;    // first present becomes frame #1, this function is at the end of the frame
+
+#if RENDERDOC_ENABLE_API_MONITOR
+  ApiMonitor::Inst().SetFrameNumber(m_FrameCounter);
+#endif
 
   m_pImmediateContext->BeginFrame();
 

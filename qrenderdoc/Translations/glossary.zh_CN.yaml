@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "locale": "zh_CN",
+  "source_language": "en",
+  "policy": {
+    "audience": "RenderDoc graphics programmers and technical artists",
+    "style": "Use concise Simplified Chinese UI terminology. Translate by capture/API context, never by isolated dictionary meaning.",
+    "identifiers": "Do not translate API symbols, shader semantics, resource formats, source code, paths, user resource names, marker text, or stage abbreviations.",
+    "ambiguous_terms": "A term with multiple senses must have a translator comment or a disambiguation argument before it is marked finished."
+  },
+  "protected_tokens": [
+    "IA", "VS", "HS", "DS", "GS", "RS", "PS", "OM", "CS", "AS", "MS", "FS", "TS", "TCS", "TES", "VTX", "FB", "SO", "XFB",
+    "SRV", "UAV", "CBV", "RTV", "DSV",
+    "UBO", "SSBO", "NDC", "FOV", "MIP",
+    "D3D11", "D3D12", "Direct3D", "Vulkan", "OpenGL", "OpenGLES",
+    "SPIR-V", "DXIL", "DXBC", "HLSL", "GLSL", "MSL", "GL", "VK",
+    "GPU", "CPU", "API", "EID", "RID", "RDC", "RGP",
+    "RGBA", "RGB", "MSAA", "UNORM", "SNORM", "UINT", "SINT", "FLOAT", "SRGB",
+    "NaN", "Inf", "UUID", "GUID", "CSV", "JSON", "CLI", "URL", "HTTP", "HTTPS", "TLS",
+    "ACP", "MCP", "OAuth", "OpenAI", "ChatGPT", "Python", "Qt", "C++",
+    "RenderDoc", "qrenderdoc", "ReplayLab", "Bread", "NVIDIA", "AMD", "Intel", "ARM", "Radeon",
+    "Windows", "Linux", "Android", "macOS", "Wayland", "X11", "GitHub",
+    "PID", "TCP", "IPv4", "IPv6",
+    "X", "Y", "Z", "W", "R", "G", "B"
+  ],
+  "compact_pipeline_flows": {
+    "renderer": "qrenderdoc/Widgets/PipelineFlowChart.cpp",
+    "viewers": [
+      {
+        "path": "qrenderdoc/Windows/PipelineState/D3D11PipelineStateViewer.cpp",
+        "stage_sequences": [
+          ["IA", "VS", "HS", "DS", "GS", "RS", "PS", "OM", "CS"]
+        ],
+        "dynamic_abbreviations": ["SO", "GS"]
+      },
+      {
+        "path": "qrenderdoc/Windows/PipelineState/D3D12PipelineStateViewer.cpp",
+        "stage_sequences": [
+          ["IA", "VS", "HS", "DS", "GS", "RS", "PS", "OM", "CS"],
+          ["AS", "MS", "RS", "PS", "OM", "CS"]
+        ],
+        "dynamic_abbreviations": ["SO", "GS"]
+      },
+      {
+        "path": "qrenderdoc/Windows/PipelineState/GLPipelineStateViewer.cpp",
+        "stage_sequences": [
+          ["VTX", "VS", "TCS", "TES", "GS", "RS", "FS", "FB", "CS"]
+        ],
+        "dynamic_abbreviations": ["XFB", "GS"]
+      },
+      {
+        "path": "qrenderdoc/Windows/PipelineState/VulkanPipelineStateViewer.cpp",
+        "stage_sequences": [
+          ["VTX", "VS", "TCS", "TES", "GS", "RS", "FS", "FB", "CS"],
+          ["TS", "MS", "RS", "FS", "FB", "CS"]
+        ],
+        "dynamic_abbreviations": ["XFB", "GS"]
+      }
+    ]
+  },
+  "protected_patterns": [
+    {
+      "name": "resource format",
+      "regex": "\\b(?:[RGBA][0-9]{1,2})+(?:_[A-Z0-9]+)+\\b"
+    },
+    {
+      "name": "shader semantic",
+      "regex": "\\b(?:SV_[A-Za-z0-9_]+|POSITION[0-9]*|NORMAL[0-9]*|TEXCOORD[0-9]*|COLOR[0-9]*)\\b"
+    },
+    {
+      "name": "graphics API symbol",
+      "regex": "\\b(?:vk[A-Z][A-Za-z0-9_]*|gl[A-Z][A-Za-z0-9_]*|ID3D(?:11|12)[A-Za-z0-9_]*|D3D(?:11|12)_[A-Z0-9_]+|VK_[A-Z0-9_]+|GL_[A-Z0-9_]+)\\b"
+    }
+  ],
+  "terms": [
+    {"source": "Shader", "translation": "着色器", "note": "Never translate shader as 着色程序 in compact UI labels."},
+    {"source": "Vertex Shader", "translation": "顶点着色器"},
+    {"source": "Pixel Shader", "translation": "像素着色器", "note": "Direct3D terminology; keep PS when the source uses PS."},
+    {"source": "Fragment Shader", "translation": "片元着色器", "note": "OpenGL/Vulkan terminology; do not silently change it to Pixel Shader."},
+    {"source": "Geometry Shader", "translation": "几何着色器"},
+    {"source": "Compute Shader", "translation": "计算着色器"},
+    {"source": "Hull Shader", "translation": "外壳着色器", "note": "Direct3D stage name; an explanatory text may add 曲面细分控制阶段."},
+    {"source": "Domain Shader", "translation": "域着色器", "note": "Direct3D stage name; an explanatory text may add 曲面细分求值阶段."},
+    {"source": "Tessellation Control Shader", "translation": "曲面细分控制着色器"},
+    {"source": "Tessellation Evaluation Shader", "translation": "曲面细分求值着色器"},
+    {"source": "Task Shader", "translation": "任务着色器"},
+    {"source": "Mesh Shader", "translation": "网格着色器"},
+    {"source": "Amplification Shader", "translation": "放大着色器"},
+    {"source": "Ray Generation Shader", "translation": "光线生成着色器"},
+    {"source": "Closest Hit Shader", "translation": "最近命中着色器"},
+    {"source": "Any Hit Shader", "translation": "任意命中着色器"},
+    {"source": "Miss Shader", "translation": "未命中着色器"},
+    {"source": "Intersection Shader", "translation": "相交着色器"},
+    {"source": "Callable Shader", "translation": "可调用着色器"},
+    {"source": "Pipeline State", "translation": "管线状态"},
+    {"source": "Render Pass", "translation": "渲染通道"},
+    {"source": "Framebuffer", "translation": "帧缓冲"},
+    {"source": "Render Target", "translation": "渲染目标"},
+    {"source": "Depth", "translation": "深度"},
+    {"source": "Stencil", "translation": "模板"},
+    {"source": "Depth/Stencil", "translation": "深度/模板"},
+    {"source": "Texture", "translation": "纹理"},
+    {"source": "Buffer", "translation": "缓冲区"},
+    {"source": "Constant Buffer", "translation": "常量缓冲区"},
+    {"source": "Vertex Buffer", "translation": "顶点缓冲区"},
+    {"source": "Index Buffer", "translation": "索引缓冲区"},
+    {"source": "Sampler", "translation": "采样器"},
+    {"source": "Resource", "translation": "资源"},
+    {"source": "Subresource", "translation": "子资源"},
+    {"source": "Descriptor", "translation": "描述符"},
+    {"source": "Descriptor Set", "translation": "描述符集"},
+    {"source": "Descriptor Heap", "translation": "描述符堆"},
+    {"source": "Root Signature", "translation": "根签名"},
+    {"source": "Shader Resource View", "translation": "着色器资源视图"},
+    {"source": "Unordered Access View", "translation": "无序访问视图"},
+    {"source": "Input Attachment", "translation": "输入附件"},
+    {"source": "Command Buffer", "translation": "命令缓冲区"},
+    {"source": "Command List", "translation": "命令列表"},
+    {"source": "Swapchain", "translation": "交换链"},
+    {"source": "Primitive", "translation": "图元"},
+    {"source": "Topology", "translation": "拓扑"},
+    {"source": "Viewport", "translation": "视口"},
+    {"source": "Scissor", "translation": "裁剪矩形"},
+    {"source": "Rasterizer", "translation": "光栅化器"},
+    {"source": "Culling", "translation": "剔除"},
+    {"source": "Wireframe", "translation": "线框"},
+    {"source": "Blending", "translation": "混合"},
+    {"source": "Overdraw", "translation": "过度绘制"},
+    {"source": "Array Slice", "translation": "数组切片"},
+    {"source": "Mip Level", "translation": "MIP 级别"},
+    {"source": "Binding", "translation": "绑定"},
+    {"source": "Capture", "translation": "捕获"},
+    {"source": "Event", "translation": "事件"},
+    {"source": "Marker", "translation": "标记"},
+    {"source": "Drawcall", "translation": "绘制调用"},
+    {"source": "Dispatch", "translation": "调度", "note": "Compute/ray/mesh dispatch; aligned with Direct3D Chinese terminology."},
+    {"source": "Debug Message", "translation": "调试消息"},
+    {"source": "Normal Map", "translation": "法线贴图"},
+    {"source": "Normalize", "translation": "归一化"}
+  ],
+  "ambiguous_terms": [
+    {
+      "source": "Normal",
+      "senses": [
+        {"when": "mesh attribute, vector, texture channel, or surface basis", "translation": "法线"},
+        {"when": "ordinary mode, priority, filtering, or display behavior", "translation": "常规"},
+        {"when": "successful/expected process exit or health state", "translation": "正常"},
+        {"when": "HLSL/GLSL semantic such as NORMAL0", "translation": "NORMAL0", "rule": "keep identifier unchanged"}
+      ]
+    },
+    {
+      "source": "Pass",
+      "senses": [
+        {"when": "render pass", "translation": "渲染通道"},
+        {"when": "validation/test result", "translation": "通过"},
+        {"when": "compiler or analysis pass", "translation": "处理阶段"}
+      ]
+    },
+    {
+      "source": "Resolve",
+      "senses": [
+        {"when": "multisample image operation", "translation": "多重采样解析"},
+        {"when": "symbol/path lookup", "translation": "解析"},
+        {"when": "problem resolution", "translation": "解决"}
+      ]
+    },
+    {
+      "source": "Sample",
+      "senses": [
+        {"when": "MSAA sample or sampled value", "translation": "样本"},
+        {"when": "example/demo", "translation": "示例"},
+        {"when": "sampling operation", "translation": "采样"}
+      ]
+    }
+  ],
+  "lint_terms": [
+    {"source": "Vertex Shader", "allowed": ["顶点着色器"]},
+    {"source": "Pixel Shader", "allowed": ["像素着色器"]},
+    {"source": "Fragment Shader", "allowed": ["片元着色器"]},
+    {"source": "Compute Shader", "allowed": ["计算着色器"]},
+    {"source": "Normal Map", "allowed": ["法线贴图"]},
+    {"source": "Constant Buffer", "allowed": ["常量缓冲区"]},
+    {"source": "Pipeline State", "allowed": ["管线状态"]},
+    {"source": "Render Pass", "allowed": ["渲染通道"]},
+    {"source": "Render Target", "allowed": ["渲染目标"]},
+    {"source": "Framebuffer", "allowed": ["帧缓冲"]},
+    {"source": "Descriptor", "allowed": ["描述符"]},
+    {"source": "Sampler", "allowed": ["采样器"]},
+    {"source": "Resource", "allowed": ["资源"]},
+    {"source": "Texture", "allowed": ["纹理"]},
+    {"source": "Buffer", "allowed": ["缓冲区"]},
+    {"source": "Primitive", "allowed": ["图元"]},
+    {"source": "Topology", "allowed": ["拓扑"]},
+    {"source": "Viewport", "allowed": ["视口"]},
+    {"source": "Scissor", "allowed": ["裁剪矩形"]},
+    {"source": "Rasterizer", "allowed": ["光栅化器"]},
+    {"source": "Culling", "allowed": ["剔除"]},
+    {"source": "Wireframe", "allowed": ["线框"]},
+    {"source": "Blending", "allowed": ["混合"]},
+    {"source": "Array Slice", "allowed": ["数组切片"]},
+    {"source": "Mip Level", "allowed": ["MIP 级别"]},
+    {"source": "Binding", "allowed": ["绑定"]},
+    {"source": "Capture", "allowed": ["捕获"]},
+    {"source": "Event", "allowed": ["事件"]},
+    {"source": "Marker", "allowed": ["标记"]},
+    {"source": "Drawcall", "allowed": ["绘制调用"]},
+    {"source": "Dispatch", "allowed": ["调度"]}
+  ],
+  "forbidden_rules": [
+    {
+      "source_regex": "(?i)normal(?: map| vector| channel)?",
+      "context_regex": "(?i)(mesh|texture|buffer|pipeline|shader)",
+      "translation_regex": "正常",
+      "message": "Normal in geometry/texture/pipeline context is usually 法线 or 常规, not 正常; inspect the exact context."
+    }
+  ]
+}

@@ -65,6 +65,9 @@ struct CompilationSettings
   rdcstr entryPoint;
 };
 
+// True only when the linked glslang build includes its HLSL frontend.
+bool SupportsHLSL();
+
 void Init();
 void Shutdown();
 

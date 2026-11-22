@@ -244,7 +244,7 @@ MeshDisplayPipelines D3D12DebugManager::CacheMeshDisplayPipelines(const MeshForm
 }
 
 void D3D12Replay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secondaryDraws,
-                             const MeshDisplay &cfg)
+                             const MeshDisplay &cfg, const MeshComponentHighlight &components)
 {
   if(cfg.position.vertexResourceId == ResourceId() ||
      !m_pDevice->GetResourceManager()->HasResource(cfg.position.vertexResourceId) ||
@@ -277,11 +277,7 @@ void D3D12Replay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secon
 
   MeshVertexCBuffer vertexData;
 
-  float nearPlane = cfg.cam ? ((Camera *)cfg.cam)->GetNear() : 0.1f;
-  float farPlane = cfg.cam ? ((Camera *)cfg.cam)->GetFar() : 100000.0f;
-
-  Matrix4f projMat =
-      Matrix4f::Perspective(90.0f, nearPlane, farPlane, viewport.Width / viewport.Height);
+  Matrix4f projMat = Camera::MeshProjection(cfg.cam, viewport.Width / viewport.Height);
   Matrix4f InvProj = projMat.Inverse();
 
   Matrix4f camMat = cfg.cam ? ((Camera *)cfg.cam)->GetMatrix() : Matrix4f::Identity();
@@ -767,6 +763,48 @@ void D3D12Replay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secon
     list->SetGraphicsRootShaderResourceView(3, meshletBuf);
 
     list->DrawInstanced(24, 1, 0, 0);
+  }
+
+  if(!components.vertices.empty() &&
+     (!outw.componentHighlight ||
+      outw.componentHighlight->GetDesc().Width < components.vertices.byteSize()))
+  {
+    SAFE_RELEASE(outw.componentHighlight);
+    outw.componentHighlight =
+        GetDebugManager()->MakeCBuffer(AlignUp(components.vertices.byteSize(), size_t(64 * 1024)));
+  }
+
+  if(!components.vertices.empty() && outw.componentHighlight)
+  {
+    const bool points = components.topology == Topology::PointList;
+    helper.topology = points ? Topology::TriangleList : components.topology;
+    cache = GetDebugManager()->CacheMeshDisplayPipelines(helper, helper);
+    MeshVertexCBuffer component = vertexData;
+    component.exploderScale = 0.0f;
+    component.ModelViewProj = components.DepthBiasedTransform(
+        projMat.Mul(camMat.Mul(cfg.position.unproject ? guessProjInv : axisMapMat)), cfg.cam);
+    component.homogenousInput = cfg.position.unproject;
+    if(points)
+    {
+      component.SpriteSize = Vec2f(-800.0f / viewport.Width, 800.0f / viewport.Height);
+      component.componentSelectedVertices = components.selectedVertices;
+    }
+    pixelData.MeshDisplayFormat = points ? MESHDISPLAY_POINT : MESHDISPLAY_SOLID;
+    pixelData.MeshColour = Vec3f(1.0f, 0.36f, 0.035f);
+    list->SetGraphicsRoot32BitConstants(2, 4, &pixelData, 0);
+    list->SetGraphicsRootConstantBufferView(
+        0, GetDebugManager()->UploadConstants(&component, sizeof(component)));
+    D3D12_VERTEX_BUFFER_VIEW view = {};
+    view.StrideInBytes = sizeof(FloatVector);
+    view.SizeInBytes = UINT(components.vertices.byteSize());
+    GetDebugManager()->FillBuffer(Unwrap(outw.componentHighlight), 0, components.vertices.data(),
+                                  view.SizeInBytes);
+    view.BufferLocation = outw.componentHighlight->GetGPUVirtualAddress();
+    list->IASetVertexBuffers(0, 1, &view);
+    list->IASetPrimitiveTopology(MakeD3DPrimitiveTopology(helper.topology));
+    list->SetPipelineState(cache.pipes[MeshDisplayPipelines::ePipe_SolidDepth]);
+    list->DrawInstanced(UINT(components.vertices.size()), 1, 0, 0);
+    pixelData.MeshDisplayFormat = MESHDISPLAY_SOLID;
   }
 
   // show highlighted vertex

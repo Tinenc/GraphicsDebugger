@@ -12,6 +12,24 @@ if [ ! -d "${REPO_ROOT}"/dist/bin ]; then
 	exit 1;
 fi
 
+# A portable Bread package carries its tested compiler and loader libraries.
+# Acquisition is an explicit CMake option, never a copy of a workstation tool.
+if ! python3 "${REPO_ROOT}/replaylab/packaging/fetch_shader_dxc.py" \
+    --platform linux-x64 \
+    --verify-directory "${REPO_ROOT}/dist/share/renderdoc/replaylab/tools/dxc"; then
+    echo "Pinned DXC bundle is missing or invalid. Configure with -DBREAD_BUNDLE_SHADER_COMPILERS=ON,"
+    echo "build bundle-bread-shader-compilers, and install before packaging. For offline acquisition use"
+    echo "-DBREAD_DXC_ARCHIVE=/absolute/path/to/linux_dxc_2024_07_31.x86_64.tar.gz."
+    exit 1
+fi
+if ! python3 "${REPO_ROOT}/replaylab/packaging/fetch_shader_glslang.py" \
+    --verify-directory "${REPO_ROOT}/dist/share/renderdoc/replaylab/tools/glslang"; then
+    echo "Pinned glslang bundle is missing or invalid. Enable BREAD_BUNDLE_SHADER_COMPILERS,"
+    echo "build bundle-bread-shader-compilers, and install before packaging. For offline acquisition use"
+    echo "-DBREAD_GLSLANG_ARCHIVE=/absolute/path/to/glslang-tools_11.8.0+1.3.204.0-1_amd64.deb."
+    exit 1
+fi
+
 FILENAME="$(echo $FILENAME | tr A-Z a-z)";
 
 rm -rf "${REPO_ROOT}"/package

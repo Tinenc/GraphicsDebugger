@@ -37,6 +37,7 @@ class PipelineStateViewer;
 class QXmlStreamWriter;
 
 class QToolButton;
+class QTimer;
 class QMenu;
 class RDLabel;
 class RDTreeWidgetItem;
@@ -59,7 +60,7 @@ struct ScopedTreeUpdater
   int vs;
 };
 
-class RDPreviewTooltip : public QFrame, public ITreeViewTipDisplay
+class RDPreviewTooltip : public QFrame, public ICustomToolTipDisplay
 {
 private:
   Q_OBJECT
@@ -74,8 +75,8 @@ public:
                             ICaptureContext &ctx);
 
   void hideTip();
-  QSize configureTip(QWidget *widget, QModelIndex idx, QString text);
-  void showTip(QPoint pos);
+  QSize configureTip(QWidget *widget, QString text, QModelIndex idx);
+  void showTipAtPos(QPoint pos);
   bool forceTip(QWidget *widget, QModelIndex idx);
 
 protected:
@@ -103,6 +104,7 @@ public:
   void OnCaptureClosed() override;
   void OnSelectedEventChanged(uint32_t eventId) override {}
   void OnEventChanged(uint32_t eventId) override;
+  void OnScrubEvent(uint32_t eventId) override;
 
   QVariant persistData();
   void setPersistData(const QVariant &persistData);
@@ -138,6 +140,11 @@ private:
   void showEvent(QShowEvent *event) override;
 
   Ui::PipelineStateViewer *ui;
+  QTimer *m_DetailsTimer = NULL;
+  bool m_DetailsPending = false;
+  QLabel *m_DetailsNotice = NULL;
+  QString m_PreviousToolTip;
+  void DeferDetails();
   ICaptureContext &m_Ctx;
 
   QMenu *editMenus[NumShaderStages] = {};
@@ -152,17 +159,18 @@ private:
   void AddResourceUsageEntry(QMenu &menu, uint32_t start, uint32_t end, ResourceUsage usage);
   void ShowResourceContextMenu(RDTreeWidget *widget, const QPoint &pos, ResourceId id,
                                const rdcarray<EventUsage> &usage);
+  bool GetTextureHistoryDetails(RDTreeWidgetItem *item, ResourceId id,
+                                Subresource &subresource, CompType &typeCast);
+  void OpenRenderTargetHistory(ResourceId id, const Subresource &subresource, CompType typeCast);
 
-  QString GenerateHLSLStub(const ShaderReflection *shaderDetails, const QString &entryFunc);
   IShaderViewer *EditShader(ResourceId id, ShaderStage shaderType, const rdcstr &entry,
                             ShaderCompileFlags compileFlags, KnownShaderTool knownTool,
                             ShaderEncoding shaderEncoding, const rdcstrpairs &files);
+  IShaderViewer *ViewShaderExplanation(ShaderStage shaderType, const rdcstr &entry,
+                                       const rdcstrpairs &files, const rdcstr &diagnostics);
   IShaderViewer *EditOriginalShaderSource(ResourceId id, const ShaderReflection *shaderDetails);
   IShaderViewer *EditDecompiledSource(const ShaderProcessingTool &tool, ResourceId id,
                                       const ShaderReflection *shaderDetails);
-
-  void MakeShaderVariablesHLSL(bool cbufferContents, const rdcarray<ShaderConstant> &vars,
-                               QString &struct_contents, QString &struct_defs);
 
   QPixmap m_TopoPixmaps[(int)Topology::PatchList + 1];
 

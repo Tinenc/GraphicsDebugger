@@ -43,6 +43,7 @@ public:
 
   void FetchConstantBufferData(const D3D12RenderState::RootSignature &rootsig);
 
+  ShaderValue CBVLoad(const BindingSlot &slot, uint32_t dataOffset) const override;
   ShaderValue TypedUAVLoad(const BindingSlot &slot, const DXILDebug::ViewFmt &fmt,
                            uint64_t dataOffset) const override;
   ShaderValue TypedSRVLoad(const BindingSlot &slot, const DXILDebug::ViewFmt &fmt,
@@ -51,6 +52,7 @@ public:
                      const ShaderValue &value) override;
   bool TypedSRVStore(const BindingSlot &slot, const DXILDebug::ViewFmt &fmt, uint64_t dataOffset,
                      const ShaderValue &value) override;
+  void GetCBV(const BindingSlot &slot) override;
   UAVInfo GetUAV(const BindingSlot &slot) override;
   SRVInfo GetSRV(const BindingSlot &slot) override;
 
@@ -75,9 +77,11 @@ public:
   ShaderDirectAccess GetShaderDirectAccess(DescriptorType type,
                                            const DXDebug::BindingSlot &slot) override;
 
+  bool IsCBVCached(const DXDebug::BindingSlot &slot) const override;
   bool IsSRVCached(const DXDebug::BindingSlot &slot) const override;
   bool IsUAVCached(const DXDebug::BindingSlot &slot) const override;
-  bool IsResourceInfoCached(const DXDebug::BindingSlot &slot, uint32_t mipLevel) override;
+  bool IsResourceInfoCached(DXIL::ResourceClass resClass, const DXDebug::BindingSlot &slot,
+                            uint32_t mipLevel) override;
   bool IsSampleInfoCached(const DXDebug::BindingSlot &slot) override;
   bool IsRenderTargetSampleInfoCached() override;
   bool IsResourceReferenceInfoCached(const DXDebug::BindingSlot &slot) override;
@@ -110,7 +114,7 @@ public:
     return m_WorkgroupProperties;
   }
   const rdcarray<ShaderVariable> &GetConstantBlocks() const override { return m_ConstantBlocks; }
-  const std::map<ConstantBlockReference, bytebuf> &GetConstantBlocksDatas() const override
+  const std::map<ConstantBlockReference, ConstantBlockData> &GetConstantBlocksDatas() const override
   {
     return m_ConstantBlocksDatas;
   }
@@ -138,6 +142,8 @@ private:
   SRVInfo FetchSRV(const BindingSlot &slot);
   SRVInfo FetchSRV(const D3D12Descriptor *resDescriptor, const BindingSlot &slot);
 
+  void FetchCBV(const BindingSlot &slot);
+
   UAVInfo FetchUAV(const BindingSlot &slot);
   UAVInfo FetchUAV(const D3D12Descriptor *resDescriptor, const BindingSlot &slot);
 
@@ -155,28 +161,33 @@ private:
   rdcarray<rdcflatmap<ShaderBuiltin, ShaderVariable>> m_ThreadsBuiltins;
   rdcarray<SourceVariableMapping> m_SourceVars;
   rdcarray<ShaderVariable> m_ConstantBlocks;
-  std::map<ConstantBlockReference, bytebuf> m_ConstantBlocksDatas;
+  std::map<ConstantBlockReference, ConstantBlockData> m_ConstantBlocksDatas;
   ShaderVariable m_InputPlaceholder;
   uint32_t m_SubgroupSize = 1;
 
   struct ResourceInfoMiplevel
   {
+    DXIL::ResourceClass resClass;
     BindingSlot slot;
     uint32_t mipLevel;
 
     bool operator<(const ResourceInfoMiplevel &o) const
     {
-      if(mipLevel == o.mipLevel)
+      if(resClass != o.resClass)
+        return resClass < o.resClass;
+      if(!(slot == o.slot))
         return slot < o.slot;
       return mipLevel < o.mipLevel;
     }
 
     bool operator==(const ResourceInfoMiplevel &o) const
     {
-      return slot == o.slot && mipLevel == o.mipLevel;
+      return resClass == o.resClass && slot == o.slot && mipLevel == o.mipLevel;
     }
   };
 
+  mutable Threading::RWLock m_CBVsLock;
+  std::map<BindingSlot, bytebuf> m_CBVBuffers;
   mutable Threading::RWLock m_UAVsLock;
   std::map<BindingSlot, UAVInfo> m_UAVInfos;
   std::map<BindingSlot, bytebuf> m_UAVBuffers;

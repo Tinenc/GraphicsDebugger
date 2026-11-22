@@ -134,6 +134,8 @@ public:
     else
       m_editable &= ~mask;
   }
+  inline bool selectable() const { return m_selectable; }
+  inline void setSelectable(bool sel) { m_selectable = sel; }
 
   inline Qt::CheckState checkState(int column) const
   {
@@ -180,6 +182,7 @@ private:
   uint32_t m_editable = 0;
 
   // per-item properties
+  bool m_selectable = true;
   QString m_tooltip;
   bool m_bold = false;
   bool m_italic = false;
@@ -253,11 +256,23 @@ public:
   RDTreeWidgetItem *itemForIndex(QModelIndex idx) const;
 
   void copyItem(QPoint pos, RDTreeWidgetItem *item);
+  QString buildSelectionCSV();
+  void copySelectionAsCSV();
 
   typedef std::function<bool(int, Qt::SortOrder, const RDTreeWidgetItem *, const RDTreeWidgetItem *)>
       ComparisonFunction;
+  typedef std::function<bool(ResourceId, RDTreeWidgetItem *, int)> ResourceLinkHandler;
 
   void setSortComparison(ComparisonFunction comparison) { m_SortComparison = comparison; }
+  void setResourceLinkHandler(ResourceLinkHandler handler) { m_ResourceLinkHandler = handler; }
+  bool tryHandleResourceLink(ResourceId id, const QPoint &pos) const
+  {
+    QModelIndex idx = indexAt(pos);
+    if(!m_ResourceLinkHandler || !idx.isValid())
+      return false;
+
+    return m_ResourceLinkHandler(id, itemForIndex(idx), idx.column());
+  }
   void setColumns(const QStringList &columns);
   const QStringList &getHeaders() const { return m_headers; }
   QString headerText(int column) const { return m_headers[column]; }
@@ -269,6 +284,7 @@ public:
 
   RDTreeWidgetItem *itemAt(const QPoint &p) const;
   RDTreeWidgetItem *itemAt(int x, int y) const { return itemAt(QPoint(x, y)); }
+  bool isItemExpanded(RDTreeWidgetItem *item);
   void expandItem(RDTreeWidgetItem *item);
   void expandAllItems(RDTreeWidgetItem *item);
   void collapseItem(RDTreeWidgetItem *item);
@@ -317,8 +333,11 @@ private:
   QStringList m_headers;
 
   ComparisonFunction m_SortComparison;
+  ResourceLinkHandler m_ResourceLinkHandler;
 
   bool m_queueUpdates = false;
+  bool m_batchClear = false;
+  bool m_batchReset = false;
 
   RDTreeWidgetItem *m_queuedItem;
   QPair<int, int> m_lowestIndex;

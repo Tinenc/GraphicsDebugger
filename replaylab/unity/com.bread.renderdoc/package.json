@@ -1,0 +1,10 @@
+{
+  "name": "com.bread.renderdoc",
+  "version": "0.6.5",
+  "displayName": "Bread Capture Import",
+  "description": "Import editable captured assets with independent per-view targets/history, bounded temporal observations, pass/module float readbacks, volume mip import and GUID-preserving asset layouts.",
+  "unity": "2021.3",
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.0.2"
+  }
+}

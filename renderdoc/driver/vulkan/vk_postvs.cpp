@@ -3309,6 +3309,7 @@ void VulkanReplay::FetchMeshOut(uint32_t eventId, VulkanRenderState &state)
       shaderCreateInfo.codeType = VK_SHADER_CODE_TYPE_SPIRV_EXT;
       shaderCreateInfo.codeSize = taskSpirv.size() * sizeof(uint32_t);
       shaderCreateInfo.pCode = taskSpirv.data();
+      shaderCreateInfo.pSpecializationInfo = &taskSpecInfo;
 
       vkr = m_pDriver->vkCreateShadersEXT(m_Device, 1, &shaderCreateInfo, NULL, &taskShader);
 
@@ -3521,7 +3522,9 @@ void VulkanReplay::FetchMeshOut(uint32_t eventId, VulkanRenderState &state)
 
   if(state.dynamicRendering.active)
   {
-    numViews = RDCMAX(numViews, Log2Ceil(state.dynamicRendering.viewMask + 1));
+    numViews = state.dynamicRendering.viewMask == ~0U
+                   ? 32
+                   : RDCMAX(numViews, Log2Ceil(state.dynamicRendering.viewMask + 1));
   }
   else
   {
@@ -4467,7 +4470,9 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
 
   if(state.dynamicRendering.active)
   {
-    numViews = RDCMAX(numViews, Log2Ceil(state.dynamicRendering.viewMask + 1));
+    numViews = state.dynamicRendering.viewMask == ~0U
+                   ? 32
+                   : RDCMAX(numViews, Log2Ceil(state.dynamicRendering.viewMask + 1));
   }
   else
   {
@@ -5857,6 +5862,21 @@ void VulkanReplay::FetchTessGSOut(uint32_t eventId, VulkanRenderState &state)
     }
   }
 
+  // remove the pixel shader
+  for(uint32_t i = 0; i < pipeCreateInfo.stageCount; i++)
+  {
+    VkPipelineShaderStageCreateInfo &stage =
+        (VkPipelineShaderStageCreateInfo &)pipeCreateInfo.pStages[i];
+
+    if(stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+    {
+      if(i < pipeCreateInfo.stageCount - 1)
+        stage = pipeCreateInfo.pStages[pipeCreateInfo.stageCount - 1];
+      pipeCreateInfo.stageCount--;
+      break;
+    }
+  }
+
   // create a empty renderpass and framebuffer so we can draw
   VkFramebuffer fb = VK_NULL_HANDLE;
   VkRenderPass rp = VK_NULL_HANDLE;
@@ -6262,6 +6282,8 @@ void VulkanReplay::InitPostVSBuffers(uint32_t eventId, VulkanRenderState state)
 
   if(m_PostVS.Data.find(eventId) != m_PostVS.Data.end())
     return;
+
+  m_pDriver->InvalidateLiveForward("postVSCapture");
 
   // we handle out-of-memory errors while processing postvs, don't treat it as a fatal error
   ScopedOOMHandleVk oom(m_pDriver);

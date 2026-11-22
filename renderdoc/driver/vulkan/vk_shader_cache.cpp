@@ -73,7 +73,7 @@ static const BuiltinShaderConfig builtinShaders[] = {
                         rdcspv::ShaderStage::Fragment),
     BuiltinShaderConfig(BuiltinShader::CheckerboardMultiviewFS,
                         EmbeddedResource(glsl_checkerboard_frag), rdcspv::ShaderStage::Fragment,
-                        FeatureCheck::NoCheck, BuiltinShaderFlags::Multiview),
+                        FeatureCheck::MultiView, BuiltinShaderFlags::Multiview),
     BuiltinShaderConfig(BuiltinShader::TexDisplayFS, EmbeddedResource(glsl_texdisplay_frag),
                         rdcspv::ShaderStage::Fragment),
     BuiltinShaderConfig(BuiltinShader::FixedColFS, EmbeddedResource(glsl_fixedcol_frag),
@@ -108,7 +108,7 @@ static const BuiltinShaderConfig builtinShaders[] = {
     BuiltinShaderConfig(BuiltinShader::TrisizeFS, EmbeddedResource(glsl_trisize_frag),
                         rdcspv::ShaderStage::Fragment),
     BuiltinShaderConfig(BuiltinShader::TrisizeMultiviewFS, EmbeddedResource(glsl_trisize_frag),
-                        rdcspv::ShaderStage::Fragment, FeatureCheck::NoCheck,
+                        rdcspv::ShaderStage::Fragment, FeatureCheck::MultiView,
                         BuiltinShaderFlags::Multiview),
     BuiltinShaderConfig(BuiltinShader::TexRemap, EmbeddedResource(glsl_texremap_frag),
                         rdcspv::ShaderStage::Fragment, FeatureCheck::NoCheck,
@@ -833,6 +833,19 @@ void VulkanShaderCache::MakeGraphicsPipelineInfo(VkGraphicsPipelineCreateInfo &p
   rs.depthBiasClamp = pipeInfo.depthBiasClamp;
   rs.depthBiasSlopeFactor = pipeInfo.depthBiasSlopeFactor;
   rs.lineWidth = pipeInfo.lineWidth;
+
+  static VkDepthBiasRepresentationInfoEXT depthBiasRepr = {
+      VK_STRUCTURE_TYPE_DEPTH_BIAS_REPRESENTATION_INFO_EXT,
+  };
+
+  if(m_pDriver->DepthBiasControl())
+  {
+    depthBiasRepr.depthBiasRepresentation = pipeInfo.depthBiasRepresentation;
+    depthBiasRepr.depthBiasExact = pipeInfo.depthBiasExact;
+
+    depthBiasRepr.pNext = rs.pNext;
+    rs.pNext = &depthBiasRepr;
+  }
 
   static VkPipelineRasterizationConservativeStateCreateInfoEXT conservRast = {
       VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT,

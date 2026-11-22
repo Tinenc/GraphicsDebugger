@@ -349,6 +349,16 @@ public:
   void AttemptCapture();
   void FinishCapture();
 
+  rdcarray<SDObject *> DetachAnnotations()
+  {
+    rdcarray<SDObject *> ret;
+    ret.swap(m_EventAnnotations);
+    for(auto it = m_Annotations.begin(); it != m_Annotations.end(); ++it)
+      ret.push_back(it->second);
+    m_Annotations.clear();
+    return ret;
+  }
+
   D3D11RenderState *GetCurrentPipelineState() { return m_CurrentPipelineState; }
   ResourceId GetResourceID() { return m_ResourceID; }
   D3D11ResourceRecord *GetResourceRecord() { return m_ContextRecord; }
@@ -363,9 +373,21 @@ public:
   void MarkResourceReferenced(ResourceId id, FrameRefType refType);
 
   rdcarray<EventUsage> GetUsage(ResourceId id) { return m_ResourceUses[id]; }
+  const rdcarray<EventUsage> *GetCheckpointUsage(ResourceId id) const
+  {
+    const auto found = m_ResourceUses.find(id);
+    return found == m_ResourceUses.end() ? NULL : &found->second;
+  }
   void ClearMaps();
 
   uint32_t GetEventID() { return m_CurEventID; }
+  const rdcarray<APIEvent> &GetReplayEvents() const { return m_Events; }
+  bool HasOpenReplayMaps() const { return !m_OpenMaps.empty(); }
+  void RestoreCheckpointEvent(uint32_t eventId)
+  {
+    m_CurEventID = eventId;
+    m_CurEvents.clear();
+  }
   const APIEvent &GetEvent(uint32_t eventId) const;
 
   const ActionDescription &GetRootDraw() { return m_ParentAction; }

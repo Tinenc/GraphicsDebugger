@@ -80,7 +80,7 @@ rdcstr GetTempRootPath()
     return "/sdcard/Android/media/" + package + "/files";
 }
 
-rdcstr GetAppFolderFilename(const rdcstr &filename)
+rdcstr GetPlatformAppFolderFilename(const rdcstr &filename)
 {
   return GetTempRootPath() + rdcstr("/") + filename;
 }

@@ -1,0 +1,10 @@
+{
+  "captureLoaded": true,
+  "capturePath": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\triangle_capture.rdc",
+  "pipelineWidgets": [
+    "detectCamera"
+  ],
+  "aiActionText": "Bread AI(&A)",
+  "aiActionTriggered": true,
+  "status": "passed"
+}

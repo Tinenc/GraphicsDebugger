@@ -59,10 +59,13 @@ public:
   enum ColorScheme
   {
     Light,
-    Dark
+    Dark,
+    Ultra
   };
   RDStyle(ColorScheme scheme);
   ~RDStyle();
+
+  ColorScheme colorScheme() const { return m_Scheme; }
 
   void polish(QApplication *app) override;
   void polish(QPalette &pal) override { polishPalette(pal); }

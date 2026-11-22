@@ -1317,6 +1317,7 @@ bool WrappedOpenGL::Serialise_glNamedBufferStorageMemEXT(SerialiserType &ser, GL
     ResourceId id = GetResourceManager()->GetResID(buffer);
 
     m_Buffers[id].size = size;
+    m_Buffers[id].replayPatchUnsafe = true;
 
     AddResourceInitChunk(buffer);
     DerivedResource(memory, id);

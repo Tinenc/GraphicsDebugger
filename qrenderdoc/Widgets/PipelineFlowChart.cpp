@@ -23,9 +23,11 @@
  ******************************************************************************/
 
 #include "PipelineFlowChart.h"
+#include <QApplication>
 #include <QMouseEvent>
 #include <QPainter>
 #include "Code/QRDUtils.h"
+#include "Styles/RDStyle/RDStyle.h"
 
 PipelineFlowChart::PipelineFlowChart(QWidget *parent) : QFrame(parent)
 {
@@ -254,6 +256,18 @@ void PipelineFlowChart::paintEvent(QPaintEvent *e)
   QColor tooltip = palette().color(QPalette::ToolTipBase);
   QColor tooltipText = palette().color(QPalette::ToolTipText);
 
+  // Ultra intentionally keeps disabled input backgrounds identical to regular input backgrounds,
+  // but pipeline stages need a separate visual hierarchy: stages participating in the current
+  // action should be distinguishable from unbound/inactive stages. Use adjacent Unity greys so the
+  // distinction is visible without competing with the red selected-stage outline.
+  const RDStyle *rdStyle = qobject_cast<const RDStyle *>(QApplication::style());
+  if(rdStyle && rdStyle->colorScheme() == RDStyle::Ultra)
+  {
+    enabledBase = palette().color(QPalette::Window);
+    disabledBase = palette().color(QPalette::Base);
+    tooltip = palette().color(QPalette::AlternateBase);
+  }
+
   QPen pen(enabledText);
   QPen selectedPen(Qt::red);
 
@@ -305,12 +319,11 @@ void PipelineFlowChart::paintEvent(QPaintEvent *e)
     QTextOption opts(Qt::AlignCenter);
     opts.setWrapMode(QTextOption::NoWrap);
 
-    QString s = m_StageNames[i];
-
-    QRectF reqBox = p.boundingRect(QRectF(0, 0, 1, 1), m_StageNames[i], opts);
-
-    if(reqBox.width() + BoxLabelMargin > (float)boxrect.width())
-      s = m_StageAbbrevs[i];
+    // Pipeline stage nodes are compact technical identifiers, not prose. Always render the
+    // API-specific abbreviation so their labels remain stable across UI languages (for example
+    // IA/VS/HS/DS/GS/RS/PS/OM/CS for D3D). The translated long names are still retained for the
+    // surrounding stage UI and for identifying stages internally.
+    const QString &s = m_StageAbbrevs[i];
 
     p.setPen(textPen);
     p.drawText(boxrect, s, opts);

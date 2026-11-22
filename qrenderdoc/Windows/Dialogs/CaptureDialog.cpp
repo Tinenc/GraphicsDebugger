@@ -31,11 +31,11 @@
 #include "Code/QRDUtils.h"
 #include "Code/qprocessinfo.h"
 #include "Windows/Dialogs/EnvironmentEditor.h"
+#include "Windows/Dialogs/LiveCapture.h"
 #include "Windows/Dialogs/VirtualFileDialog.h"
 #include "Windows/MainWindow.h"
 #include "flowlayout/FlowLayout.h"
 #include "toolwindowmanager/ToolWindowManager.h"
-#include "LiveCapture.h"
 #include "ui_CaptureDialog.h"
 
 #define JSON_ID "rdocCaptureSettings"
@@ -46,11 +46,19 @@ static QString GetDescription(const EnvironmentModification &env)
   QString ret;
 
   if(env.mod == EnvMod::Append)
-    ret = QFormatStr("Append %1 with %2 using %3").arg(env.name).arg(env.value).arg(ToQStr(env.sep));
+    ret = QCoreApplication::translate("CaptureDialog", "Append %1 with %2 using %3")
+              .arg(env.name)
+              .arg(env.value)
+              .arg(ToQDisplayStr(env.sep));
   else if(env.mod == EnvMod::Prepend)
-    ret = QFormatStr("Prepend %1 with %2 using %3").arg(env.name).arg(env.value).arg(ToQStr(env.sep));
+    ret = QCoreApplication::translate("CaptureDialog", "Prepend %1 with %2 using %3")
+              .arg(env.name)
+              .arg(env.value)
+              .arg(ToQDisplayStr(env.sep));
   else
-    ret = QFormatStr("Set %1 to %2").arg(env.name).arg(env.value);
+    ret = QCoreApplication::translate("CaptureDialog", "Set %1 to %2")
+              .arg(env.name)
+              .arg(env.value);
 
   return ret;
 }
@@ -219,6 +227,8 @@ CaptureDialog::CaptureDialog(ICaptureContext &ctx, OnCaptureMethod captureCallba
 
   SetSettings(CaptureSettings());
 
+  UpdateOptionalSettingsVisibility();
+
   UpdateGlobalHook();
 
   PopulateMostRecent();
@@ -253,8 +263,8 @@ void CaptureDialog::SetInjectMode(bool inject)
 
     fillProcessList();
 
-    ui->launch->setText(lit("Inject"));
-    this->setWindowTitle(lit("Inject into Process"));
+    ui->launch->setText(tr("Inject"));
+    this->setWindowTitle(tr("Inject into Process"));
   }
   else
   {
@@ -266,8 +276,8 @@ void CaptureDialog::SetInjectMode(bool inject)
 
     ui->globalGroup->setVisible(m_Ctx.Config().AllowGlobalHook);
 
-    ui->launch->setText(lit("Launch"));
-    this->setWindowTitle(lit("Launch Application"));
+    ui->launch->setText(tr("Launch"));
+    this->setWindowTitle(tr("Launch Application"));
   }
 }
 
@@ -628,7 +638,7 @@ void CaptureDialog::lineEdit_keyPress(QKeyEvent *ev)
   if((ev->key() == Qt::Key_Return || ev->key() == Qt::Key_Enter) &&
      ev->modifiers() & Qt::ControlModifier)
   {
-    TriggerCapture();
+    Launch();
   }
 }
 
@@ -752,6 +762,36 @@ void CaptureDialog::on_envVarEdit_clicked()
     SetEnvironmentModifications(envEditor.modifications());
 }
 
+void CaptureDialog::on_monitorScriptBrowse_clicked()
+{
+  QString initDir;
+  if(!ui->monitorScriptPath->text().isEmpty())
+    initDir = QFileInfo(ui->monitorScriptPath->text()).absolutePath();
+  else if(!ui->exePath->text().isEmpty())
+    initDir = QFileInfo(ui->exePath->text()).absolutePath();
+
+  QString filename = RDDialog::getOpenFileName(this, tr("Open Monitor Script"), initDir,
+                                               tr("Python Scripts (*.py);;All Files (*)"));
+
+  if(!filename.isEmpty())
+    ui->monitorScriptPath->setText(filename);
+}
+
+void CaptureDialog::on_customDllBrowse_clicked()
+{
+  QString initDir;
+  if(!ui->customDllPath->text().isEmpty())
+    initDir = QFileInfo(ui->customDllPath->text()).absolutePath();
+  else
+    initDir = QCoreApplication::applicationDirPath();    // same dir as qrenderdoc.exe / system_load.dll
+
+  QString filename = RDDialog::getOpenFileName(this, tr("Choose Custom Inject DLL"), initDir,
+                                               tr("DLL Files (*.dll);;All Files (*)"));
+
+  if(!filename.isEmpty())
+    ui->customDllPath->setText(filename);
+}
+
 void CaptureDialog::on_toggleGlobal_clicked()
 {
   if(!ui->toggleGlobal->isEnabled())
@@ -829,6 +869,12 @@ void CaptureDialog::on_toggleGlobal_clicked()
 
     QString capturefile = m_Ctx.TempCaptureFilename(QFileInfo(exe).baseName());
 
+    // Write monitor script to temp file for the target DLL to pick up
+    WritePendingMonitorScript();
+
+    // Set or clear the custom inject DLL path before enabling the global hook.
+    ApplyCustomInjectDLLSetting();
+
     ResultDetails success = RENDERDOC_StartGlobalHook(exe, capturefile, Settings().options);
 
     if(!success.OK())
@@ -900,12 +946,12 @@ void CaptureDialog::on_loadLastCapture_clicked()
 
 void CaptureDialog::on_launch_clicked()
 {
-  TriggerCapture();
+  Launch();
 }
 
 void CaptureDialog::on_processList_activated(const QModelIndex &index)
 {
-  TriggerCapture();
+  Launch();
 }
 
 void CaptureDialog::SetSettings(CaptureSettings settings)
@@ -947,9 +993,11 @@ void CaptureDialog::SetSettings(CaptureSettings settings)
     ui->queueFrameCap->setChecked(false);
   }
 
+  ui->monitorScriptPath->setText(settings.monitorScriptPath);
+
   if(settings.autoStart)
   {
-    TriggerCapture();
+    Launch();
   }
 }
 
@@ -984,6 +1032,8 @@ CaptureSettings CaptureDialog::Settings()
     ret.queuedFrameCap = (uint32_t)ui->queuedFrame->value();
     ret.numQueuedFrames = (uint32_t)ui->numFrames->value();
   }
+
+  ret.monitorScriptPath = ui->monitorScriptPath->text();
 
   return ret;
 }
@@ -1168,8 +1218,82 @@ void CaptureDialog::SetEnvironmentModifications(const rdcarray<EnvironmentModifi
   ui->envVar->setText(envModText);
 }
 
-void CaptureDialog::TriggerCapture()
+void CaptureDialog::WritePendingMonitorScript()
 {
+  QString pendingPath = QDir::temp().filePath(lit("rdcmonitor_pending.py"));
+
+  // Always clean up any leftover pending file first
+  QFile::remove(pendingPath);
+
+  if(!m_Ctx.Config().CaptureDialog_ShowMonitorScript)
+    return;
+
+  QString scriptPath = ui->monitorScriptPath->text().trimmed();
+
+  if(scriptPath.isEmpty())
+    return;
+
+  QFile scriptFile(scriptPath);
+  if(!scriptFile.open(QIODevice::ReadOnly | QIODevice::Text))
+    return;
+
+  QByteArray content = scriptFile.readAll();
+  scriptFile.close();
+
+  QFile pendingFile(pendingPath);
+  if(pendingFile.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    pendingFile.write(content);
+    pendingFile.close();
+  }
+}
+
+void CaptureDialog::ApplyCustomInjectDLLSetting()
+{
+  QString customDll;
+  if(m_Ctx.Config().CaptureDialog_ShowCustomInjectDLL)
+    customDll = ui->customDllPath->text().trimmed();
+
+  SDObject *setting = RENDERDOC_SetConfigSetting("Inject_CustomDLLPath");
+  if(setting)
+    setting->data.str = customDll.toUtf8().data();
+}
+
+void CaptureDialog::UpdateOptionalSettingsVisibility()
+{
+  const bool showMonitorScript = m_Ctx.Config().CaptureDialog_ShowMonitorScript;
+  ui->monitorScriptLabel->setVisible(showMonitorScript);
+  ui->monitorScriptPath->setVisible(showMonitorScript);
+  ui->monitorScriptBrowse->setVisible(showMonitorScript);
+
+  // Auto-discover the default script only when the feature is enabled.
+  if(showMonitorScript && ui->monitorScriptPath->text().isEmpty())
+  {
+    QString defaultScript =
+        QDir(QCoreApplication::applicationDirPath()).filePath(lit("rdcmonitor_autoload.py"));
+    if(QFileInfo::exists(defaultScript))
+      ui->monitorScriptPath->setText(defaultScript);
+  }
+
+  if(!showMonitorScript)
+    // i18n-ignore: Temporary API monitor script filename.
+    QFile::remove(QDir::temp().filePath(lit("rdcmonitor_pending.py")));
+
+  const bool showCustomInjectDLL = m_Ctx.Config().CaptureDialog_ShowCustomInjectDLL;
+  ui->customDllLabel->setVisible(showCustomInjectDLL);
+  ui->customDllPath->setVisible(showCustomInjectDLL);
+  ui->customDllBrowse->setVisible(showCustomInjectDLL);
+
+  if(!showCustomInjectDLL)
+    ApplyCustomInjectDLLSetting();
+}
+
+ICaptureConnection *CaptureDialog::Launch()
+{
+  ICaptureConnection *ret = NULL;
+  WritePendingMonitorScript();
+  ApplyCustomInjectDLLSetting();
+
   if(IsInjectMode())
   {
     QModelIndexList sel = ui->processList->selectionModel()->selectedRows();
@@ -1184,11 +1308,23 @@ void CaptureDialog::TriggerCapture()
       QString name = m_ProcessModel->data(m_ProcessModel->index(item.row(), 0)).toString();
       uint32_t PID = m_ProcessModel->data(m_ProcessModel->index(item.row(), 1)).toUInt();
 
-      m_InjectCallback(
-          PID, Settings().environment, name, Settings().options, [this](LiveCapture *live) {
-            if(ui->queueFrameCap->isChecked())
-              live->QueueCapture((int)ui->queuedFrame->value(), (int)ui->numFrames->value());
-          });
+      m_InjectCallback(PID, Settings().environment, name, Settings().options,
+                       [this, &ret](ICaptureConnection *live) {
+                         if(ui->queueFrameCap->isChecked())
+                           live->QueueCapture((int)ui->queuedFrame->value(),
+                                              (int)ui->numFrames->value());
+                         if(m_Ctx.Config().CaptureDialog_ShowMonitorScript)
+                         {
+                           QString scriptPath = ui->monitorScriptPath->text().trimmed();
+                           if(!scriptPath.isEmpty())
+                           {
+                             LiveCapture *capture = qobject_cast<LiveCapture *>(live->Widget());
+                             if(capture)
+                               capture->SetMonitorScriptPath(scriptPath);
+                           }
+                         }
+                         ret = live;
+                       });
     }
     else
     {
@@ -1205,7 +1341,7 @@ void CaptureDialog::TriggerCapture()
       RDDialog::critical(this, tr("No executable selected"),
                          tr("No program selected to launch, click browse next to 'Executable Path' "
                             "above to select the program to launch."));
-      return;
+      return NULL;
     }
 
     // for non-remote captures, check the executable locally
@@ -1217,7 +1353,7 @@ void CaptureDialog::TriggerCapture()
             this, tr("Invalid executable"),
             tr("Invalid executable: %1\nCan't locate this path or a matching executable in PATH")
                 .arg(exe));
-        return;
+        return NULL;
       }
     }
 
@@ -1231,7 +1367,7 @@ void CaptureDialog::TriggerCapture()
         RDDialog::critical(
             this, tr("Invalid working directory"),
             tr("Invalid working directory: %1\nThis path does not exist").arg(workingDir));
-        return;
+        return NULL;
       }
     }
 
@@ -1253,15 +1389,28 @@ void CaptureDialog::TriggerCapture()
                               "The intent arguments must include the full parameters e.g. "
                               "--es args \"my arguments\"")
                                .arg(cmdLine));
-        return;
+        return NULL;
       }
     }
 
     m_CaptureCallback(exe, workingDir, cmdLine, Settings().environment, Settings().options,
-                      [this](LiveCapture *live) {
+                      [this, &ret](ICaptureConnection *live) {
                         if(ui->queueFrameCap->isChecked())
                           live->QueueCapture((int)ui->queuedFrame->value(),
                                              (int)ui->numFrames->value());
+                        if(m_Ctx.Config().CaptureDialog_ShowMonitorScript)
+                        {
+                          QString scriptPath = ui->monitorScriptPath->text().trimmed();
+                          if(!scriptPath.isEmpty())
+                          {
+                            LiveCapture *capture = qobject_cast<LiveCapture *>(live->Widget());
+                            if(capture)
+                              capture->SetMonitorScriptPath(scriptPath);
+                          }
+                        }
+                        ret = live;
                       });
   }
+
+  return ret;
 }

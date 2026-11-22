@@ -26,9 +26,17 @@
 
 #include <QDir>
 #include <QFrame>
+#include <QImage>
+#include <QJsonObject>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QPointer>
 #include <QTime>
+#include <atomic>
+#include <functional>
+#include <map>
+#include <tuple>
+#include <vector>
 #include "Code/Interface/QRDInterface.h"
 
 namespace Ui
@@ -42,6 +50,11 @@ class ThumbnailStrip;
 class TextureGoto;
 class QFileSystemWatcher;
 class TextureViewer;
+class QSplitter;
+class RenderTargetHistoryView;
+class QStackedWidget;
+class AITextureAnnotation;
+class QTimer;
 
 struct Following
 {
@@ -59,8 +72,8 @@ struct Following
   Following(const Following &other);
   Following &operator=(const Following &other);
 
-  bool operator==(const Following &o);
-  bool operator!=(const Following &o);
+  bool operator==(const Following &o) const;
+  bool operator!=(const Following &o) const;
   static void GetActionContext(ICaptureContext &ctx, bool &copy, bool &clear, bool &compute);
 
   int GetHighestMip(ICaptureContext &ctx);
@@ -130,6 +143,8 @@ private:
   };
 
 public:
+  // Internal GUI-thread completion: includes a replacement display queued by a late resize.
+  void WhenPresentationReady(uint32_t eventId, std::function<void()> completed);
   explicit TextureViewer(ICaptureContext &ctx, QWidget *parent = 0);
   ~TextureViewer();
 
@@ -138,6 +153,11 @@ public:
   void ViewTexture(ResourceId ID, CompType typeCast, bool focus) override;
   void ViewFollowedResource(FollowType followType, ShaderStage stage, int32_t index,
                             int32_t arrayElement) override;
+  bool FollowBoundTexture(ResourceId id, const QString &attachmentKind);
+  uint64_t BeginTemporaryOutputFollow(uint32_t index) override;
+  bool UpdateTemporaryOutputFollow(uint64_t token, uint32_t index) override;
+  bool ShowTemporaryTexturePreview(uint64_t token, const TextureDescription &texture) override;
+  bool EndTemporaryOutputFollow(uint64_t token) override;
   ResourceId GetCurrentResource() override;
 
   Subresource GetSelectedSubresource() override;
@@ -147,6 +167,7 @@ public:
   DebugOverlay GetTextureOverlay() override;
   void SetTextureOverlay(DebugOverlay overlay) override;
 
+  TextureDisplay GetTextureDisplay() override { return m_TexDisplay; }
   bool IsZoomAutoFit() override;
   float GetZoomLevel() override;
   void SetZoomLevel(bool autofit, float zoom) override;
@@ -155,13 +176,28 @@ public:
   void SetHistogramRange(float blackpoint, float whitepoint) override;
 
   uint32_t GetChannelVisibilityBits() override;
+  rdcfixedarray<bool, 4> GetChannelVisibility() override;
   void SetChannelVisibility(bool red, bool green, bool blue, bool alpha) override;
+  void SetFlipY(bool flipped) override;
+
+  RenderTargetHistoryView *OpenRenderTargetHistory(ResourceId resource,
+                                                   const Subresource &subresource,
+                                                   CompType typeCast, uint32_t anchorEID);
+  void CloseRenderTargetHistory();
+  void RenderTargetHistorySelectionChanged(uint32_t eventId);
+  void BeginAIAnnotation(const QJsonObject &captureBinding,
+                         std::function<bool(const QImage &, const QImage &, const QJsonObject &)> accept,
+                         std::function<void(const QString &)> error);
+  bool MatchesAIAnnotation(const QJsonObject &context) const;
+  void EditAIAnnotation(const QImage &original, const QString &title, const QJsonObject &context,
+                        std::function<bool(const QImage &, const QImage &, const QJsonObject &)> accept);
 
   // ICaptureViewer
   void OnCaptureLoaded() override;
   void OnCaptureClosed() override;
   void OnSelectedEventChanged(uint32_t eventId) override {}
   void OnEventChanged(uint32_t eventId) override;
+  void OnScrubEvent(uint32_t eventId) override;
 
   QVariant persistData();
   void setPersistData(const QVariant &persistData);
@@ -218,6 +254,7 @@ private slots:
 
   void thumb_clicked(QMouseEvent *);
   void thumb_doubleClicked(QMouseEvent *);
+  void thumb_resourceLinkActivated();
   void texContextItem_triggered();
 
   void zoomOption_returnPressed();
@@ -237,12 +274,61 @@ protected:
   void showEvent(QShowEvent *event) override;
 
 private:
-  void RT_FetchCurrentPixel(IReplayController *r, uint32_t x, uint32_t y, PixelValue &pickValue,
-                            PixelValue &realValue);
-  void RT_PickPixelsAndUpdate(IReplayController *);
-  void RT_PickHoverAndUpdate(IReplayController *);
-  void RT_UpdateAndDisplay(IReplayController *);
-  void RT_UpdateVisualRange(IReplayController *);
+  QStackedWidget *m_AIAnnotationStack = NULL;
+  QPointer<AITextureAnnotation> m_AIAnnotation;
+  uint64_t m_AIAnnotationSerial = 0;
+  void CloseAIAnnotation();
+  struct ViewRequest
+  {
+    struct ThumbnailBinding
+    {
+      WindowingData window;
+      QPointer<ResourcePreview> preview;
+      QSize size;
+      ResourceId resource;
+      Subresource subresource;
+      CompType typeCast = CompType::Typeless;
+      bool depth = false;
+    };
+    rdcarray<ThumbnailBinding> thumbnails;
+    TextureDisplay display;
+    TextureDescription texture;
+    QPoint pickedPoint, hoverPixel;
+    uint32_t eventId = 0, historyEvent = 0;
+    uint64_t serial = 0, eventSerial = 0;
+    float rangeMin = 0.0f, rangeMax = 1.0f;
+    bool visualise = false;
+    bool clearBeforeReveal = false;
+  };
+  ViewRequest CurrentViewRequest() const;
+  bool IsCurrentViewRequest(const ViewRequest &request) const;
+  void RT_FetchCurrentPixel(IReplayController *r, const ViewRequest &request,
+                            const TextureDisplay &display, uint32_t x, uint32_t y,
+                            PixelValue &pickValue, PixelValue &realValue);
+  void RT_PickPixelsAndUpdate(IReplayController *, const ViewRequest &request, bool hover = false);
+  void RT_UpdateAndDisplay(IReplayController *, const TextureDisplay &display, uint32_t historyEvent);
+  void RT_UpdateVisualRange(IReplayController *, const ViewRequest &request);
+  void SuspendTexturePresentation();
+  Q_SLOT void CapturePresentationWitness();
+  Q_SLOT void CaptureThumbnailWitnesses();
+  void QueueUpdateAndDisplay(bool updateAnalysis = false);
+  void RT_ExecuteDisplayRequest(IReplayController *r, const ViewRequest &request,
+                                bool updateAnalysis);
+  void CaptureNativeThumbnailBindings(ViewRequest &request);
+  void QueueNativeThumbnailRefresh();
+  void QueueDeferredAnalysis();
+public:
+  void CancelReplayBackgroundWork();
+private:
+  QTimer *m_AnalysisTimer = NULL;
+  bool m_AnalysisPending = false;
+  // Replay-thread owned outputs, reused by widget identity until capture close.
+  std::map<ResourcePreview *, IReplayOutput *> m_NativeThumbnailOutputs;
+  void RT_UpdateNativeThumbnails(IReplayController *r, const ViewRequest &request);
+  void QueuePickPixelsAndUpdate(bool hover = false);
+  void QueueUpdateVisualRange();
+  uint32_t ActiveRenderTargetHistoryEvent() const;
+  void UpdateRenderTargetHistorySubresource();
 
   void UI_UpdateStatusText();
   void UI_UpdateTextureDetails();
@@ -286,6 +372,10 @@ private:
   void updateBackgroundColors();
 
   bool currentTextureIsLocked() { return m_LockedId != ResourceId(); }
+  QWidget *CurrentTextureTab() const;
+  bool HasRenderTargetHistoryBinding(QWidget *tab) const;
+  void ActivateRenderTargetHistoryForTab(QWidget *tab, uint32_t fallbackEvent);
+  void CloseTextureTab(QWidget *tab);
   void setFitToWindow(bool checked);
 
   void setCurrentZoomValue(float zoom);
@@ -305,6 +395,13 @@ private:
 
   TextureDescription *GetCurrentTexture();
   void UI_UpdateCachedTexture();
+  void UI_ResolveOutputFollowing();
+  // Capture-local attachment identities, not event IDs or shader names. A pass can contain many
+  // draws and shaders while presenting the same output choices.
+  using OutputBindingKey =
+      std::vector<std::tuple<FollowType, ShaderStage, int, uint32_t, ResourceId, int, int>>;
+  OutputBindingKey UI_OutputBindingKey();
+  void UI_RememberOutputFollowing();
 
   void ShowGotoPopup();
 
@@ -348,6 +445,19 @@ private:
   Ui::TextureViewer *ui;
   ICaptureContext &m_Ctx;
   IReplayOutput *m_Output = NULL;
+  QSplitter *m_MainHistorySplitter = NULL;
+  RenderTargetHistoryView *m_RenderTargetHistory = NULL;
+  std::atomic<uint32_t> m_RenderTargetHistoryEvent = {0};
+  // Invalidate immutable presentation and analysis requests when their UI state is superseded.
+  std::atomic<uint64_t> m_DisplayRequestSerial = {0};
+  std::atomic<uint64_t> m_EventRequestSerial = {0};
+  bool m_PresentationSuspended = false;
+  bool m_PresentationPending = false;
+  uint64_t m_CompletedDisplayRequestSerial = 0;
+  std::vector<std::function<void()>> m_PresentationWaiters;
+  void CompletePresentationWaiters();
+  bool m_UpdatingTextureState = false;
+  bool m_RetargetingRenderTargetHistory = false;
 
   TextureSave m_SaveConfig;
 
@@ -355,6 +465,18 @@ private:
 
   TextureDescription *m_CachedTexture;
   Following m_Following;
+  uint64_t m_TemporaryOutputFollowToken = 0;
+  uint64_t m_NextTemporaryOutputFollowToken = 0;
+  bool m_UpdatingTemporaryOutputFollow = false;
+  Following m_BeforeTemporaryOutputFollow;
+  QPointer<QWidget> m_BeforeTemporaryOutputTab;
+  ResourceId m_BeforeTemporaryOutputResource;
+  CompType m_BeforeTemporaryOutputType = CompType::Typeless;
+  Subresource m_BeforeTemporaryOutputSubresource;
+  TextureDescription m_TemporaryPreviewTexture;
+  bool m_TemporaryPreviewActive = false;
+  uint32_t m_TemporaryPreviewEvent = 0;
+  std::map<OutputBindingKey, std::pair<Following, ResourceId>> m_OutputPreferences;
   QMap<ResourceId, TexSettings> m_TextureSettings;
 
   friend struct Following;
@@ -365,7 +487,7 @@ private:
   struct DescriptorThumbUpdate
   {
     DescriptorAccess access;
-    ResourcePreview *preview;
+    QPointer<ResourcePreview> preview;
     QString slotName;
   };
 

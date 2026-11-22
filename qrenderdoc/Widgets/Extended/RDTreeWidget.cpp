@@ -24,6 +24,7 @@
 
 #include "RDTreeWidget.h"
 #include <QApplication>
+#include <QClipboard>
 #include <QColor>
 #include <QDebug>
 #include <QHeaderView>
@@ -102,6 +103,9 @@ public:
     emit endResetModel();
   }
 
+  void beginBatchReset() { beginResetModel(); }
+  void endBatchReset() { endResetModel(); }
+
   void headerRefresh() { emit headerDataChanged(Qt::Horizontal, 0, columnCount() - 1); }
   void itemsChanged(RDTreeWidgetItem *p, QPair<int, int> minRowColumn, QPair<int, int> maxRowColumn,
                     const QVector<int> &roles)
@@ -161,6 +165,11 @@ public:
 
     if(item->editable(index.column()))
       ret |= Qt::ItemIsEditable;
+
+    if(item->selectable())
+      ret |= Qt::ItemIsSelectable;
+    else
+      ret &= ~Qt::ItemIsSelectable;
 
     return ret;
   }
@@ -382,6 +391,12 @@ QVariant RDTreeWidgetItem::data(int column, int role) const
   {
     return m_text[column];
   }
+  else if(role == Qt::AccessibleTextRole)
+  {
+    // Keep rich resource links for painting, but expose a native QString to accessibility and
+    // embedded Python. Shiboken cannot marshal our private RichResourceTextPtr QVariant type.
+    return m_text[column].toString();
+  }
   else if(role == Qt::DecorationRole)
   {
     return m_icons[column];
@@ -451,7 +466,7 @@ void RDTreeWidgetItem::setData(int column, int role, const QVariant &value)
 
       d.data = value;
 
-      if(different && role < Qt::UserRole)
+      if(different && m_widget && role < Qt::UserRole)
         m_widget->m_model->itemChanged(this, {role});
 
       return;
@@ -478,7 +493,8 @@ void RDTreeWidgetItem::insertChild(int index, RDTreeWidgetItem *item)
 
   // remove it from any previous parent
   if(item->m_parent)
-    item->m_parent->removeChild(this);
+    item->m_parent->removeChild(item);
+  index = qBound(0, index, m_children.count());
 
   // set up its new parent to us
   item->m_parent = this;
@@ -523,13 +539,27 @@ void RDTreeWidgetItem::dataChanged(int column, int role)
 
 RDTreeWidgetItem *RDTreeWidgetItem::takeChild(int index)
 {
-  if(m_widget && !m_widget->m_clearing)
+  if(index < 0 || index >= m_children.size())
+    return NULL;
+  if(m_widget && !m_widget->m_clearing && !m_widget->m_batchReset)
     m_widget->m_model->beginRemoveChildren(this, index, index);
 
   m_children[index]->m_parent = NULL;
   RDTreeWidgetItem *ret = m_children.takeAt(index);
+  // Detached rows (including their descendants) must stop notifying the old
+  // model. CBuffer regrouping edits labels before attaching them elsewhere.
+  ret->setWidget(NULL);
 
-  if(m_widget && !m_widget->m_clearing)
+  if(m_widget && m_widget->m_queueUpdates)
+  {
+    // Pending row notifications may point inside the removed subtree. A full
+    // refresh at endUpdate is required even if new rows are inserted later.
+    m_widget->m_queuedItem = NULL;
+    m_widget->m_lowestIndex = qMakePair<int, int>(0, 0);
+    m_widget->m_queuedChildren = true;
+  }
+
+  if(m_widget && !m_widget->m_clearing && !m_widget->m_batchReset)
     m_widget->m_model->endRemoveChildren();
 
   return ret;
@@ -537,16 +567,7 @@ RDTreeWidgetItem *RDTreeWidgetItem::takeChild(int index)
 
 void RDTreeWidgetItem::removeChild(RDTreeWidgetItem *child)
 {
-  if(m_widget)
-  {
-    int row = m_children.indexOf(child);
-    m_widget->m_model->beginRemoveChildren(this, row, row);
-  }
-
-  m_children.removeOne(child);
-
-  if(m_widget)
-    m_widget->m_model->endRemoveChildren();
+  takeChild(m_children.indexOf(child));
 }
 
 void RDTreeWidgetItem::clear()
@@ -554,11 +575,18 @@ void RDTreeWidgetItem::clear()
   if(!childCount())
     return;
 
-  if(m_widget && !m_widget->m_clearing)
+  if(m_widget && !m_widget->m_clearing && !m_widget->m_batchReset)
     m_widget->m_model->beginRemoveChildren(this, 0, childCount() - 1);
 
   QVector<RDTreeWidgetItem *> children;
   m_children.swap(children);
+
+  if(m_widget && m_widget->m_queueUpdates)
+  {
+    m_widget->m_queuedItem = NULL;
+    m_widget->m_lowestIndex = qMakePair<int, int>(0, 0);
+    m_widget->m_queuedChildren = true;
+  }
 
   for(RDTreeWidgetItem *c : children)
   {
@@ -567,7 +595,7 @@ void RDTreeWidgetItem::clear()
     delete c;
   }
 
-  if(m_widget && !m_widget->m_clearing)
+  if(m_widget && !m_widget->m_clearing && !m_widget->m_batchReset)
     m_widget->m_model->endRemoveChildren();
 }
 
@@ -647,6 +675,8 @@ RDTreeWidget::~RDTreeWidget()
 void RDTreeWidget::beginUpdate()
 {
   m_queueUpdates = true;
+  m_batchClear = false;
+  m_batchReset = false;
 
   m_queuedItem = NULL;
   m_lowestIndex = m_highestIndex = qMakePair<int, int>(-1, -1);
@@ -660,7 +690,12 @@ void RDTreeWidget::endUpdate()
 {
   m_queueUpdates = false;
 
-  if(m_queuedRoles || m_queuedChildren)
+  if(m_batchReset)
+  {
+    m_batchReset = false;
+    m_model->endBatchReset();
+  }
+  else if(m_queuedRoles || m_queuedChildren)
   {
     // if we updated multiple different trees we can't issue a single dataChanged for everything
     // under a parent. Refresh the whole model.
@@ -711,6 +746,66 @@ void RDTreeWidget::copyItem(QPoint pos, RDTreeWidgetItem *item)
   copyIndex(pos, m_model->indexForItem(item, 0));
 }
 
+void RDTreeWidget::copySelectionAsCSV()
+{
+  QString csvData = buildSelectionCSV();
+  if(!csvData.isEmpty())
+  {
+    QClipboard *clipboard = QApplication::clipboard();
+    clipboard->setText(csvData);
+  }
+}
+
+QString RDTreeWidget::buildSelectionCSV()
+{
+  QModelIndexList sel = selectionModel()->selectedRows();
+  if(sel.isEmpty())
+    return QString();
+
+  std::sort(sel.begin(), sel.end(), [](const QModelIndex &a, const QModelIndex &b) {
+    return a.row() < b.row();
+  });
+
+  int colCount = m_headers.count();
+
+  QString csvData;
+
+  // header row
+  for(int col = 0; col < colCount; col++)
+  {
+    if(col > 0)
+      csvData += lit(",");
+    QString header = m_headers[col];
+    if(header.contains(QLatin1Char(',')) || header.contains(QLatin1Char('"')))
+      csvData += lit("\"") + header.replace(lit("\""), lit("\"\"")) + lit("\"");
+    else
+      csvData += header;
+  }
+  csvData += lit("\n");
+
+  // data rows
+  for(const QModelIndex &idx : sel)
+  {
+    RDTreeWidgetItem *item = m_model->itemForIndex(idx);
+    if(!item)
+      continue;
+
+    for(int col = 0; col < colCount; col++)
+    {
+      if(col > 0)
+        csvData += lit(",");
+      QString text = col < item->dataCount() ? item->text(col) : QString();
+      if(text.contains(QLatin1Char(',')) || text.contains(QLatin1Char('"')))
+        csvData += lit("\"") + text.replace(lit("\""), lit("\"\"")) + lit("\"");
+      else
+        csvData += text;
+    }
+    csvData += lit("\n");
+  }
+
+  return csvData.trimmed();
+}
+
 void RDTreeWidget::setColumns(const QStringList &columns)
 {
   m_headers = columns;
@@ -754,6 +849,11 @@ RDTreeWidgetItem *RDTreeWidget::itemAt(const QPoint &p) const
   return m_model->itemForIndex(indexAt(p));
 }
 
+bool RDTreeWidget::isItemExpanded(RDTreeWidgetItem *item)
+{
+  return isExpanded(m_model->indexForItem(item, 0));
+}
+
 void RDTreeWidget::expandItem(RDTreeWidgetItem *item)
 {
   expand(m_model->indexForItem(item, 0));
@@ -786,13 +886,33 @@ void RDTreeWidget::editItem(RDTreeWidgetItem *item)
 
 void RDTreeWidget::clear()
 {
+  if(qEnvironmentVariableIntValue("RENDERDOC_UI_LEGACY_TREE_RESETS") == 1)
+  {
+    m_clearing = true;
+    m_root->clear();
+    m_clearing = false;
+    m_currentHoverIndex = QModelIndex();
+    m_model->refresh();
+    return;
+  }
+  const bool hadRows = m_root->childCount() != 0;
+  if(m_queueUpdates)
+  {
+    m_batchClear = true;
+    if(m_root->childCount() && !m_batchReset)
+    {
+      m_batchReset = true;
+      m_model->beginBatchReset();
+    }
+  }
   m_clearing = true;
   m_root->clear();
   m_clearing = false;
 
   m_currentHoverIndex = QModelIndex();
 
-  m_model->refresh();
+  if(!m_queueUpdates && hadRows)
+    m_model->refresh();
 }
 
 void RDTreeWidget::mouseMoveEvent(QMouseEvent *e)
@@ -891,6 +1011,10 @@ void RDTreeWidget::currentChanged(const QModelIndex &current, const QModelIndex 
 
 void RDTreeWidget::itemDataChanged(RDTreeWidgetItem *item, int column, int role)
 {
+  // The invisible root is not a model row. A detached item must never queue a
+  // row update using a missing parent, even during a batched tree rebuild.
+  if(item == NULL || item->m_widget != this || item->m_parent == NULL)
+    return;
   if(m_queueUpdates)
   {
     m_queuedRoles |= (1ULL << role);
@@ -933,6 +1057,11 @@ void RDTreeWidget::beginInsertChild(RDTreeWidgetItem *item, int index)
 {
   if(m_queueUpdates)
   {
+    if(m_batchClear && !m_batchReset)
+    {
+      m_batchReset = true;
+      m_model->beginBatchReset();
+    }
     m_queuedChildren = true;
 
     if(m_lowestIndex.first == -1)
@@ -970,3 +1099,114 @@ void RDTreeWidget::endInsertChild(RDTreeWidgetItem *item, int index)
   if(!m_queueUpdates)
     m_model->endInsertChild(item);
 }
+
+#if ENABLE_UNIT_TESTS
+#include <memory>
+#include "3rdparty/catch/catch.hpp"
+
+TEST_CASE("Batched tree replacement emits one reset and empty clears emit none",
+          "[tree-widget][tree-batch]")
+{
+  int argc = 1;
+  char name[] = "tree-batch-test";
+  char *argv[] = {name, NULL};
+  std::unique_ptr<QApplication> application;
+  if(!QCoreApplication::instance())
+    application.reset(new QApplication(argc, argv));
+  RDTreeWidget tree;
+  tree.setColumns({QStringLiteral("Name")});
+  int resets = 0;
+  QObject::connect(tree.model(), &QAbstractItemModel::modelReset, [&]() { resets++; });
+  tree.clear();
+  tree.beginUpdate();
+  tree.clear();
+  tree.endUpdate();
+  CHECK(resets == 0);
+  tree.beginUpdate();
+  tree.clear();
+  tree.addTopLevelItem(new RDTreeWidgetItem({QStringLiteral("first")}));
+  tree.endUpdate();
+  REQUIRE(tree.model()->rowCount() == 1);
+  CHECK(resets == 1);
+  QPersistentModelIndex previous(tree.model()->index(0, 0));
+  tree.beginUpdate();
+  tree.clear();
+  tree.addTopLevelItem(new RDTreeWidgetItem({QStringLiteral("second")}));
+  tree.addTopLevelItem(new RDTreeWidgetItem({QStringLiteral("third")}));
+  tree.endUpdate();
+  CHECK_FALSE(previous.isValid());
+  CHECK(resets == 2);
+  CHECK(tree.model()->rowCount() == 2);
+  CHECK(bool(tree.model()->index(0, 0).data().toString() == QStringLiteral("second")));
+  tree.beginUpdate();
+  tree.clear();
+  tree.clear();
+  tree.endUpdate();
+  CHECK(resets == 3);
+  CHECK(tree.model()->rowCount() == 0);
+  int removals = 0;
+  QObject::connect(tree.model(), &QAbstractItemModel::rowsRemoved, [&]() { removals++; });
+  tree.beginUpdate();
+  tree.clear();
+  RDTreeWidgetItem *group = new RDTreeWidgetItem({QStringLiteral("group")});
+  group->addChild(new RDTreeWidgetItem({QStringLiteral("discard")}));
+  tree.addTopLevelItem(group);
+  group->clear();
+  group->addChild(new RDTreeWidgetItem({QStringLiteral("detach")}));
+  delete group->takeChild(0);
+  tree.endUpdate();
+  CHECK(resets == 4);
+  CHECK(removals == 0);
+  CHECK(tree.model()->rowCount() == 1);
+  CHECK(tree.model()->rowCount(tree.model()->index(0, 0)) == 0);
+}
+
+TEST_CASE("Detached tree rows can be edited and reparented during batched updates",
+          "[replaylab][cbuffer-semantics][tree-widget]")
+{
+  int argc = 1;
+  char name[] = "tree-widget-test";
+  char *argv[] = {name, NULL};
+  std::unique_ptr<QApplication> application;
+  if(!QCoreApplication::instance())
+    application.reset(new QApplication(argc, argv));
+  RDTreeWidget tree;
+  tree.setColumns({QStringLiteral("Name")});
+  RDTreeWidgetItem *parent = new RDTreeWidgetItem({QStringLiteral("instances")});
+  RDTreeWidgetItem *child = new RDTreeWidgetItem({QStringLiteral("weight[0]")});
+  parent->addChild(child);
+  tree.addTopLevelItem(parent);
+  child->setData(0, Qt::ToolTipRole, QStringLiteral("before"));
+  tree.beginUpdate();
+  CHECK(tree.takeTopLevelItem(0) == parent);
+  CHECK(parent->parent() == NULL);
+  CHECK(parent->treeWidget() == NULL);
+  CHECK(child->treeWidget() == NULL);
+  // This was the exact crash path: setText on a detached row during beginUpdate.
+  parent->setText(0, QStringLiteral("instance 0"));
+  child->setText(0, QStringLiteral("weight"));
+  child->setData(0, Qt::ToolTipRole, QStringLiteral("after"));
+  tree.invisibleRootItem()->setText(0, QStringLiteral("not a visible row"));
+  tree.addTopLevelItem(parent);
+  RDTreeWidgetItem *destination = new RDTreeWidgetItem({QStringLiteral("new group")});
+  tree.addTopLevelItem(destination);
+  destination->addChild(child);
+  CHECK(parent->childCount() == 0);
+  CHECK(destination->childCount() == 1);
+  CHECK(child->parent() == destination);
+  CHECK(child->treeWidget() == &tree);
+  tree.endUpdate();
+  destination->removeChild(child);
+  CHECK(child->parent() == NULL);
+  CHECK(child->treeWidget() == NULL);
+  CHECK(destination->childCount() == 0);
+  destination->removeChild(child);
+  CHECK(destination->childCount() == 0);
+  delete child;
+  tree.beginUpdate();
+  parent->setText(0, QStringLiteral("queued before removal"));
+  delete tree.takeTopLevelItem(0);
+  tree.endUpdate();
+  CHECK(tree.topLevelItemCount() == 1);
+}
+#endif

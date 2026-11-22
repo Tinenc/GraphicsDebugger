@@ -593,7 +593,7 @@ rdcstr GetTempRootPath()
   return "/tmp";
 }
 
-rdcstr GetAppFolderFilename(const rdcstr &filename)
+rdcstr GetPlatformAppFolderFilename(const rdcstr &filename)
 {
   passwd *pw = getpwuid(getuid());
   rdcstr homedir = pw ? pw->pw_dir : "";

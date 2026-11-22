@@ -553,6 +553,12 @@ bool D3D12InitParams::IsSupportedVersion(uint64_t ver)
   if(ver == 0x16)
     return true;
 
+  // 0x17 -> 0x20 - converted serialised page table to be 64-bit
+  //                version jump was to match vulkan version, as page table is agnostic.
+  //                Version numbers are arbitrary and just have to be increasing
+  if(ver == 0x17)
+    return true;
+
   return false;
 }
 
@@ -641,7 +647,7 @@ TextureType MakeTextureDim(D3D12_SRV_DIMENSION dim)
     case D3D12_SRV_DIMENSION_TEXTURE3D: return TextureType::Texture3D;
     case D3D12_SRV_DIMENSION_TEXTURECUBE: return TextureType::TextureCube;
     case D3D12_SRV_DIMENSION_TEXTURECUBEARRAY: return TextureType::TextureCubeArray;
-    default: break;
+    case D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET: return TextureType::Buffer;
   }
 
   return TextureType::Unknown;
@@ -660,7 +666,6 @@ TextureType MakeTextureDim(D3D12_RTV_DIMENSION dim)
     case D3D12_RTV_DIMENSION_TEXTURE2DMS: return TextureType::Texture2DMS;
     case D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY: return TextureType::Texture2DMSArray;
     case D3D12_RTV_DIMENSION_TEXTURE3D: return TextureType::Texture3D;
-    default: break;
   }
 
   return TextureType::Unknown;
@@ -677,7 +682,6 @@ TextureType MakeTextureDim(D3D12_DSV_DIMENSION dim)
     case D3D12_DSV_DIMENSION_TEXTURE2DARRAY: return TextureType::Texture2DArray;
     case D3D12_DSV_DIMENSION_TEXTURE2DMS: return TextureType::Texture2DMS;
     case D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY: return TextureType::Texture2DMSArray;
-    default: break;
   }
 
   return TextureType::Unknown;
@@ -696,7 +700,7 @@ TextureType MakeTextureDim(D3D12_UAV_DIMENSION dim)
     case D3D12_UAV_DIMENSION_TEXTURE2DMS: return TextureType::Texture2DMS;
     case D3D12_UAV_DIMENSION_TEXTURE2DMSARRAY: return TextureType::Texture2DMSArray;
     case D3D12_UAV_DIMENSION_TEXTURE3D: return TextureType::Texture3D;
-    default: break;
+    case D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET: return TextureType::Buffer;
   }
 
   return TextureType::Unknown;
@@ -711,7 +715,6 @@ AddressMode MakeAddressMode(D3D12_TEXTURE_ADDRESS_MODE addr)
     case D3D12_TEXTURE_ADDRESS_MODE_CLAMP: return AddressMode::ClampEdge;
     case D3D12_TEXTURE_ADDRESS_MODE_BORDER: return AddressMode::ClampBorder;
     case D3D12_TEXTURE_ADDRESS_MODE_MIRROR_ONCE: return AddressMode::MirrorOnce;
-    default: break;
   }
 
   return AddressMode::Wrap;
@@ -730,7 +733,6 @@ CompareFunction MakeCompareFunc(D3D12_COMPARISON_FUNC func)
     case D3D12_COMPARISON_FUNC_NOT_EQUAL: return CompareFunction::NotEqual;
     case D3D12_COMPARISON_FUNC_GREATER_EQUAL: return CompareFunction::GreaterEqual;
     case D3D12_COMPARISON_FUNC_ALWAYS: return CompareFunction::AlwaysTrue;
-    default: break;
   }
 
   return CompareFunction::AlwaysTrue;
@@ -1954,7 +1956,8 @@ ID3D12RootSignature *D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC::GetOrCreateRootS
 
 void D3D12_PACKED_PIPELINE_STATE_STREAM_DESC::Unwrap()
 {
-  *m_RootSigToUnwrap = ::Unwrap(*m_RootSigToUnwrap);
+  if(m_RootSigToUnwrap)
+    *m_RootSigToUnwrap = ::Unwrap(*m_RootSigToUnwrap);
 }
 
 D3D12_PACKED_PIPELINE_STATE_STREAM_DESC &D3D12_PACKED_PIPELINE_STATE_STREAM_DESC::operator=(
@@ -1991,9 +1994,18 @@ D3D12_PACKED_PIPELINE_STATE_STREAM_DESC &D3D12_PACKED_PIPELINE_STATE_STREAM_DESC
     else
     {
       ID3D12RootSignature *sig = expanded.GetRootSigIfPresent();
-      WRITE_VERSIONED_SUBOJBECT(D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE, sig);
-
-      m_RootSigToUnwrap = ((ID3D12RootSignature **)ptr) - 1;
+      if(sig)
+      {
+        WRITE_VERSIONED_SUBOJBECT(D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE, sig);
+        m_RootSigToUnwrap = ((ID3D12RootSignature **)ptr) - 1;
+      }
+      else
+      {
+        // No explicit root signature and no blob - the original PSO relied on an embedded
+        // root signature in the shader bytecode. Don't emit a ROOT_SIGNATURE subobject so
+        // D3D12 can auto-extract it from the shader, matching the original behavior.
+        m_RootSigToUnwrap = NULL;
+      }
     }
 
     m_VariableVersionedDataLength = ptr - start;
@@ -2036,9 +2048,18 @@ D3D12_PACKED_PIPELINE_STATE_STREAM_DESC &D3D12_PACKED_PIPELINE_STATE_STREAM_DESC
     else
     {
       ID3D12RootSignature *sig = expanded.GetRootSigIfPresent();
-      WRITE_VERSIONED_SUBOJBECT(D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE, sig);
-
-      m_RootSigToUnwrap = ((ID3D12RootSignature **)ptr) - 1;
+      if(sig)
+      {
+        WRITE_VERSIONED_SUBOJBECT(D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE, sig);
+        m_RootSigToUnwrap = ((ID3D12RootSignature **)ptr) - 1;
+      }
+      else
+      {
+        // No explicit root signature and no blob - the original PSO relied on an embedded
+        // root signature in the shader bytecode. Don't emit a ROOT_SIGNATURE subobject so
+        // D3D12 can auto-extract it from the shader, matching the original behavior.
+        m_RootSigToUnwrap = NULL;
+      }
     }
 
     // is the line rasterization mode narrow quadrilateral? if so we need version 2.

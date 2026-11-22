@@ -41,7 +41,7 @@ inline void GetFramebufferMipAndLayer(GLuint framebuffer, GLenum attachment, uin
   GLint outMip = 0, outLayer = 0;
   GetFramebufferMipAndLayer(framebuffer, attachment, &outMip, &outLayer);
   *mip = outMip & 0xff;
-  *layer = outLayer & 0xff;
+  *layer = outLayer & 0xffff;
 }
 
 void GetTextureSwizzle(GLuint tex, GLenum target, GLenum *swizzleRGBA);

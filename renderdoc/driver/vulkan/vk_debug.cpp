@@ -1230,10 +1230,7 @@ uint32_t VulkanReplay::PickVertex(uint32_t eventId, int32_t width, int32_t heigh
 
   VkMarkerRegion::Begin(StringFormat::Fmt("VulkanReplay::PickVertex(%u, %u)", x, y));
 
-  float nearPlane = cfg.cam ? ((Camera *)cfg.cam)->GetNear() : 0.1f;
-  float farPlane = cfg.cam ? ((Camera *)cfg.cam)->GetFar() : 100000.0f;
-
-  Matrix4f projMat = Matrix4f::Perspective(90.0f, nearPlane, farPlane, float(width) / float(height));
+  Matrix4f projMat = Camera::MeshProjection(cfg.cam, float(width) / float(height));
 
   Matrix4f camMat = cfg.cam ? ((Camera *)cfg.cam)->GetMatrix() : Matrix4f::Identity();
   Matrix4f pickMVP = projMat.Mul(camMat);
@@ -1290,7 +1287,9 @@ uint32_t VulkanReplay::PickVertex(uint32_t eventId, int32_t width, int32_t heigh
 
     // set up the NDC near/far pos
     Vec3f nearPosNDC = Vec3f(pickXCanonical, pickYCanonical, 0);
-    Vec3f farPosNDC = Vec3f(pickXCanonical, pickYCanonical, 1);
+    // A small preview near plane can round the depth at infinity to 1.
+    // A second interior sample gives the same ray without a zero homogeneous W.
+    Vec3f farPosNDC = Vec3f(pickXCanonical, pickYCanonical, 0.999f);
 
     if(cfg.position.unproject && cfg.ortho)
     {
@@ -3779,6 +3778,7 @@ void VulkanReplay::PrepareStateForPatchedShader(
 bool VulkanReplay::RunFeedbackAction(VkDeviceSize bufferSize, const ActionDescription *action,
                                      VulkanRenderState &modifiedstate)
 {
+  m_pDriver->InvalidateLiveForward("shaderFeedbackAction");
   VkResult vkr = VK_SUCCESS;
   VkDevice dev = m_Device;
   VkCommandBuffer cmd = m_pDriver->GetNextCmd();
@@ -5184,6 +5184,8 @@ void VulkanReplay::MeshRendering::Destroy(WrappedVulkan *driver)
 
   UBO.Destroy();
   BBoxVB.Destroy();
+  if(ComponentHighlightVB.UnwrappedBuffer() != VK_NULL_HANDLE)
+    ComponentHighlightVB.Destroy();
   MeshletSSBO.Destroy();
   AxisFrustumVB.Destroy();
 

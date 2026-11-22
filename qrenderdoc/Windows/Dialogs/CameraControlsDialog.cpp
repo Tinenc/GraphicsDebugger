@@ -37,6 +37,7 @@ CameraControlsDialog::CameraControlsDialog(ICaptureContext &Ctx, QWidget *parent
 
   ui->nearPlane->setValue(m_Ctx.Config().MeshViewer_CameraNear);
   ui->farPlane->setValue(m_Ctx.Config().MeshViewer_CameraFar);
+  ui->navigationPreset->setCurrentIndex(qBound(0, m_Ctx.Config().MeshViewer_CameraNavigation, 2));
 
   m_Keys = m_Ctx.Config().MeshViewer_KeySettings;
 
@@ -91,6 +92,7 @@ void CameraControlsDialog::applyUpdatedControls()
 {
   m_Ctx.Config().MeshViewer_CameraNear = (float)ui->nearPlane->value();
   m_Ctx.Config().MeshViewer_CameraFar = (float)ui->farPlane->value();
+  m_Ctx.Config().MeshViewer_CameraNavigation = ui->navigationPreset->currentIndex();
 
   switch(ui->speedMod->currentIndex())
   {

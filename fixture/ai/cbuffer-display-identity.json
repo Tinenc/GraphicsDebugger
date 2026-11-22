@@ -1,0 +1,7 @@
+{
+  "displayOnly": true,
+  "originalRawSha256": "",
+  "refreshTool": "publish_cbuffer_aliases",
+  "schema": "bread-cbuffer-display-identity/v1",
+  "status": "refresh-required"
+}

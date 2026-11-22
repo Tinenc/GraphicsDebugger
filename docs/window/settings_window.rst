@@ -16,9 +16,30 @@ General options
 
 This allows you to choose what theme to use in RenderDoc. By default when first starting either the light or dark native RenderDoc theme will be selected, but you can change that or switch to any other supported theme here.
 
+The ``ultra`` theme uses Unity's neutral dark palette, 12px-equivalent UI typography, compact
+16px-20px controls, and blue selection highlights. It prefers Inter (Verdana on Windows when Inter
+is unavailable) for the UI and JetBrains Mono, Cascadia Mono, or Consolas for code. Shader code uses
+the RiderDark editor colour scheme while application panels retain the Unity palette. Explicit font
+choices in this window continue to take priority over these theme defaults.
+
 .. note::
 
   The theme won't fully apply until the next restart, although most elements will update immediately to give you a preview.
+
+---------------
+
+  | :guilabel:`Interface language (restart required)` Default: ``Follow system language``
+
+This selects the language used by qrenderdoc. ``Simplified Chinese`` and ``English`` are explicit,
+stable choices; ``Follow system language`` selects Simplified Chinese for a Chinese system locale
+and English otherwise. The selected value is applied before any main-window UI is constructed on
+the next launch. If a translation catalog is unavailable or invalid, qrenderdoc safely falls back
+to its English source strings.
+
+New Qt Designer strings and C++ ``tr()`` strings are collected by
+``util/i18n/update_translations.ps1``. The i18n CI check rejects newly-added user-visible literals
+that bypass this extraction path, so newly-developed buttons, menus, and messages automatically
+enter the translation review workflow.
 
 ---------------
 
@@ -240,6 +261,19 @@ This option tries to make the disassembly of shaders easier to read by substitut
 
 ---------------
 
+  | :guilabel:`Language server` Default: ``Auto-detect``
+
+This optional executable adds compiler-aware completion, definition lookup, and diagnostics to the
+shader editor. Leave it empty to check ``RENDERDOC_SHADER_LANGUAGE_SERVER`` and then look for
+``shader-language-server`` or ``slangd`` on ``PATH``. The executable runs out of process over the
+Language Server Protocol and is never invoked through a shell.
+
+The editor always provides local symbol completion, :kbd:`F12` definition navigation, parameter
+tips, and structural diagnostics when no external server is installed. An external server improves
+include resolution and shader-semantic accuracy but is not required for editing or compiling.
+
+---------------
+
   | :guilabel:`Shader Processing Tools`
 
 .. _shader-processing-tools-config:
@@ -253,8 +287,8 @@ Other custom tools can be configured, but for those the command line arguments m
 * ``{input_file}`` will be replaced by the input filename.
 * ``{output_file}`` will be replaced by the output filename.
 * ``{entry_point}`` will be replaced by the entry point name, only when compiling a shader.
-* ``{glsl_stage4}`` will be replaced by the glsl stage short-hand, one of: vert, tesc, tese, geom, frag, or comp.
-* ``{hlsl_stage2}`` will be replaced by the hlsl stage short-hand, one of: vs, hs, ds, gs, ps, or cs.
+* ``{glsl_stage4}`` will be replaced by the glsl stage short-hand, one of: ``vert``, ``tesc``, ``tese``, ``geom``, ``frag``, or ``comp``.
+* ``{hlsl_stage2}`` will be replaced by the hlsl stage short-hand, one of: ``vs``, ``hs``, ``ds``, ``gs``, ``ps``, or ``cs``.
 * ``{spirv_ver}`` will be replaced by the SPIR-V version in use, e.g. spirv1.2 or spirv1.6.
 * ``{vulkan_ver}`` will be replaced by the Vulkan-identified SPIR-V version in use, e.g. vulkan1.0 or vulkan1.3. This value may be lossy, and will pick the next *lowest* version that compiles with a given SPIR-V version. E.g. SPIR-V 1.2 was not used by a vulkan version, so will be rounded down to vulkan1.0.
 

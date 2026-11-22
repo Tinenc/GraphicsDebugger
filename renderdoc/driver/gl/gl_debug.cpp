@@ -1580,6 +1580,7 @@ void GLReplay::FillWithDiscardPattern(DiscardType type, GLuint framebuffer, GLsi
                                       const GLenum *attachments, GLint x, GLint y, GLsizei width,
                                       GLsizei height)
 {
+  ResetCheckpointTextureLineage();
   RDCASSERT(type == DiscardType::InvalidateCall);
 
   WrappedOpenGL &drv = *m_pDriver;
@@ -1718,6 +1719,7 @@ void GLReplay::FillWithDiscardPattern(DiscardType type, ResourceId id, GLuint mi
                                       GLint yoffset, GLint zoffset, GLsizei width, GLsizei height,
                                       GLsizei depth)
 {
+  ResetCheckpointTextureLineage();
   RDCASSERT(type == DiscardType::InvalidateCall);
 
   WrappedOpenGL &drv = *m_pDriver;
@@ -2487,10 +2489,7 @@ uint32_t GLReplay::PickVertex(uint32_t eventId, int32_t width, int32_t height,
 
   drv.glUseProgram(DebugData.meshPickProgram);
 
-  float nearPlane = cfg.cam ? ((Camera *)cfg.cam)->GetNear() : 0.1f;
-  float farPlane = cfg.cam ? ((Camera *)cfg.cam)->GetFar() : 100000.0f;
-
-  Matrix4f projMat = Matrix4f::Perspective(90.0f, nearPlane, farPlane, float(width) / float(height));
+  Matrix4f projMat = Camera::MeshProjection(cfg.cam, float(width) / float(height));
 
   Matrix4f camMat = cfg.cam ? ((Camera *)cfg.cam)->GetMatrix() : Matrix4f::Identity();
   Matrix4f pickMVP = projMat.Mul(camMat);
@@ -2547,7 +2546,9 @@ uint32_t GLReplay::PickVertex(uint32_t eventId, int32_t width, int32_t height,
 
     // set up the NDC near/far pos
     Vec3f nearPosNDC = Vec3f(pickXCanonical, pickYCanonical, 0);
-    Vec3f farPosNDC = Vec3f(pickXCanonical, pickYCanonical, 1);
+    // A small preview near plane can round the depth at infinity to 1.
+    // A second interior sample gives the same ray without a zero homogeneous W.
+    Vec3f farPosNDC = Vec3f(pickXCanonical, pickYCanonical, 0.999f);
 
     if(cfg.position.unproject && cfg.ortho)
     {

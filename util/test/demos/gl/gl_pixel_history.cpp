@@ -239,7 +239,8 @@ void main()
     defines += "#define COLOR " + std::string(colourFormat == GL_NONE ? "0" : "1") + "\n";
 
     std::string imgprefix;
-    if(colourFormat == GL_RGBA8UI || colourFormat == GL_RGBA16UI || colourFormat == GL_RGBA32UI)
+    if(colourFormat == GL_RGBA8UI || colourFormat == GL_RGBA16UI || colourFormat == GL_RGBA32UI ||
+       colourFormat == GL_R32UI || colourFormat == GL_RG32UI)
     {
       batch.uint = true;
       imgprefix = "u";
@@ -700,6 +701,14 @@ vec4 ProcessColor(vec4 col)
     BuildTestBatch("8-bit uint", false, 1, GL_RGBA8UI, GL_DEPTH32F_STENCIL8);
     BuildTestBatch("16-bit uint", false, 1, GL_RGBA16UI, GL_DEPTH32F_STENCIL8);
     BuildTestBatch("32-bit uint", false, 1, GL_RGBA32UI, GL_DEPTH32F_STENCIL8);
+
+    if(GetEnvVar("RENDERDOC_SHADER_VISUAL_FORMAT_FIXTURE") == "1")
+    {
+      BuildTestBatch("Visual R32 float", false, 1, GL_R32F, GL_NONE);
+      BuildTestBatch("Visual RG32 float", false, 1, GL_RG32F, GL_NONE);
+      BuildTestBatch("Visual R32 uint", false, 1, GL_R32UI, GL_NONE);
+      BuildTestBatch("Visual RG32 uint", false, 1, GL_RG32UI, GL_NONE);
+    }
 
     while(Running())
     {

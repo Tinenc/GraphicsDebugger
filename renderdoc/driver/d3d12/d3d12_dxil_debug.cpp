@@ -351,11 +351,10 @@ static DXBC::ResourceRetType ConvertCompTypeToResourceRetType(const CompType com
     case CompType::Typeless:
     case CompType::UScaled:
     case CompType::SScaled:
-    case CompType::Depth:
-    default:
-      RDCERR("Unexpected component type %s", ToStr(compType).c_str());
-      return DXBC::ResourceRetType ::RETURN_TYPE_UNKNOWN;
+    case CompType::Depth: break;
   }
+  RDCERR("Unexpected component type %s", ToStr(compType).c_str());
+  return DXBC::ResourceRetType ::RETURN_TYPE_UNKNOWN;
 }
 
 static DXBCBytecode::ResourceDimension ConvertSRVResourceDimensionToResourceDimension(
@@ -366,7 +365,7 @@ static DXBCBytecode::ResourceDimension ConvertSRVResourceDimensionToResourceDime
     case D3D12_SRV_DIMENSION_UNKNOWN:
       return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_UNKNOWN;
     case D3D12_SRV_DIMENSION_BUFFER:
-      return DXBCBytecode::ResourceDimension ::RESOURCE_DIMENSION_BUFFER;
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_BUFFER;
     case D3D12_SRV_DIMENSION_TEXTURE1D:
       return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE1D;
     case D3D12_SRV_DIMENSION_TEXTURE1DARRAY:
@@ -385,10 +384,12 @@ static DXBCBytecode::ResourceDimension ConvertSRVResourceDimensionToResourceDime
       return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURECUBE;
     case D3D12_SRV_DIMENSION_TEXTURECUBEARRAY:
       return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURECUBEARRAY;
-    default:
-      RDCERR("Unexpected SRV dimension %s", ToStr(dim).c_str());
-      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_UNKNOWN;
+    case D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE: break;
+    case D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_BUFFER;
   }
+  RDCERR("Unexpected SRV dimension %s", ToStr(dim).c_str());
+  return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_UNKNOWN;
 }
 
 static DXDebug::SamplerMode ConvertSamplerFilterToSamplerMode(D3D12_FILTER filter)
@@ -406,7 +407,6 @@ static DXDebug::SamplerMode ConvertSamplerFilterToSamplerMode(D3D12_FILTER filte
     case D3D12_FILTER_COMPARISON_MIN_MAG_ANISOTROPIC_MIP_POINT:
     case D3D12_FILTER_COMPARISON_ANISOTROPIC:
       return DXBCBytecode::SamplerMode::SAMPLER_MODE_COMPARISON;
-      break;
     default: break;
   }
   return DXBCBytecode::SamplerMode::SAMPLER_MODE_DEFAULT;
@@ -995,7 +995,7 @@ void D3D12APIWrapper::AddCBufferToGlobalState(const BindingSlot &slot, bytebuf &
       RDCASSERTMSG("Reassigning previously filled cbuffer", targetVars.empty());
 
       ConstantBlockReference constantBlockRef = {i, arrayIndex};
-      m_ConstantBlocksDatas[constantBlockRef] = cbufData;
+      m_ConstantBlocksDatas[constantBlockRef] = {cbufData, cb.byteSize};
       rdcstr resName = Debugger::GetResourceReferenceName(m_Program, ResourceClass::CBuffer, slot);
       m_ConstantBlocks[i].name = resName;
 
@@ -1047,7 +1047,8 @@ ShaderValue D3D12APIWrapper::TypedSRVLoad(const BindingSlot &slot, const DXILDeb
   auto it = m_SRVBuffers.find(slot);
   if(it == m_SRVBuffers.end())
   {
-    RDCERR("Load SRV slot %u space %u no cached data", slot.shaderRegister, slot.registerSpace);
+    RDCERR("Load SRV slot %u space %u desc Index %u no cached data", slot.shaderRegister,
+           slot.registerSpace, slot.descriptorIndex);
     return ShaderValue();
   }
   const bytebuf &data = it->second;
@@ -1063,7 +1064,8 @@ bool D3D12APIWrapper::TypedSRVStore(const BindingSlot &slot, const DXILDebug::Vi
   auto it = m_SRVBuffers.find(slot);
   if(it == m_SRVBuffers.end())
   {
-    RDCERR("Store SRV slot %u space %u no cached data", slot.shaderRegister, slot.registerSpace);
+    RDCERR("Store SRV slot %u space %u desc Index %u no cached data", slot.shaderRegister,
+           slot.registerSpace, slot.descriptorIndex);
     return false;
   }
   bytebuf &data = it->second;
@@ -1112,6 +1114,25 @@ SRVInfo D3D12APIWrapper::FetchSRV(const D3D12Descriptor *resDescriptor, const Bi
           srvData.resInfo.format.stride = mdStride;
 
         m_Device->GetDebugManager()->GetBufferData(pResource, 0, 0, data);
+      }
+      else if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET)
+      {
+        // apply the offset/size immediately by fetching only that data rather than it
+        // being in addressing calculations. Then all we need to do is fake numElements
+        // so it doesn't cause clamps
+
+        srvData.resInfo.firstElement = 0;
+        srvData.resInfo.numElements = D3D12ShaderDebug::GetBufferByteOffsetNumElements(srvDesc);
+        srvData.resInfo.isByteBuffer =
+            ((srvDesc.BufferByteOffset.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0) ? true : false;
+        // Get the buffer stride from the shader metadata (for StructuredBuffer, RawBuffer)
+        uint32_t mdStride =
+            DXILDebug::GetSRVBufferStrideFromShaderMetadata(m_EntryPointInterface, slot);
+        if(mdStride != 0)
+          srvData.resInfo.format.stride = mdStride;
+
+        m_Device->GetDebugManager()->GetBufferData(pResource, srvDesc.BufferByteOffset.Offset,
+                                                   srvDesc.BufferByteOffset.Size, data);
       }
       // Textures are sampled via a pixel shader, so there's no need to copy their data
     }
@@ -1296,6 +1317,85 @@ SRVInfo D3D12APIWrapper::FetchSRV(const BindingSlot &slot)
 }
 
 // Called from any thread
+bool D3D12APIWrapper::IsCBVCached(const BindingSlot &slot) const
+{
+  SCOPED_READLOCK(m_CBVsLock);
+  return m_CBVBuffers.find(slot) != m_CBVBuffers.end();
+}
+
+// Called from any thread
+void D3D12APIWrapper::GetCBV(const BindingSlot &slot)
+{
+  {
+    SCOPED_READLOCK(m_CBVsLock);
+    auto it = m_CBVBuffers.find(slot);
+    if(it != m_CBVBuffers.end())
+      return;
+  }
+
+  FetchCBV(slot);
+}
+
+// Must be called from the replay manager thread (the debugger thread)
+void D3D12APIWrapper::FetchCBV(const BindingSlot &slot)
+{
+  CHECK_DEVICE_THREAD();
+
+  const HeapDescriptorType heapType = slot.heapType;
+  const uint32_t descriptorIndex = slot.descriptorIndex;
+  const D3D12Descriptor resDescriptor =
+      D3D12ShaderDebug::FindDescriptor(m_Device, heapType, descriptorIndex);
+
+  bytebuf data;
+  D3D12ResourceManager *rm = m_Device->GetResourceManager();
+  ResourceId cbvId = WrappedID3D12Resource::GetResIDFromAddr(resDescriptor.GetCBV().BufferLocation);
+  ID3D12Resource *pResource = rm->GetResAs<ID3D12Resource>(cbvId);
+  if(pResource)
+    m_Device->GetDebugManager()->GetBufferData(pResource, 0, 0, data);
+
+  {
+    SCOPED_WRITELOCK(m_CBVsLock);
+    auto bufferIt = m_CBVBuffers.insert(std::make_pair(slot, data));
+    RDCASSERT(bufferIt.second);
+  }
+}
+
+// Called from any thread
+// Resource must be cached
+ShaderValue D3D12APIWrapper::CBVLoad(const BindingSlot &slot, uint32_t regIndex) const
+{
+  ShaderValue result;
+  result.u32v[0] = 0;
+  result.u32v[1] = 0;
+  result.u32v[2] = 0;
+  result.u32v[3] = 0;
+
+  SCOPED_READLOCK(m_CBVsLock);
+  auto it = m_CBVBuffers.find(slot);
+  if(it == m_CBVBuffers.end())
+  {
+    RDCERR("CBV Load slot %u space %u desc Index %u no cached data", slot.shaderRegister,
+           slot.registerSpace, slot.descriptorIndex);
+    return result;
+  }
+  const bytebuf &cbufferData = it->second;
+  const uint32_t bufferSize = (uint32_t)cbufferData.size();
+  const uint32_t maxIndex = AlignUp16(bufferSize) / 16;
+  RDCASSERTMSG("Out of bounds cbuffer load", regIndex < maxIndex, regIndex, maxIndex);
+  if(regIndex < maxIndex)
+  {
+    const uint32_t dataOffset = regIndex * 16;
+    const uint32_t byteWidth = 4;
+    const byte *base = cbufferData.data() + dataOffset;
+    const uint32_t *data = (const uint32_t *)base;
+    const uint32_t numComps = RDCMIN(4U, (bufferSize - dataOffset) / byteWidth);
+    for(uint32_t c = 0; c < numComps; c++)
+      result.u32v[c] = data[c];
+  }
+  return result;
+}
+
+// Called from any thread
 // Resource must be cached
 ShaderValue D3D12APIWrapper::TypedUAVLoad(const BindingSlot &slot, const DXILDebug::ViewFmt &fmt,
                                           uint64_t dataOffset) const
@@ -1304,7 +1404,8 @@ ShaderValue D3D12APIWrapper::TypedUAVLoad(const BindingSlot &slot, const DXILDeb
   auto it = m_UAVBuffers.find(slot);
   if(it == m_UAVBuffers.end())
   {
-    RDCERR("Load UAV slot %u space %u no cached data", slot.shaderRegister, slot.registerSpace);
+    RDCERR("Load UAV slot %u space %u desc Index %u no cached data", slot.shaderRegister,
+           slot.registerSpace, slot.descriptorIndex);
     return ShaderValue();
   }
   const bytebuf &data = it->second;
@@ -1320,7 +1421,8 @@ bool D3D12APIWrapper::TypedUAVStore(const BindingSlot &slot, const DXILDebug::Vi
   auto it = m_UAVBuffers.find(slot);
   if(it == m_UAVBuffers.end())
   {
-    RDCERR("Store UAV slot %u space %u no cached data", slot.shaderRegister, slot.registerSpace);
+    RDCERR("Store UAV slot %u space %u desc Index %u no cached data", slot.shaderRegister,
+           slot.registerSpace, slot.descriptorIndex);
     return false;
   }
   bytebuf &data = it->second;
@@ -1370,6 +1472,53 @@ UAVInfo D3D12APIWrapper::FetchUAV(const D3D12Descriptor *resDescriptor, const Bi
         if(counterId != ResourceId())
         {
           uint64_t counterByteOffset = uavDesc.Buffer.CounterOffsetInBytes;
+          ID3D12Resource *pCounterResource = rm->GetResAs<ID3D12Resource>(counterId);
+          if(pCounterResource)
+          {
+            bytebuf counterData;
+            m_Device->GetDebugManager()->GetBufferData(pCounterResource, counterByteOffset, 4,
+                                                       counterData);
+            // Initialise the UAV counter from the buffer
+            if(counterData.size() == 4)
+              uavData.hiddenCounter = *((uint32_t *)counterData.data());
+            else
+              m_Device->AddDebugMessage(
+                  MessageCategory::Execution, MessageSeverity::High, MessageSource::RuntimeWarning,
+                  StringFormat::Fmt("Couldn't read UAV counter data for UAV in slot %u space %u",
+                                    slot.shaderRegister, slot.registerSpace));
+          }
+          else
+          {
+            m_Device->AddDebugMessage(
+                MessageCategory::Execution, MessageSeverity::High, MessageSource::RuntimeWarning,
+                StringFormat::Fmt("NULL counter resource for UAV in slot %u space %u",
+                                  slot.shaderRegister, slot.registerSpace));
+          }
+        }
+      }
+      else if(uavDesc.ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
+      {
+        // apply the offset/size immediately by fetching only that data rather than it
+        // being in addressing calculations. Then all we need to do is fake numElements
+        // so it doesn't cause clamps
+
+        uavData.resInfo.firstElement = 0;
+        uavData.resInfo.numElements = D3D12ShaderDebug::GetBufferByteOffsetNumElements(uavDesc);
+        uavData.resInfo.isByteBuffer =
+            ((uavDesc.BufferByteOffset.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0) ? true : false;
+        // Get the buffer stride from the shader metadata (for StructuredBuffer, RawBuffer)
+        uint32_t mdStride =
+            DXILDebug::GetUAVBufferStrideFromShaderMetadata(m_EntryPointInterface, slot);
+        if(mdStride != 0)
+          uavData.resInfo.format.stride = mdStride;
+
+        m_Device->GetDebugManager()->GetBufferData(pResource, uavDesc.BufferByteOffset.Offset,
+                                                   uavDesc.BufferByteOffset.Size, data);
+
+        ResourceId counterId = resDescriptor->GetCounterResourceId();
+        if(counterId != ResourceId())
+        {
+          uint64_t counterByteOffset = uavDesc.BufferByteOffset.CounterOffsetInBytes;
           ID3D12Resource *pCounterResource = rm->GetResAs<ID3D12Resource>(counterId);
           if(pCounterResource)
           {
@@ -1798,10 +1947,11 @@ bool D3D12APIWrapper::QueuedOpsHasSpace() const
 }
 
 // Called from any thread
-bool D3D12APIWrapper::IsResourceInfoCached(const DXDebug::BindingSlot &slot, uint32_t mipLevel)
+bool D3D12APIWrapper::IsResourceInfoCached(DXIL::ResourceClass resClass,
+                                           const DXDebug::BindingSlot &slot, uint32_t mipLevel)
 {
   SCOPED_READLOCK(m_ResourceInfosLock);
-  ResourceInfoMiplevel resInfoMip = {slot, mipLevel};
+  ResourceInfoMiplevel resInfoMip = {resClass, slot, mipLevel};
   return m_ResourceInfos.find(resInfoMip) != m_ResourceInfos.end();
 }
 
@@ -1810,7 +1960,7 @@ bool D3D12APIWrapper::IsResourceInfoCached(const DXDebug::BindingSlot &slot, uin
 ShaderVariable D3D12APIWrapper::GetResourceInfo(DXIL::ResourceClass resClass,
                                                 const DXDebug::BindingSlot &slot, uint32_t mipLevel)
 {
-  ResourceInfoMiplevel resInfoMip = {slot, mipLevel};
+  ResourceInfoMiplevel resInfoMip = {resClass, slot, mipLevel};
   {
     SCOPED_READLOCK(m_ResourceInfosLock);
     auto it = m_ResourceInfos.find(resInfoMip);
@@ -1969,6 +2119,7 @@ ResourceReferenceInfo D3D12APIWrapper::FetchResourceReferenceInfo(const DXDebug:
       resRefInfo.resClass = DXIL::ResourceClass::CBuffer;
       resRefInfo.descType = DescriptorType::ConstantBuffer;
       resRefInfo.varType = VarType::ConstantBlock;
+      break;
     }
     case D3D12DescriptorType::SRV:
     {
@@ -2013,6 +2164,12 @@ ResourceReferenceInfo D3D12APIWrapper::FetchResourceReferenceInfo(const DXDebug:
         resRefInfo.descType = DescriptorType::Buffer;
       else if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_BUFFER)
         resRefInfo.descType = DescriptorType::TypedBuffer;
+      else if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET &&
+              (srvDesc.BufferByteOffset.StructureByteStride > 0 ||
+               srvDesc.Format == DXGI_FORMAT_UNKNOWN))
+        resRefInfo.descType = DescriptorType::Buffer;
+      else if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET)
+        resRefInfo.descType = DescriptorType::TypedBuffer;
       else
         resRefInfo.descType = DescriptorType::Image;
 
@@ -2023,7 +2180,8 @@ ResourceReferenceInfo D3D12APIWrapper::FetchResourceReferenceInfo(const DXDebug:
       D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = desc.GetUAV();
       resRefInfo.resClass = DXIL::ResourceClass::UAV;
       resRefInfo.varType = VarType::ReadWriteResource;
-      if(uavDesc.ViewDimension == D3D12_UAV_DIMENSION_BUFFER)
+      if(uavDesc.ViewDimension == D3D12_UAV_DIMENSION_BUFFER ||
+         uavDesc.ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
         resRefInfo.descType = uavDesc.Format != DXGI_FORMAT_UNKNOWN
                                   ? DescriptorType::ReadWriteTypedBuffer
                                   : DescriptorType::ReadWriteBuffer;

@@ -54,7 +54,20 @@ inline std::ostream &operator<<(std::ostream &os, rdcstr const &str)
   return os << std::string(str.begin(), str.end());
 }
 
+// Xlib defines Always as a macro. Driver tests include this wrapper after
+// their native headers, while Catch uses Always as an enum member.
+#ifdef Always
+#pragma push_macro("Always")
+#undef Always
+#define RDOC_CATCH_RESTORE_XLIB_ALWAYS
+#endif
+
 #include "official/catch.hpp"
+
+#ifdef RDOC_CATCH_RESTORE_XLIB_ALWAYS
+#pragma pop_macro("Always")
+#undef RDOC_CATCH_RESTORE_XLIB_ALWAYS
+#endif
 
 namespace Catch
 {

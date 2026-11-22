@@ -1,0 +1,58 @@
+{
+  "schema": "renderdoc-ultra-shader-abi-validation-mcp/v1",
+  "operation": "validate",
+  "binding": {
+    "workspaceId": "d6c5f702f65845efba9b7b2cd085cc5c",
+    "captureId": "89fd6bc66528d11208e8973346c259f6b6784e7f26f328662914c56ede199149",
+    "revision": 1,
+    "candidateRawSha256": "a6d7f7856fa365791ecf7cf2ac14767af7c43f7e50d3d084431c30e86970dcde",
+    "candidateByteSize": 14700,
+    "baselineAbiSha256": "3f7bd0992135f509fe3964c18cb533938c213d867d88d79d78ab08471c42f384",
+    "stage": "fragment",
+    "entryPoint": "PS",
+    "api": "d3d11",
+    "encoding": "dxbc",
+    "targetProfile": "ps_5_0"
+  },
+  "validation": {
+    "workspacePath": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\shader-evidence\\workspace",
+    "revision": 1,
+    "requestId": "cb4876b9e29165f38c8dd373d76dc10fcd685df0d7e7f62f40d6b7d34bc06c2e",
+    "compatible": true,
+    "baselineAbiSha256": "3f7bd0992135f509fe3964c18cb533938c213d867d88d79d78ab08471c42f384",
+    "candidateAbiSha256": "3f7bd0992135f509fe3964c18cb533938c213d867d88d79d78ab08471c42f384",
+    "differences": [],
+    "differencesTruncated": false,
+    "requiresReplayAbiValidation": false,
+    "replayAbiValidated": true,
+    "applied": false,
+    "abiReportPath": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\shader-evidence\\workspace\\revisions\\0001\\abi-report.json",
+    "abiReportSha256": "f82b701d4c193c11f3876f925b8b239ccc482f7efcbb2788722081d774247f36",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069"
+  },
+  "candidateState": {
+    "present": true,
+    "requiresReplayAbiValidation": false,
+    "replayAbiValidated": true,
+    "applied": false
+  },
+  "renderDocReplacement": {
+    "attempted": false,
+    "applied": false,
+    "eventScoped": true
+  },
+  "workspace": {
+    "workspacePath": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\shader-evidence\\workspace",
+    "workspaceId": "d6c5f702f65845efba9b7b2cd085cc5c",
+    "captureId": "89fd6bc66528d11208e8973346c259f6b6784e7f26f328662914c56ede199149",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "revision": 1,
+    "candidateRawSha256": "a6d7f7856fa365791ecf7cf2ac14767af7c43f7e50d3d084431c30e86970dcde",
+    "stage": "fragment",
+    "entryPoint": "PS",
+    "originalResourceId": 43,
+    "originalRawSha256": "2655ae2df08621619ba7f1ff6eab0bc18777f79f4fdef0afdb3059d8557fa275"
+  },
+  "explanation": null,
+  "availableCapabilities": []
+}

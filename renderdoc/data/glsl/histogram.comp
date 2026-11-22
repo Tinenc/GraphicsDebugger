@@ -78,27 +78,18 @@ void main()
             histogram_minmax.HistogramSlice, histogram_minmax.HistogramMip,
             histogram_minmax.HistogramSample, histogram_minmax.HistogramTextureResolution);
 
-        if((histogram_minmax.HistogramChannels & 0x1u) == 0u)
-          data.x = uint(histogram_minmax.HistogramMax + 1.0f);
-        if((histogram_minmax.HistogramChannels & 0x2u) == 0u)
-          data.y = uint(histogram_minmax.HistogramMax + 1.0f);
-        if((histogram_minmax.HistogramChannels & 0x4u) == 0u)
-          data.z = uint(histogram_minmax.HistogramMax + 1.0f);
-        if((histogram_minmax.HistogramChannels & 0x8u) == 0u)
-          data.w = uint(histogram_minmax.HistogramMax + 1.0f);
-
         if(histogram_minmax.HistogramChannels > 0u)
         {
           vec4 normalisedVal = (vec4(data) - vec4(histogram_minmax.HistogramMin)) /
                                vec4(histogram_minmax.HistogramMax - histogram_minmax.HistogramMin);
 
-          if(normalisedVal.x < 0.0f)
+          if(float(data.x) < histogram_minmax.HistogramMin || float(data.x) > histogram_minmax.HistogramMax)
             normalisedVal.x = 2.0f;
-          if(normalisedVal.y < 0.0f)
+          if(float(data.y) < histogram_minmax.HistogramMin || float(data.y) > histogram_minmax.HistogramMax)
             normalisedVal.y = 2.0f;
-          if(normalisedVal.z < 0.0f)
+          if(float(data.z) < histogram_minmax.HistogramMin || float(data.z) > histogram_minmax.HistogramMax)
             normalisedVal.z = 2.0f;
-          if(normalisedVal.w < 0.0f)
+          if(float(data.w) < histogram_minmax.HistogramMin || float(data.w) > histogram_minmax.HistogramMax)
             normalisedVal.w = 2.0f;
 
           bucketIdx = uvec4(floor(normalisedVal * float(HGRAM_NUM_BUCKETS)));
@@ -111,27 +102,18 @@ void main()
             histogram_minmax.HistogramSlice, histogram_minmax.HistogramMip,
             histogram_minmax.HistogramSample, histogram_minmax.HistogramTextureResolution);
 
-        if((histogram_minmax.HistogramChannels & 0x1u) == 0u)
-          data.x = int(histogram_minmax.HistogramMax + 1.0f);
-        if((histogram_minmax.HistogramChannels & 0x2u) == 0u)
-          data.y = int(histogram_minmax.HistogramMax + 1.0f);
-        if((histogram_minmax.HistogramChannels & 0x4u) == 0u)
-          data.z = int(histogram_minmax.HistogramMax + 1.0f);
-        if((histogram_minmax.HistogramChannels & 0x8u) == 0u)
-          data.w = int(histogram_minmax.HistogramMax + 1.0f);
-
         if(histogram_minmax.HistogramChannels > 0u)
         {
           vec4 normalisedVal = (vec4(data) - vec4(histogram_minmax.HistogramMin)) /
                                vec4(histogram_minmax.HistogramMax - histogram_minmax.HistogramMin);
 
-          if(normalisedVal.x < 0.0f)
+          if(float(data.x) < histogram_minmax.HistogramMin || float(data.x) > histogram_minmax.HistogramMax)
             normalisedVal.x = 2.0f;
-          if(normalisedVal.y < 0.0f)
+          if(float(data.y) < histogram_minmax.HistogramMin || float(data.y) > histogram_minmax.HistogramMax)
             normalisedVal.y = 2.0f;
-          if(normalisedVal.z < 0.0f)
+          if(float(data.z) < histogram_minmax.HistogramMin || float(data.z) > histogram_minmax.HistogramMax)
             normalisedVal.z = 2.0f;
-          if(normalisedVal.w < 0.0f)
+          if(float(data.w) < histogram_minmax.HistogramMin || float(data.w) > histogram_minmax.HistogramMax)
             normalisedVal.w = 2.0f;
 
           bucketIdx = uvec4(floor(normalisedVal * float(HGRAM_NUM_BUCKETS)));
@@ -145,27 +127,18 @@ void main()
             histogram_minmax.HistogramSample, histogram_minmax.HistogramTextureResolution,
             histogram_minmax.HistogramYUVDownsampleRate, histogram_minmax.HistogramYUVAChannels);
 
-        if((histogram_minmax.HistogramChannels & 0x1u) == 0u)
-          data.x = float(histogram_minmax.HistogramMax + 1.0f);
-        if((histogram_minmax.HistogramChannels & 0x2u) == 0u)
-          data.y = float(histogram_minmax.HistogramMax + 1.0f);
-        if((histogram_minmax.HistogramChannels & 0x4u) == 0u)
-          data.z = float(histogram_minmax.HistogramMax + 1.0f);
-        if((histogram_minmax.HistogramChannels & 0x8u) == 0u)
-          data.w = float(histogram_minmax.HistogramMax + 1.0f);
-
         if(histogram_minmax.HistogramChannels > 0u)
         {
           vec4 normalisedVal = (vec4(data) - vec4(histogram_minmax.HistogramMin)) /
                                vec4(histogram_minmax.HistogramMax - histogram_minmax.HistogramMin);
 
-          if(normalisedVal.x < 0.0f)
+          if(isnan(data.x) || isinf(data.x) || float(data.x) < histogram_minmax.HistogramMin || float(data.x) > histogram_minmax.HistogramMax)
             normalisedVal.x = 2.0f;
-          if(normalisedVal.y < 0.0f)
+          if(isnan(data.y) || isinf(data.y) || float(data.y) < histogram_minmax.HistogramMin || float(data.y) > histogram_minmax.HistogramMax)
             normalisedVal.y = 2.0f;
-          if(normalisedVal.z < 0.0f)
+          if(isnan(data.z) || isinf(data.z) || float(data.z) < histogram_minmax.HistogramMin || float(data.z) > histogram_minmax.HistogramMax)
             normalisedVal.z = 2.0f;
-          if(normalisedVal.w < 0.0f)
+          if(isnan(data.w) || isinf(data.w) || float(data.w) < histogram_minmax.HistogramMin || float(data.w) > histogram_minmax.HistogramMax)
             normalisedVal.w = 2.0f;
 
           bucketIdx = uvec4(floor(normalisedVal * float(HGRAM_NUM_BUCKETS)));
@@ -173,13 +146,15 @@ void main()
       }
 #endif
 
-      if(bucketIdx.x < HGRAM_NUM_BUCKETS)
+      // Apply the channel mask explicitly: at large HDR ranges Max + 1 can
+      // round back to Max, so a floating-point sentinel cannot disable a channel.
+      if((histogram_minmax.HistogramChannels & 0x1u) != 0u && bucketIdx.x < HGRAM_NUM_BUCKETS)
         atomicAdd(dest.result[bucketIdx.x], 1U);
-      if(bucketIdx.y < HGRAM_NUM_BUCKETS)
+      if((histogram_minmax.HistogramChannels & 0x2u) != 0u && bucketIdx.y < HGRAM_NUM_BUCKETS)
         atomicAdd(dest.result[bucketIdx.y], 1U);
-      if(bucketIdx.z < HGRAM_NUM_BUCKETS)
+      if((histogram_minmax.HistogramChannels & 0x4u) != 0u && bucketIdx.z < HGRAM_NUM_BUCKETS)
         atomicAdd(dest.result[bucketIdx.z], 1U);
-      if(bucketIdx.w < HGRAM_NUM_BUCKETS)
+      if((histogram_minmax.HistogramChannels & 0x8u) != 0u && bucketIdx.w < HGRAM_NUM_BUCKETS)
         atomicAdd(dest.result[bucketIdx.w], 1U);
     }
   }

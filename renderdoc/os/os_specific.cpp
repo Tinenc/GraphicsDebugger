@@ -25,11 +25,84 @@
 
 #include "os/os_specific.h"
 #include "api/replay/control_types.h"
+#include "common/common.h"
 #include "common/formatting.h"
 #include "strings/string_utils.h"
 
 int utf8printv(char *buf, size_t bufsize, const char *fmt, va_list args);
 int utf8printf_custom(char *buf, size_t bufSize, const char *fmt, StringFormat::Args &args);
+
+namespace FileIO
+{
+// Implemented by each platform. The shared wrapper keeps override semantics identical.
+rdcstr GetPlatformAppFolderFilename(const rdcstr &filename);
+
+static bool ConfigOverridePath(const rdcstr &directory, const rdcstr &filename, bool windows,
+                               rdcstr &path)
+{
+  path.clear();
+  if(directory.empty() || filename.empty())
+    return false;
+
+  rdcstr base = directory;
+  rdcstr leaf = filename;
+  if(windows)
+  {
+    for(char &c : base)
+      if(c == '\\')
+        c = '/';
+    for(char &c : leaf)
+      if(c == '\\')
+        c = '/';
+  }
+
+  bool absolute = base[0] == '/';
+  if(windows)
+  {
+    const bool drive = base.size() >= 3 &&
+                       ((base[0] >= 'A' && base[0] <= 'Z') ||
+                        (base[0] >= 'a' && base[0] <= 'z')) &&
+                       base[1] == ':' && base[2] == '/';
+    // Require a server and share. Device/extended namespaces are intentionally unsupported.
+    const int share = base.find('/', 2);
+    const bool unc = base.size() > 4 && base[0] == '/' && base[1] == '/' &&
+                     base[2] != '/' && base[2] != '?' && base[2] != '.' && share > 2 &&
+                     share + 1 < (int)base.size() && base[share + 1] != '/';
+    absolute = drive || unc;
+  }
+  if(!absolute || leaf[0] == '/' || leaf.contains(':'))
+    return false;
+  for(char c : base)
+    if((unsigned char)c < 32 || c == '"' || c == '*' || c == '?' || c == '<' || c == '>' || c == '|')
+      return false;
+  rdcarray<rdcstr> components;
+  split(leaf, components, '/');
+  for(const rdcstr &component : components)
+    if(component == ".." || component == "." || component.empty())
+      return false;
+  while(base.size() > 1 && base.back() == '/')
+    base.pop_back();
+  path = base + (base.back() == '/' ? "" : "/") + leaf;
+  return true;
+}
+
+rdcstr GetAppFolderFilename(const rdcstr &filename)
+{
+  const rdcstr overrideDirectory = Process::GetEnvVariable("RENDERDOC_CONFIG_DIR");
+  if(overrideDirectory.empty())
+    return GetPlatformAppFolderFilename(filename);
+
+  rdcstr path;
+  if(!ConfigOverridePath(overrideDirectory, filename, ENABLED(RDOC_WIN32), path))
+  {
+    // An explicit invalid isolation request must never write the normal user configuration.
+    RDCERR("RENDERDOC_CONFIG_DIR must be an absolute configuration directory; refusing fallback");
+    exit(2);
+  }
+  CreateParentDirectory(path);
+  return path;
+}
+}
 
 bool Network::ParseIPRangeCIDR(const rdcstr &str, uint32_t &ip, uint32_t &mask)
 {
@@ -191,6 +264,34 @@ rdcstr OSUtility::MakeMachineIdentString(uint64_t ident)
 
 #include "catch/catch.hpp"
 
+TEST_CASE("Explicit configuration directory remains isolated", "[osspecific][config-isolation]")
+{
+  rdcstr path;
+  CHECK(FileIO::ConfigOverridePath("D:\\workspace\\config\\", "renderdoc.conf", true, path));
+  CHECK(path == "D:/workspace/config/renderdoc.conf");
+  CHECK(FileIO::ConfigOverridePath("D:/", "renderdoc.conf", true, path));
+  CHECK(path == "D:/renderdoc.conf");
+  CHECK(FileIO::ConfigOverridePath("\\\\server\\share\\config", "plugins/nv", true, path));
+  CHECK(path == "//server/share/config/plugins/nv");
+  CHECK(FileIO::ConfigOverridePath("/data/local/tmp/replay", "renderdoc.conf", false, path));
+  CHECK(path == "/data/local/tmp/replay/renderdoc.conf");
+  CHECK(FileIO::ConfigOverridePath("/", "renderdoc.conf", false, path));
+  CHECK(path == "/renderdoc.conf");
+  for(const rdcstr directory : {"relative", "D:relative", "/drive-relative", "\\drive-relative",
+                                 "\\\\server", "\\\\server\\", "\\\\?\\D:\\config", "D:/bad?name"})
+  {
+    CHECK_FALSE(FileIO::ConfigOverridePath(directory, "renderdoc.conf", true, path));
+    CHECK(path.empty());
+  }
+  CHECK_FALSE(FileIO::ConfigOverridePath("relative", "renderdoc.conf", false, path));
+  CHECK_FALSE(FileIO::ConfigOverridePath("", "renderdoc.conf", false, path));
+  for(const rdcstr filename : {"../global.conf", "sub/../../global.conf", "/global.conf", "D:/global.conf", ""})
+  {
+    CHECK_FALSE(FileIO::ConfigOverridePath("D:/workspace/config", filename, true, path));
+    CHECK(path.empty());
+  }
+}
+
 TEST_CASE("Test OS-specific functions", "[osspecific]")
 {
   SECTION("GetLibraryFilename")
@@ -289,6 +390,32 @@ TEST_CASE("Test OS-specific functions", "[osspecific]")
 
     CHECK(var == rdcstr("reset"));
   };
+
+  SECTION("Unicode environment variables")
+  {
+    EnvironmentModification mod;
+    mod.name = "__renderdoc__unicode_test_\xe6\xb5\x8b\xe8\xaf\x95";
+    mod.mod = EnvMod::Set;
+    mod.sep = EnvSep::NoSep;
+    // Chinese plus supplementary Unicode characters, including values outside Windows ACP 936.
+    const rdcstr unicode = "\xe6\xb5\x8b\xe8\xaf\x95\xf0\x9f\x98\x80\xf0\xa0\xae\xb7";
+    mod.value = "C:/Users/" + unicode + "/AppData/Local/RenderDocBread/ui";
+    Process::RegisterEnvironmentModification(mod);
+    Process::ApplyEnvironmentModification();
+    CHECK(Process::GetEnvVariable(mod.name) == mod.value);
+
+    // Exercise the dynamic size query as well as UTF-16/UTF-8 conversion.
+    for(int i = 0; i < 1000; ++i)
+      mod.value += unicode;
+    Process::RegisterEnvironmentModification(mod);
+    Process::ApplyEnvironmentModification();
+    CHECK(Process::GetEnvVariable(mod.name) == mod.value);
+
+    mod.value = "";
+    Process::RegisterEnvironmentModification(mod);
+    Process::ApplyEnvironmentModification();
+    CHECK(Process::GetEnvVariable(mod.name).empty());
+  }
 
   SECTION("UTF-8 to wide conversion")
   {

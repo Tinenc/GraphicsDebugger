@@ -102,7 +102,7 @@ protected:
   void Shutdown()
   {
     if(m_pReal)
-      m_pDevice->GetResourceManager()->RemoveWrapper(m_pReal);
+      m_pDevice->GetResourceManager()->RemoveWrapper(this, m_pReal);
 
     m_pDevice->GetResourceManager()->ReleaseResource(GetResourceID());
     m_pDevice->ReleaseResource((NestedType *)this);
@@ -477,6 +477,111 @@ public:
   virtual HRESULT STDMETHODCALLTYPE SetName(UINT DescriptorIndex, LPCSTR Name) = 0;
 };
 
+struct D3D12DescriptorRestoreRange
+{
+  uint32_t first = 0;
+  uint32_t count = 0;
+};
+
+// Sorted non-overlapping descriptor ranges. Failure leaves the original copies untouched.
+bool D3D12SubtractDescriptorRanges(uint32_t count,
+                                   const rdcarray<D3D12DescriptorRestoreRange> &copies,
+                                   const rdcarray<D3D12DescriptorRestoreRange> &excluded,
+                                   rdcarray<D3D12DescriptorRestoreRange> &result);
+
+// Dirty state since the last initial-state restore, separate from the permanent mutable-view
+// mask used by the descriptor inspection cache. Coarse 64-descriptor blocks bound metadata and
+// allow adjacent writes to be restored in one native copy, without scanning a multi-million heap.
+class D3D12DescriptorRestoreTracker
+{
+public:
+  void Reset(uint32_t descriptorCount);
+  void MarkRange(uint32_t first, uint32_t count);
+  void GetRanges(rdcarray<D3D12DescriptorRestoreRange> &ranges);
+  uint64_t DescriptorCount() const { return m_DirtyDescriptorCount; }
+  void ClearDirty();
+
+private:
+  uint32_t m_DescriptorCount = 0;
+  uint64_t m_DirtyDescriptorCount = 0;
+  rdcarray<uint64_t> m_DirtyBlockMask;
+  rdcarray<uint32_t> m_DirtyBlocks;
+};
+
+class D3D12ReplayUAVIndex
+{
+  std::map<uint32_t, rdcpair<ResourceId, ResourceId>> m_Descriptors;
+public:
+  void EraseRange(uint32_t first, uint32_t count);
+  void Set(uint32_t index, ResourceId resource, ResourceId counter);
+  void Gather(uint32_t first, uint32_t count, std::set<ResourceId> &resources) const;
+};
+
+// Capture-wide conservative descriptor history. A slot can refer to several resources between
+// recording and execution; retaining every captured identity prevents that timing from turning
+// an absent current descriptor into proof of no read.
+class D3D12ReplayDescriptorReferences
+{
+  std::map<ResourceId, std::set<uint32_t>> m_References;
+  uint64_t m_Count = 0;
+  bool m_Complete = true;
+public:
+  void Add(uint32_t index, ResourceId resource);
+  bool MayReference(ResourceId resource, uint32_t first, uint32_t count) const;
+  bool Complete() const { return m_Complete; }
+};
+
+// Byte bounds from every native descriptor version, never inferred from shader reflection.
+// SRV/UAV descriptors conservatively read the whole buffer; a CBV has explicit byte bounds.
+class D3D12ReplayBufferDescriptorRanges
+{
+  std::map<ResourceId, std::map<uint32_t, std::set<rdcpair<uint64_t, uint64_t>>>> m_Ranges;
+  size_t m_Count = 0;
+  bool m_Complete = true;
+public:
+  void Add(uint32_t slot, ResourceId resource, uint64_t offset, uint64_t size);
+  void Invalidate()
+  {
+    m_Complete = false;
+    m_Ranges.clear();
+  }
+  bool Gather(ResourceId resource, uint32_t first, uint32_t count,
+              rdcarray<rdcpair<uint64_t, uint64_t>> &ranges, size_t &work) const;
+};
+
+// Optional decoded inspector views, not GPU descriptors or captured descriptor contents.
+// Large bindless heaps normally expose only a few slots at a time. Keep O(1) page
+// lookup while bounding decoded data even if a tool walks every slot in the heap.
+class D3D12DescriptorViewCache
+{
+public:
+  static const uint32_t PageSize = 256;
+  static const uint32_t MaxPages = 128;
+  D3D12DescriptorViewCache() = default;
+  ~D3D12DescriptorViewCache() { Clear(); }
+  D3D12DescriptorViewCache(const D3D12DescriptorViewCache &) = delete;
+  D3D12DescriptorViewCache &operator=(const D3D12DescriptorViewCache &) = delete;
+  const Descriptor *Find(uint32_t index);
+  void Store(uint32_t index, uint32_t descriptorCount, const Descriptor &view);
+  void Clear();
+  size_t ResidentPages() const { return m_Resident.size(); }
+  size_t AllocatedBytes() const
+  {
+    return m_Pages.capacity() * sizeof(Page) + m_Resident.capacity() * sizeof(uint32_t) +
+           m_Resident.size() * PageSize * sizeof(Descriptor);
+  }
+
+private:
+  struct Page
+  {
+    Descriptor *views = NULL;
+    uint64_t lastUse = 0;
+  };
+  rdcarray<Page> m_Pages;
+  rdcarray<uint32_t> m_Resident;
+  uint64_t m_Clock = 0;
+};
+
 class WrappedID3D12DescriptorHeap : public WrappedDeviceChild12<ID3D12DescriptorHeap>,
                                     public IRenderDocDescriptorNamer
 {
@@ -488,8 +593,23 @@ class WrappedID3D12DescriptorHeap : public WrappedDeviceChild12<ID3D12Descriptor
 
   D3D12Descriptor *descriptors;
 
-  Descriptor *cachedDescriptors;
+  D3D12DescriptorViewCache cachedDescriptors;
   uint64_t *mutableDescriptorBitmask;
+
+  D3D12DescriptorRestoreTracker m_InitialDescriptorDirty;
+  WrappedID3D12DescriptorHeap *m_InitialDescriptorSource = NULL;
+  bool m_RestoringInitialDescriptors = false;
+  // Sparse index of UAV locations, not a snapshot of descriptor contents. Existing descriptor
+  // mutation hooks maintain it even during initial restoration. Large bindless ranges never
+  // require a complete heap scan on every submission.
+  bool m_ReplayUAVIndexReady = false;
+  D3D12ReplayUAVIndex m_ReplayUAVDescriptors;
+  void UpdateReplayUAVIndex(uint32_t first, uint32_t count);
+  D3D12ReplayDescriptorReferences m_ReplayReadReferences;
+  bool m_ReplayReadReferencesReady = false;
+  D3D12ReplayBufferDescriptorRanges m_ReplayBufferReadRanges;
+  bool PrepareReplayReadReferences();
+  void RecordReplayReadReference(uint32_t index, const D3D12Descriptor &descriptor);
 
   // for GPU handles that sit in GPU memory, this is the base of our descriptors array above during
   // capture time. When capturing this == descriptors, on replay it is the value that descriptors had
@@ -542,8 +662,21 @@ public:
   UINT GetNumDescriptors() { return numDescriptors; }
 
   void MarkMutableIndex(uint32_t index);
+  void MarkReplayDirtyRange(uint32_t first, uint32_t count);
+  bool GatherReplayUAVResources(uint32_t first, uint32_t count, std::set<ResourceId> &resources);
+  // A true result includes unknown/missing history. False requires a complete capture-wide
+  // descriptor union and valid bounds. This is used only for independent texture clear proofs.
+  bool ReplayRangeMayReference(ResourceId resource, uint32_t first, uint32_t count);
+  bool GatherReplayBufferReadRanges(ResourceId resource, uint32_t first, uint32_t count,
+                                    rdcarray<rdcpair<uint64_t, uint64_t>> &ranges, size_t &work);
+  // Returns false when no complete initial baseline is established. An empty range array with
+  // true means the entire heap still shares that baseline. Reading ranges never clears dirtiness.
+  bool GetCheckpointDescriptorRanges(ResourceId &baseline,
+                                     rdcarray<D3D12DescriptorRestoreRange> &ranges);
+  uint64_t GetCheckpointDescriptorBytes() const;
+  void InvalidateInitialDescriptorRestore();
+  void RestoreInitialDescriptors(WrappedID3D12DescriptorHeap *source, bool forceFullRestore);
 
-  void EnsureDescriptorCache();
   bool HasValidDescriptorCache(uint32_t index);
   void GetFromDescriptorCache(uint32_t index, Descriptor &view);
   void SetToDescriptorCache(uint32_t index, const Descriptor &view);
@@ -882,14 +1015,18 @@ public:
       m_InternalResources = internalResources;
     }
 
-    ShaderEntry(ResourceId id, const D3D12_SHADER_BYTECODE &byteCode, WrappedID3D12Device *device)
+    ShaderEntry(ResourceId id, const D3D12_SHADER_BYTECODE &byteCode, WrappedID3D12Device *device,
+                bool temporary = false)
         : WrappedDeviceChild12(id, NULL, device), m_Key(byteCode)
     {
       m_Bytecode.assign((const byte *)byteCode.pShaderBytecode, byteCode.BytecodeLength);
       m_DXBCFile = NULL;
       m_Details = new ShaderReflection;
 
-      if(!m_InternalResources)
+      // Transient compiler outputs are owned by ReplayController/PSOs, not the
+      // immutable captured-resource catalog. Do not retain a catalog row for
+      // each temporary compilation after its Shader object has been freed.
+      if(!m_InternalResources && !temporary)
       {
         device->AddResource(GetResourceID(), ResourceType::Shader, "Shader");
 
@@ -917,13 +1054,17 @@ public:
     ShaderEntry &operator=(const ShaderEntry &e) = delete;
 
     static ShaderEntry *AddShader(ResourceId id, const D3D12_SHADER_BYTECODE &byteCode,
-                                  WrappedID3D12Device *device)
+                                  WrappedID3D12Device *device, bool *created = NULL,
+                                  bool temporary = false)
     {
       DXBCKey key(byteCode);
       ShaderEntry *shader = m_Shaders[key];
 
+      if(created)
+        *created = shader == NULL;
+
       if(shader == NULL)
-        shader = m_Shaders[key] = new ShaderEntry(id, byteCode, device);
+        shader = m_Shaders[key] = new ShaderEntry(id, byteCode, device, temporary);
 
       return shader;
     }
@@ -946,6 +1087,7 @@ public:
     }
 
     static void ReloadShaderDebugInformation();
+    static rdcstr GetMemoryAudit();
 
     static void GetReflections(rdcarray<const ShaderReflection *> &refls)
     {
@@ -1456,14 +1598,24 @@ public:
   }
 
   void SetQueryValid(UINT idx, D3D12_QUERY_TYPE type) { m_Valid[idx] = type; }
+  bool IsReplayQueryValid(UINT idx) const
+  {
+    return idx < m_Valid.size() && m_Valid[idx] != InvalidQueryType;
+  }
+  D3D12_QUERY_TYPE GetReplayQueryType(UINT idx) const
+  {
+    return idx < m_Valid.size() ? m_Valid[idx] : InvalidQueryType;
+  }
 
   UINT64 GetResolveDataSize() const;
+  bool CanCheckpointQuery(UINT index, D3D12_QUERY_TYPE type) const;
   UINT64 GetResolveBufferSize() const;
   void SaveValidQueries(ID3D12GraphicsCommandList *unwrappedList, ID3D12Resource *unwrappedDestBuf);
 
   void SetResultBuffer(ID3D12Resource *buf) { m_SavedResults = buf; }
   void ResolveValidQueryData(ID3D12GraphicsCommandList *list, D3D12_QUERY_TYPE Type, UINT StartIndex,
-                             UINT NumQueries, ID3D12Resource *destBuf, UINT64 destOffs);
+                             UINT NumQueries, ID3D12Resource *destBuf, UINT64 destOffs,
+                             ResourceId baked = ResourceId(), uint32_t relativeEvent = 0);
 };
 
 class D3D12AccelerationStructure;
@@ -1480,6 +1632,7 @@ class WrappedID3D12Resource
   size_t DeleteOverlappingAccStructsInRangeAtOffset(D3D12BufferOffset bufferOffset);
 
   WrappedID3D12Heap *m_Heap = NULL;
+  uint64_t m_HeapOffset = 0;
 
   Threading::CriticalSection m_accStructResourcesCS;
   rdcflatmap<D3D12BufferOffset, D3D12AccelerationStructure *> m_accelerationStructMap;
@@ -1498,6 +1651,7 @@ public:
   }
 
   WrappedID3D12Heap *GetHeap() { return m_Heap; }
+  uint64_t GetHeapOffset() const { return m_HeapOffset; }
 
   ID3D12Pageable *UnwrappedResidencyPageable()
   {
@@ -1575,6 +1729,7 @@ public:
       device->AddReplayResource(GetResourceID(), this);
 
     m_Heap = (WrappedID3D12Heap *)heap;
+    m_HeapOffset = HeapOffset;
     SAFE_ADDREF(m_Heap);
 
     // assuming only valid for buffers
@@ -1732,7 +1887,8 @@ public:
   }
 };
 
-class WrappedID3D12RootSignature : public WrappedDeviceChild12<ID3D12RootSignature>
+class WrappedID3D12RootSignature
+    : public WrappedDeviceChild12<ID3D12RootSignature, ID3D12RootSignature1>
 {
 public:
   ALLOCATE_WITH_WRAPPED_POOL(WrappedID3D12RootSignature);
@@ -1750,6 +1906,31 @@ public:
   {
   }
   virtual ~WrappedID3D12RootSignature() { Shutdown(); }
+
+  //////////////////////////////
+  // implement ID3D12RootSignature1
+
+  virtual SIZE_T STDMETHODCALLTYPE GetSerializedSize()
+  {
+    ID3D12RootSignature1 *real1 = NULL;
+    m_pReal->QueryInterface(__uuidof(ID3D12RootSignature1), (void **)&real1);
+
+    if(!real1)
+      return 0;
+
+    return real1->GetSerializedSize();
+  }
+
+  virtual HRESULT STDMETHODCALLTYPE GetSerializedData(void *pData, SIZE_T Size)
+  {
+    ID3D12RootSignature1 *real1 = NULL;
+    m_pReal->QueryInterface(__uuidof(ID3D12RootSignature1), (void **)&real1);
+
+    if(!real1)
+      return E_NOINTERFACE;
+
+    return real1->GetSerializedData(pData, Size);
+  }
 };
 
 class WrappedID3D12PipelineLibrary : public WrappedDeviceChild12<ID3D12PipelineLibrary1>

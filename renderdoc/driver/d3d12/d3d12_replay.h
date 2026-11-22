@@ -103,6 +103,12 @@ class D3D12Replay : public IReplayDriver
 public:
   D3D12Replay(WrappedID3D12Device *d);
 
+  // Immutable capture initial bytes can be reused across every event and shader/CBuffer edit.
+  // Returns a native copy source; allocation/budget failures retain the original upload source.
+  ID3D12Resource *ResolveInitialStateCopySource(ID3D12Resource *wrappedSource,
+                                               ID3D12GraphicsCommandListX *wrappedList,
+                                               bool allowLoading = false);
+
   D3D12DevConfiguration *GetDevConfiguration() { return m_DevConfig; }
   void SetDevConfiguration(D3D12DevConfiguration *config) { m_DevConfig = config; }
 
@@ -127,6 +133,10 @@ public:
   rdcarray<ResourceDescription> GetResources();
 
   rdcarray<DescriptorStoreDescription> GetDescriptorStores();
+  const rdcarray<DescriptorStoreDescription> &GetReplayDescriptorStores() const
+  {
+    return m_DescriptorStores;
+  }
   void RegisterDescriptorStore(const DescriptorStoreDescription &desc);
 
   rdcarray<BufferDescription> GetBuffers();
@@ -165,6 +175,20 @@ public:
 
   RDResult ReadLogInitialisation(RDCFile *rdc, bool readStructuredBuffers);
   void ReplayLog(uint32_t endEventID, ReplayLogType replayType);
+  // Opt-in timestamp markers. Read only after the normal prefix completion fence, without an
+  // additional diagnostic wait. These queue intervals include CPU submission gaps/queue waits.
+  void BeginGPUPhaseAudit(uint32_t eventId);
+  void MarkGPUPhaseAudit(uint32_t index);
+  void FinishGPUPhaseAudit(bool completed);
+  ShaderPairComparison ComparePixelShaderPair(uint32_t eventId, ResourceId expectedOriginal,
+                                               ResourceId baseline, ResourceId candidate) override;
+  void ConfigureReplayCheckpoints(const ReplayCheckpointConfig &config,
+                                 const rdcarray<ReplayCheckpointCandidate> &candidates);
+  void InvalidateReplayCheckpoints(uint32_t firstAffectedEvent = 0);
+  ReplayCheckpointStats GetReplayCheckpointStats();
+  bool RefreshReplayCheckpointMemoryBudget() override;
+  rdcstr SetReplayBufferPatches(const rdcarray<ReplayBufferPatch> &patches) override;
+  uint32_t GetReplayBufferPatchFirstAffectedEvent() const override;
   SDFile *GetStructuredFile();
 
   rdcarray<uint32_t> GetPassEvents(uint32_t eventId);
@@ -224,7 +248,28 @@ public:
                          rdcstr &errors);
   void ReplaceResource(ResourceId from, ResourceId to);
   void RemoveReplacement(ResourceId id);
+  rdcstr ReplaceTargetShaderChecked(ResourceId from, ResourceId to);
+  rdcstr RemoveTargetShaderReplacementChecked(ResourceId id);
+  rdcstr SetEventCBufferOverride(uint32_t eventId, ShaderStage stage, uint32_t slot,
+                                 ResourceId expectedShader, ResourceId expectedBuffer,
+                                 uint64_t expectedByteOffset, uint64_t expectedByteSize,
+                                 const bytebuf &data, uint32_t registerSpace = 0);
+  void ClearEventCBufferOverride(uint32_t eventId, ShaderStage stage, uint32_t slot,
+                                 uint32_t registerSpace = 0);
+  void ClearEventCBufferOverrides();
+  rdcstr ApplyEventCBufferOverrides(uint32_t eventId);
+  void RestoreEventCBufferOverrides();
+  rdcstr SetEventShaderOverride(uint32_t eventId, ShaderStage stage, ResourceId expectedOriginal,
+                               ResourceId replacement, uint32_t outputTarget = ~0U,
+                               bool independentFloatOutput = false) override;
+  TextureDescription GetEventShaderPreviewTexture(uint32_t eventId, ShaderStage stage) override;
+  void ClearEventShaderOverride(uint32_t eventId, ShaderStage stage) override;
+  void ClearEventShaderOverrides() override;
+  void ClearEventShaderOverridesForResource(ResourceId id) override;
+  rdcstr ApplyEventShaderOverrides(uint32_t eventId) override;
+  void RestoreEventShaderOverrides() override;
   void ClearReplayCache();
+  void ClearScrubReplayCache();
   void ReloadShaderDebugInformation();
 
   rdcarray<GPUCounter> EnumerateCounters();
@@ -232,7 +277,13 @@ public:
   rdcarray<CounterResult> FetchCounters(const rdcarray<GPUCounter> &counters);
 
   ResourceId CreateProxyTexture(const TextureDescription &templateTex);
+  ResourceId CreateProxyTextureSnapshot(const TextureDescription &templateTex);
+  bool SupportsProxyTextureSnapshots() { return true; }
   void SetProxyTextureData(ResourceId texid, const Subresource &sub, byte *data, size_t dataSize);
+  ResourceId CreateTextureSnapshot(ResourceId source, const Subresource &sourceSub,
+                                   CompType typeCast, Subresource &snapshotSub);
+  void FreeTextureSnapshot(ResourceId snapshot);
+  void FreeTextureSnapshots(const rdcarray<ResourceId> &snapshots);
   bool IsTextureSupported(const TextureDescription &tex);
   bool NeedRemapForFetch(const ResourceFormat &format);
 
@@ -240,7 +291,7 @@ public:
   void SetProxyBufferData(ResourceId bufid, byte *data, size_t dataSize);
 
   void RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secondaryDraws,
-                  const MeshDisplay &cfg);
+                  const MeshDisplay &cfg, const MeshComponentHighlight &components);
 
   bool RenderTexture(TextureDisplay cfg);
 
@@ -297,18 +348,98 @@ private:
 
   bool CreateSOBuffers();
   void ClearPostVSCache();
+  void ReleaseRebuildableReplayResources();
 
   bool FetchShaderFeedback(uint32_t eventId);
   void ClearFeedbackCache();
 
-  void RefreshDerivedReplacements();
+  rdcstr RefreshDerivedReplacementsChecked(ResourceId requiredShader = ResourceId());
+
+  enum class EventCBufferBindingKind
+  {
+    RootCBV,
+    DescriptorTableCBV,
+  };
+
+  struct EventCBufferBinding
+  {
+    bool compute = false;
+    EventCBufferBindingKind kind = EventCBufferBindingKind::RootCBV;
+    uint32_t registerSpace = 0;
+    uint32_t rootIndex = ~0U;
+    ResourceId sourceHeap;
+    uint32_t descriptorIndex = ~0U;
+    ResourceId buffer;
+    uint64_t byteOffset = 0;
+    uint64_t byteSize = 0;
+  };
+
+  std::map<std::pair<uint32_t, ShaderStage>, EventShaderOverrideBinding> m_EventShaderOverrides;
+  std::map<EventShaderPipelineKey, ID3D12PipelineState *> m_EventShaderPipelines;
+  ResourceId m_EventShaderPreviousPipeline;
+  rdcarray<D3D12Descriptor> m_EventShaderPreviousRTs;
+  D3D12Descriptor m_EventShaderPreviousDSV;
+  bool m_EventShaderAttachmentsApplied = false;
+  struct EventShaderScratch
+  {
+    rdcarray<D3D12Descriptor> sourceRTs, renderRTs;
+    rdcarray<ResourceId> liveSources;
+    D3D12Descriptor sourceDSV, renderDSV;
+    rdcarray<ID3D12Resource *> colors;
+    ID3D12Resource *depth = NULL;
+    ID3D12DescriptorHeap *clearHeap = NULL;
+    uint64_t bytes = 0;
+    uint64_t used = 0;
+  };
+  std::map<std::pair<uint32_t, uint32_t>, EventShaderScratch> m_EventShaderScratch;
+  uint64_t m_EventShaderScratchClock = 0;
+  rdcstr PrepareEventShaderScratch(uint32_t eventId, uint32_t outputTarget,
+                                   const D3D12RenderState &state, EventShaderScratch *&scratch);
+  void ReleaseEventShaderScratch();
+  bool m_EventShaderStateApplied = false;
+  bool HasEventShaderOverride(uint32_t eventId) const
+  {
+    auto found = m_EventShaderOverrides.lower_bound({eventId, ShaderStage::Vertex});
+    return found != m_EventShaderOverrides.end() && found->first.first == eventId;
+  }
+
+  void ReleaseEventShaderPipelines(ResourceId target = ResourceId());
+
+  struct EventCBufferOverride
+  {
+    ResourceId expectedShader;
+    ResourceId expectedBuffer;
+    uint64_t expectedByteOffset = 0;
+    uint64_t expectedByteSize = 0;
+    bytebuf data;
+    EventCBufferBinding binding;
+    ID3D12Resource *shadow = NULL;
+  };
+
+  rdcstr ResolveEventCBufferBinding(uint32_t eventId, ShaderStage stage, uint32_t slot,
+                                    uint32_t registerSpace,
+                                    ResourceId expectedShader, ResourceId expectedBuffer,
+                                    uint64_t expectedByteOffset, uint64_t expectedByteSize,
+                                    EventCBufferBinding &binding);
+  rdcstr GetOrCreateEventCBufferShadowHeap(ResourceId sourceHeap,
+                                           ID3D12DescriptorHeap *&shadowHeap);
+  void ReleaseEventCBufferShadowHeaps();
+
+  std::map<EventCBufferOverrideKey, EventCBufferOverride> m_EventCBufferOverrides;
+  std::map<ResourceId, ID3D12DescriptorHeap *> m_EventCBufferShadowHeaps;
+  D3D12RenderState m_AppliedEventCBufferOriginalState;
+  bool m_EventCBufferStateApplied = false;
+  // Set only around the ordinary driver's unmodified final-target feedback invocation. A
+  // pipeline query or arbitrary internal analysis must not inherit this dirty-write whitelist.
+  bool m_KnownOrdinaryTargetFeedback = false;
 
   void BuildShader(ShaderEncoding sourceEncoding, const bytebuf &source, const rdcstr &entry,
                    const ShaderCompileFlags &compileFlags, const rdcarray<rdcstr> &includeDirs,
                    ShaderStage type, ResourceId &id, rdcstr &errors);
 
   bool RenderTextureInternal(D3D12_CPU_DESCRIPTOR_HANDLE rtv, TextureDisplay cfg,
-                             TexDisplayFlags flags);
+                             TexDisplayFlags flags, bool deferPresentFlush = false);
+  void DrainTextureDisplaySubmit();
 
   void SetOutputDimensions(int w, int h)
   {
@@ -429,6 +560,10 @@ private:
   bool m_Proxy, m_D3D12On7;
 
   rdcarray<ID3D12Resource *> m_ProxyResources;
+  // Only retained when a failed GPU completion wait prevents safe scratch destruction.
+  // They are owned until device teardown, never exposed as persistent replacements.
+  rdcarray<ID3D12DeviceChild *> m_ShaderPairUnconfirmed;
+  rdcarray<ResourceId> m_TextureSnapshots;
 
   struct OutputWindow
   {
@@ -439,6 +574,7 @@ private:
     ID3D12Resource *col;
     ID3D12Resource *colResolve;
     ID3D12Resource *depth;
+    ID3D12Resource *componentHighlight = NULL;
     D3D12_CPU_DESCRIPTOR_HANDLE rtv;
     D3D12_CPU_DESCRIPTOR_HANDLE dsv;
     D3D12_RESOURCE_DESC bbDesc;
@@ -456,6 +592,9 @@ private:
   float m_OutputWidth = 1.0f;
   float m_OutputHeight = 1.0f;
   D3D12_VIEWPORT m_OutputViewport;
+  // Normal texture presentation submits its draw and lets FlipOutputWindow retire the draw and
+  // copy together. Before another draw overwrites shared descriptors/constants, this is drained.
+  bool m_TextureDisplaySubmitPending = false;
 
   rdcarray<uint64_t> m_OutputWindowIDs;
   rdcarray<uint64_t> m_DSVIDs;
@@ -584,6 +723,23 @@ private:
   D3D12DevConfiguration *m_DevConfig = NULL;
 
   IDXGIFactory1 *m_pFactory = NULL;
+  IDXGIAdapter3 *m_InitialStateCacheAdapter = NULL;
+  bool m_InitialStateCacheAdapterChecked = false;
+  std::map<ResourceId, ID3D12Resource *> m_InitialStateSourceCache;
+  uint64_t m_InitialStateSourceCacheBytes = 0;
+  struct GPUPhaseAudit
+  {
+    ID3D12CommandQueue *queue = NULL;    // borrowed native queue; owned by the replay device
+    ResourceId queueId;
+    uint64_t frequency = 0;
+    ID3D12QueryHeap *queries = NULL;
+    ID3D12Resource *readback = NULL;
+    ID3D12CommandAllocator *allocator = NULL;
+    ID3D12GraphicsCommandList *markers[3] = {};
+    uint32_t issued = 0;
+  };
+  rdcarray<GPUPhaseAudit> m_GPUPhaseAudits;
+  uint32_t m_GPUPhaseAuditEvent = 0;
   HMODULE m_D3D12Lib = NULL;
 
   AMDCounters *m_pAMDCounters = NULL;

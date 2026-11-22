@@ -1,0 +1,59 @@
+name: QRenderDoc i18n
+
+on:
+  pull_request:
+    paths:
+      - "qrenderdoc/**"
+      - "replaylab/renderdoc_mcp_bridge/**"
+      - "util/i18n/**"
+      - "AGENTS.md"
+      - ".github/workflows/i18n.yml"
+  push:
+    paths:
+      - "qrenderdoc/**"
+      - "replaylab/renderdoc_mcp_bridge/**"
+      - "util/i18n/**"
+      - "AGENTS.md"
+      - ".github/workflows/i18n.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qt5-catalog:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Qt 5 Linguist tools
+        run: sudo apt-get update && sudo apt-get install --yes qttools5-dev-tools
+
+      - name: Test translation linter
+        run: python3 -m unittest discover -s util/i18n/tests -v
+
+      - name: Verify TS is synchronized with UI sources
+        shell: pwsh
+        run: >-
+          ./util/i18n/update_translations.ps1
+          -QtBin /usr/lib/qt5/bin
+          -Check
+
+      - name: Check new untranslated UI literals
+        run: >-
+          python3 util/i18n/lint_ts.py
+          qrenderdoc/Translations/qrenderdoc_zh_CN.ts
+          --glossary qrenderdoc/Translations/glossary.zh_CN.yaml
+          --source-root .
+          --source-baseline util/i18n/source_literals_baseline.json
+
+      - name: Compile reviewed translations
+        shell: pwsh
+        run: >-
+          ./util/i18n/build_translations.ps1
+          -QtBin /usr/lib/qt5/bin
+          -OutputDirectory ${{ runner.temp }}/qrenderdoc-i18n
+          -RequireComplete

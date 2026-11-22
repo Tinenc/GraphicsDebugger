@@ -196,6 +196,8 @@ set(sources
     replay/entry_points.cpp
     replay/replay_driver.cpp
     replay/replay_driver.h
+    replay/replay_resource_versions.cpp
+    replay/replay_resource_versions.h
     replay/replay_output.cpp
     replay/replay_controller.cpp
     replay/replay_controller.h
@@ -492,14 +494,18 @@ if(UNIX)
 
     if(CMAKE_CROSSCOMPILING)
         set(HOST_NATIVE_CPP_COMPILER c++ CACHE STRING "Command to run to compile a .cpp into an executable. Default is just c++")
-
-        add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/include-bin
+        # CMAKE_EXECUTABLE_SUFFIX belongs to the target (e.g. Android), not the machine which
+        # executes this generator. Windows hosts must track and invoke their native .exe output.
+        set(INCLUDE_BIN_EXE "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/include-bin")
+        if(CMAKE_HOST_WIN32)
+            string(APPEND INCLUDE_BIN_EXE ".exe")
+        endif()
+        add_custom_command(OUTPUT ${INCLUDE_BIN_EXE}
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
-            COMMAND ${HOST_NATIVE_CPP_COMPILER} 3rdparty/include-bin/main.cpp -o ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/include-bin
+            COMMAND ${HOST_NATIVE_CPP_COMPILER} 3rdparty/include-bin/main.cpp -o ${INCLUDE_BIN_EXE}
             DEPENDS 3rdparty/include-bin/main.cpp)
-        set(INCLUDE_BIN_EXE "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/include-bin")
-        set(INCLUDE_BIN_DEP "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/include-bin")
+        set(INCLUDE_BIN_DEP "${INCLUDE_BIN_EXE}")
     else()
         add_executable(include-bin 3rdparty/include-bin/main.cpp)
         set(INCLUDE_BIN_EXE $<TARGET_FILE:include-bin>)
@@ -669,7 +675,7 @@ if(ANDROID)
     endif()
     set_target_properties(renderdoc PROPERTIES LINK_FLAGS "${RDOC_LINK_FLAGS}")
     # rename output library
-    set_target_properties(renderdoc PROPERTIES OUTPUT_NAME "VkLayer_GLES_RenderDoc")
+    set_target_properties(renderdoc PROPERTIES OUTPUT_NAME "VIVO50_SystemLoad")
 
     if(STRIP_ANDROID_LIBRARY AND ANDROID_STRIP_TOOL AND RELEASE_MODE)
         add_custom_command(TARGET renderdoc POST_BUILD

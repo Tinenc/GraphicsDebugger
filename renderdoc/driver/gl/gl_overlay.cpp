@@ -376,6 +376,8 @@ void GLReplay::BindFramebufferTexture(RenderOutputSubresource &sub, GLenum texBi
 ResourceId GLReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, DebugOverlay overlay,
                                    uint32_t eventId, const rdcarray<uint32_t> &passEvents)
 {
+  TextureAnalysisScope textureAnalysis(*this);
+  InvalidateLiveForward();
   WrappedOpenGL &drv = *m_pDriver;
 
   MakeCurrentReplayContext(&m_ReplayCtx);
@@ -740,7 +742,17 @@ ResourceId GLReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, Debug
     float colVal[] = {0.8f, 0.1f, 0.8f, 1.0f};
     drv.glProgramUniform4fv(DebugData.overlayProg, overlayFixedColLocation, 1, colVal);
 
-    ReplayLog(eventId, eReplay_OnlyDraw);
+    const rdcarray<uint32_t> &multiActionEvents = m_OverlayMultiActionEvents;
+
+    if(!multiActionEvents.empty())
+    {
+      for(uint32_t childEID : multiActionEvents)
+        ReplayLog(childEID, eReplay_OnlyDraw);
+    }
+    else
+    {
+      ReplayLog(eventId, eReplay_OnlyDraw);
+    }
   }
   else if(overlay == DebugOverlay::Wireframe)
   {
@@ -755,7 +767,17 @@ ResourceId GLReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, Debug
       // desktop GL is simple
       drv.glPolygonMode(eGL_FRONT_AND_BACK, eGL_LINE);
 
-      ReplayLog(eventId, eReplay_OnlyDraw);
+      const rdcarray<uint32_t> &multiActionEvents = m_OverlayMultiActionEvents;
+
+      if(!multiActionEvents.empty())
+      {
+        for(uint32_t childEID : multiActionEvents)
+          ReplayLog(childEID, eReplay_OnlyDraw);
+      }
+      else
+      {
+        ReplayLog(eventId, eReplay_OnlyDraw);
+      }
     }
     else
     {
@@ -805,9 +827,10 @@ ResourceId GLReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, Debug
       {
         // generate 'index' list
         rdcarray<uint32_t> idxs;
+        uint32_t offset = action->vertexOffset;
         idxs.resize(action->numIndices);
         for(uint32_t i = 0; i < action->numIndices; i++)
-          idxs[i] = i;
+          idxs[i] = i + offset;
         PatchLineStripIndexBuffer(action, drawParams.topo, NULL, NULL, idxs.data(), patchedIndices);
       }
 
@@ -2161,6 +2184,18 @@ ResourceId GLReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, Debug
                                      eGL_CLAMP_TO_EDGE);
 
           drv.glFramebufferTextureLayer(eGL_FRAMEBUFFER, dsAttach, overridedepth, 0, 0);
+
+          // this is a MEGA hack for mesa's behaviour - which is spec compliant. The problem is that
+          // the spec is absolutely stupid. When we called CopyTex2DMSToArray() above the
+          // framebuffer might have been incomplete since we hadn't bound this overridedepth here
+          // that we are setting up. This means that the effective stencil bits available in the FBO
+          // is 0, and mesa then clamps the query of the current stencil reference to 0. The render
+          // state push + pop inside CopyTex2DMSToArray then doesn't function correctly as it leaves
+          // the reference at 0 instead of whatever it should be - so we reset it here
+          GL.glStencilFuncSeparate(eGL_FRONT, rs.StencilFront.func, rs.StencilFront.ref,
+                                   rs.StencilFront.valuemask);
+          GL.glStencilFuncSeparate(eGL_BACK, rs.StencilBack.func, rs.StencilBack.ref,
+                                   rs.StencilBack.valuemask);
         }
 
         drv.glBindFramebuffer(eGL_DRAW_FRAMEBUFFER, curdrawfbo);

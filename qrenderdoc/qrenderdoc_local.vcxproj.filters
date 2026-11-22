@@ -22,8 +22,14 @@
     <Filter Include="Code\pyrenderdoc">
       <UniqueIdentifier>{c2e91ed4-8c04-4fdc-accf-8fed288f2cd8}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Code\ReplayLab">
+      <UniqueIdentifier>{1f4aab45-101c-4379-9a98-09377148613e}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Windows">
       <UniqueIdentifier>{897f728c-8a11-41c3-ba6f-75815d9e06db}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Windows\AI">
+      <UniqueIdentifier>{b643e829-62f2-4aa5-a090-b6af48fe6c44}</UniqueIdentifier>
     </Filter>
     <Filter Include="Windows\Dialogs">
       <UniqueIdentifier>{06b18b38-7ec5-4195-8230-f5be6348ecfb}</UniqueIdentifier>
@@ -82,6 +88,12 @@
     <Filter Include="Resources\Files">
       <UniqueIdentifier>{c6877252-7f18-4c63-a2f7-66b1913d8ada}</UniqueIdentifier>
     </Filter>
+    <Filter Include="ReplayLab">
+      <UniqueIdentifier>{2d5870f8-c6ea-4d2c-aef4-18571ff571ba}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ReplayLab\Python">
+      <UniqueIdentifier>{f43e1b60-e1a2-4c1e-9916-3a15c1c350ab}</UniqueIdentifier>
+    </Filter>
     <Filter Include="3rdparty\catch">
       <UniqueIdentifier>{3e544acc-65a0-4558-8a31-8865c030e996}</UniqueIdentifier>
     </Filter>
@@ -112,6 +124,9 @@
       <Filter>Windows</Filter>
     </ClCompile>
     <ClCompile Include="Windows\EventBrowser.cpp">
+      <Filter>Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\BookmarksView.cpp">
       <Filter>Windows</Filter>
     </ClCompile>
     <ClCompile Include="Widgets\ResourcePreview.cpp">
@@ -159,6 +174,18 @@
     <ClCompile Include="Code\QRDUtils.cpp">
       <Filter>Code</Filter>
     </ClCompile>
+    <ClCompile Include="Code\CodeEditorService.cpp">
+      <Filter>Code</Filter>
+    </ClCompile>
+    <ClCompile Include="Code\TranslationManager.cpp">
+      <Filter>Code</Filter>
+    </ClCompile>
+    <ClCompile Include="Code\ReplayLab\ReplayLabIntegration.cpp">
+      <Filter>Code\ReplayLab</Filter>
+    </ClCompile>
+    <ClCompile Include="Code\ReplayLab\ReplayLabCBufferAliases.cpp">
+      <Filter>Code\ReplayLab</Filter>
+    </ClCompile>
     <ClCompile Include="Code\qprocessinfo.cpp">
       <Filter>Code</Filter>
     </ClCompile>
@@ -192,7 +219,13 @@
     <ClCompile Include="Widgets\BufferFormatSpecifier.cpp">
       <Filter>Widgets</Filter>
     </ClCompile>
+    <ClCompile Include="Widgets\ShaderCodeEditor.cpp">
+      <Filter>Widgets</Filter>
+    </ClCompile>
     <ClCompile Include="Windows\BufferViewer.cpp">
+      <Filter>Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\MeshUVView.cpp">
       <Filter>Windows</Filter>
     </ClCompile>
     <ClCompile Include="Widgets\Extended\RDTableView.cpp">
@@ -390,6 +423,9 @@
     <ClCompile Include="Windows\PixelHistoryView.cpp">
       <Filter>Windows</Filter>
     </ClCompile>
+    <ClCompile Include="Windows\RenderTargetHistoryView.cpp">
+      <Filter>Windows</Filter>
+    </ClCompile>
     <ClCompile Include="Widgets\Extended\RDTreeView.cpp">
       <Filter>Widgets\Extended</Filter>
     </ClCompile>
@@ -573,6 +609,9 @@
     <ClCompile Include="$(IntDir)generated\moc_FindReplace.cpp">
       <Filter>Generated Files</Filter>
     </ClCompile>
+    <ClCompile Include="$(IntDir)generated\moc_ShaderCodeEditor.cpp">
+      <Filter>Generated Files</Filter>
+    </ClCompile>
     <ClCompile Include="$(IntDir)generated\moc_RDSplitter.cpp">
       <Filter>Generated Files</Filter>
     </ClCompile>
@@ -582,14 +621,14 @@
     <ClCompile Include="Code\pyrenderdoc\PythonContext.cpp">
       <Filter>Code\pyrenderdoc</Filter>
     </ClCompile>
+    <ClCompile Include="Code\pyrenderdoc\PythonInvokers.cpp">
+      <Filter>Code\pyrenderdoc</Filter>
+    </ClCompile>
     <ClCompile Include="$(IntDir)generated\qrenderdoc_python.cxx">
       <Filter>Generated Files</Filter>
     </ClCompile>
     <ClCompile Include="$(IntDir)generated\moc_PythonContext.cpp">
       <Filter>Generated Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Code\Interface\PersistantConfig.cpp">
-      <Filter>Code\Interface</Filter>
     </ClCompile>
     <ClCompile Include="Code\Interface\RemoteHost.cpp">
       <Filter>Code\Interface</Filter>
@@ -603,8 +642,47 @@
     <ClCompile Include="$(IntDir)generated\moc_PythonShell.cpp">
       <Filter>Generated Files</Filter>
     </ClCompile>
+    <ClCompile Include="$(IntDir)generated\moc_ApiMonitorWindow.cpp">
+      <Filter>Generated Files</Filter>
+    </ClCompile>
     <ClCompile Include="Windows\PythonShell.cpp">
       <Filter>Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\ApiMonitorWindow.cpp">
+      <Filter>Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIConfiguration.cpp">
+      <Filter>Windows\AI</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIAssistant.cpp">
+      <Filter>Windows\AI</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIFileThumbnail.cpp">
+      <Filter>Windows\AI</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AITextureAnnotation.cpp">
+      <Filter>Windows\AI</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIVisualReply.cpp">
+      <Filter>Windows\AI</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIAgentMonitorWindow.cpp">
+      <Filter>Windows\AI</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIAgentTraceStore.cpp">
+      <Filter>Windows\AI</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIConversationListView.cpp">
+      <Filter>Windows\AI</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIConversationStore.cpp">
+      <Filter>Windows\AI</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIConversationView.cpp">
+      <Filter>Windows\AI</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIPendingChatView.cpp">
+      <Filter>Windows\AI</Filter>
     </ClCompile>
     <ClCompile Include="Widgets\Extended\RDTextEdit.cpp">
       <Filter>Widgets\Extended</Filter>
@@ -788,6 +866,18 @@
     </ClCompile>
     <ClCompile Include="Windows\Dialogs\ProjectionGuessDialog.cpp">
       <Filter>Windows\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(IntDir)generated\moc_RDToolTip.cpp">
+      <Filter>Generated Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Widgets\Extended\RDToolTip.cpp">
+      <Filter>Widgets\Extended</Filter>
+    </ClCompile>
+    <ClCompile Include="Code\Interface\PersistentConfig.cpp">
+      <Filter>Code\Interface</Filter>
+    </ClCompile>
+    <ClCompile Include="Code\Interface\Helpers.cpp">
+      <Filter>Code\Interface</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -980,6 +1070,18 @@
     <ClInclude Include="Code\ScintillaSyntax.h">
       <Filter>Code</Filter>
     </ClInclude>
+    <ClInclude Include="Code\CodeEditorService.h">
+      <Filter>Code</Filter>
+    </ClInclude>
+    <ClInclude Include="Code\TranslationManager.h">
+      <Filter>Code</Filter>
+    </ClInclude>
+    <ClInclude Include="Code\ReplayLab\ReplayLabIntegration.h">
+      <Filter>Code\ReplayLab</Filter>
+    </ClInclude>
+    <ClInclude Include="Code\ReplayLab\ReplayLabCBufferAliases.h">
+      <Filter>Code\ReplayLab</Filter>
+    </ClInclude>
     <ClInclude Include="Code\Resources.h">
       <Filter>Code</Filter>
     </ClInclude>
@@ -1079,9 +1181,6 @@
     <ClInclude Include="$(IntDir)generated\ui_FindReplace.h">
       <Filter>Generated Files</Filter>
     </ClInclude>
-    <ClInclude Include="Code\Interface\PersistantConfig.h">
-      <Filter>Code\Interface</Filter>
-    </ClInclude>
     <ClInclude Include="Code\Interface\RemoteHost.h">
       <Filter>Code\Interface</Filter>
     </ClInclude>
@@ -1093,6 +1192,57 @@
     </ClInclude>
     <ClInclude Include="$(IntDir)generated\ui_PythonShell.h">
       <Filter>Generated Files</Filter>
+    </ClInclude>
+    <ClInclude Include="$(IntDir)generated\ui_ApiMonitorWindow.h">
+      <Filter>Generated Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIConfiguration.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIAssistant.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIFileThumbnail.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AITextureAnnotation.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIVisualReply.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIVisualFlowLayout.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AICodeFormatting.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIAgentMonitorWindow.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIAgentTraceStore.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIConversationListView.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIConversationStore.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIConversationView.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIGuiHeartbeat.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\AI\AIPendingChatView.h">
+      <Filter>Windows\AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\BookmarksView.h">
+      <Filter>Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\RenderTargetHistoryView.h">
+      <Filter>Windows</Filter>
     </ClInclude>
     <ClInclude Include="Code\precompiled.h">
       <Filter>PCH</Filter>
@@ -1175,6 +1325,12 @@
     <ClInclude Include="$(IntDir)generated\ui_CameraControlsDialog.h">
       <Filter>Generated Files</Filter>
     </ClInclude>
+    <ClInclude Include="Code\Interface\PersistentConfig.h">
+      <Filter>Code\Interface</Filter>
+    </ClInclude>
+    <ClInclude Include="Code\Interface\Helpers.h">
+      <Filter>Code\Interface</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="Code\pyrenderdoc\pyconversion.h">
@@ -1203,6 +1359,9 @@
     </None>
     <None Include="Code\AppleUtils.mm">
       <Filter>Code</Filter>
+    </None>
+    <None Include="Code\pyrenderdoc\parse_reflection.py">
+      <Filter>Code\pyrenderdoc</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
@@ -1466,6 +1625,9 @@
     <CustomBuild Include="Widgets\FindReplace.h">
       <Filter>Widgets</Filter>
     </CustomBuild>
+    <CustomBuild Include="Widgets\ShaderCodeEditor.h">
+      <Filter>Widgets</Filter>
+    </CustomBuild>
     <CustomBuild Include="Widgets\Extended\RDSplitter.h">
       <Filter>Widgets\Extended</Filter>
     </CustomBuild>
@@ -1484,7 +1646,13 @@
     <CustomBuild Include="Windows\PythonShell.h">
       <Filter>Windows</Filter>
     </CustomBuild>
+    <CustomBuild Include="Windows\ApiMonitorWindow.h">
+      <Filter>Windows</Filter>
+    </CustomBuild>
     <CustomBuild Include="Windows\PythonShell.ui">
+      <Filter>Windows</Filter>
+    </CustomBuild>
+    <CustomBuild Include="Windows\ApiMonitorWindow.ui">
       <Filter>Windows</Filter>
     </CustomBuild>
     <CustomBuild Include="Widgets\Extended\RDToolButton.h">
@@ -1612,6 +1780,9 @@
     </CustomBuild>
     <CustomBuild Include="Windows\Dialogs\ProjectionGuessDialog.ui">
       <Filter>Windows\Dialogs</Filter>
+    </CustomBuild>
+    <CustomBuild Include="Widgets\Extended\RDToolTip.h">
+      <Filter>Widgets\Extended</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
@@ -2040,6 +2211,24 @@
     </Image>
   </ItemGroup>
   <ItemGroup>
+    <None Include="Translations\qrenderdoc_zh_CN.ts">
+      <Filter>Resources</Filter>
+    </None>
+    <None Include="Translations\qrenderdoc_zh_CN.qm">
+      <Filter>Resources</Filter>
+    </None>
+    <None Include="Translations\qt_zh_CN.qm">
+      <Filter>Resources</Filter>
+    </None>
+    <None Include="..\replaylab\renderdoc_mcp_bridge\**\*.py">
+      <Filter>ReplayLab\Python</Filter>
+    </None>
+    <None Include="..\replaylab\renderdoc_mcp_bridge\integration.json">
+      <Filter>ReplayLab\Python</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
     <Natvis Include="python36.natvis" />
+    <Natvis Include="python38.natvis" />
   </ItemGroup>
 </Project>

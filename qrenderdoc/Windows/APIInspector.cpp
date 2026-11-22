@@ -23,6 +23,8 @@
  ******************************************************************************/
 
 #include "APIInspector.h"
+#include <QSignalBlocker>
+#include <QTimer>
 #include "ui_APIInspector.h"
 
 APIInspector::APIInspector(ICaptureContext &ctx, QWidget *parent)
@@ -58,6 +60,10 @@ void APIInspector::RevealParameter(SDObject *param)
 {
   if(!param)
     return;
+
+  // An explicit parameter reveal needs its tree even if the tab is being raised afterwards.
+  if(m_HasDeferredEvent && m_Ctx.IsCaptureLoaded())
+    ApplySelectedEvent(m_Ctx.CurSelectedEvent());
 
   rdcarray<SDObject *> hierarchy;
   while(param)
@@ -129,10 +135,45 @@ void APIInspector::OnCaptureClosed()
   ui->callstack->clear();
   ui->apiEvents->clearInternalExpansions();
   m_EventID = 0;
+  m_HasDeferredEvent = false;
+  m_EventInitialised = false;
 }
 
 void APIInspector::OnSelectedEventChanged(uint32_t eventId)
 {
+  // The first action can own thousands of setup API chunks. Building its recursive Qt tree
+  // also expands lazy structured data, so a hidden inspector must not do this on navigation.
+  if(!isVisible())
+  {
+    m_HasDeferredEvent = true;
+    return;
+  }
+  ApplySelectedEvent(eventId);
+}
+
+void APIInspector::showEvent(QShowEvent *event)
+{
+  QFrame::showEvent(event);
+  if(m_HasDeferredEvent)
+    QTimer::singleShot(0, this, [this]() {
+      if(isVisible() && m_HasDeferredEvent && m_Ctx.IsCaptureLoaded())
+        ApplySelectedEvent(m_Ctx.CurSelectedEvent());
+    });
+}
+
+void APIInspector::Refresh()
+{
+  if(m_HasDeferredEvent && m_Ctx.IsCaptureLoaded())
+    ApplySelectedEvent(m_Ctx.CurSelectedEvent());
+  on_apiEvents_itemSelectionChanged();
+}
+
+void APIInspector::ApplySelectedEvent(uint32_t eventId)
+{
+  m_HasDeferredEvent = false;
+  // API chunks describe the immutable capture, independent of Shader or CBuffer replacements.
+  if(m_EventInitialised && m_EventID == eventId)
+    return;
   ui->apiEvents->saveExpansion(ui->apiEvents->getInternalExpansion(m_EventID), 0);
 
   ui->apiEvents->clearSelection();
@@ -140,7 +181,12 @@ void APIInspector::OnSelectedEventChanged(uint32_t eventId)
   fillAPIView();
 
   m_EventID = eventId;
+  m_EventInitialised = true;
   ui->apiEvents->applyExpansion(ui->apiEvents->getInternalExpansion(m_EventID), 0);
+  // i18n-ignore: internal regression evidence; these properties are never displayed.
+  setProperty("apiDisplayedEvent", eventId);
+  // i18n-ignore: internal regression evidence, not a UI counter.
+  setProperty("apiPopulateCount", qulonglong(++m_PopulateCount));
 }
 
 void APIInspector::addCallstack(rdcarray<rdcstr> calls)
@@ -208,7 +254,9 @@ void APIInspector::on_apiEvents_itemSelectionChanged()
 
 void APIInspector::fillAPIView()
 {
-  ui->apiEvents->setUpdatesEnabled(false);
+  RDTreeWidgetItem *selected = NULL;
+  QSignalBlocker selectionSignals(ui->apiEvents);
+  ui->apiEvents->beginUpdate();
   ui->apiEvents->clear();
 
   m_Chunks.clear();
@@ -222,13 +270,16 @@ void APIInspector::fillAPIView()
       RDTreeWidgetItem *root = new RDTreeWidgetItem({lit("---"), QString(action->customName)});
       root->setBold(true);
       ui->apiEvents->addTopLevelItem(root);
-      ui->apiEvents->setSelectedItem(root);
+      selected = root;
     }
     else
     {
       for(const APIEvent &ev : action->events)
       {
-        addEvent(ev, ev.eventId == action->eventId);
+        const bool primary = ev.eventId == action->eventId;
+        RDTreeWidgetItem *root = addEvent(ev, primary);
+        if(primary)
+          selected = root;
       }
     }
   }
@@ -237,16 +288,20 @@ void APIInspector::fillAPIView()
     APIEvent ev = m_Ctx.GetEventBrowser()->GetAPIEventForEID(m_Ctx.CurSelectedEvent());
 
     if(ev.eventId > 0)
-      addEvent(ev, true);
+      selected = addEvent(ev, true);
   }
 
-  ui->apiEvents->setUpdatesEnabled(true);
+  ui->apiEvents->endUpdate();
+  selectionSignals.unblock();
+  // Intermediate API rows must not each trigger selection, callstack resolution and layout.
+  // Select the primary event once, after the model's single reset has completed.
+  ui->apiEvents->setSelectedItem(selected);
 }
 
-void APIInspector::addEvent(const APIEvent &ev, bool primary)
+RDTreeWidgetItem *APIInspector::addEvent(const APIEvent &ev, bool primary)
 {
   if(ev.chunkIndex == APIEvent::NoChunk)
-    return;
+    return NULL;
 
   const SDFile &file = m_Ctx.GetStructuredFile();
 
@@ -276,5 +331,5 @@ void APIInspector::addEvent(const APIEvent &ev, bool primary)
 
   ui->apiEvents->addTopLevelItem(root);
 
-  ui->apiEvents->setSelectedItem(root);
+  return root;
 }

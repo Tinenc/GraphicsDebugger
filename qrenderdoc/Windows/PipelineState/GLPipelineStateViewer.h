@@ -64,6 +64,8 @@ public:
 
   void SelectPipelineStage(PipelineStage stage);
   ResourceId GetResource(RDTreeWidgetItem *item);
+  bool GetTextureHistoryDetails(RDTreeWidgetItem *item, Subresource &subresource,
+                                CompType &typeCast);
 
 private slots:
   // automatic slots

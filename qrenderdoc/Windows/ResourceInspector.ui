@@ -162,7 +162,7 @@
      <widget class="QLabel" name="resourceName">
       <property name="font">
        <font>
-        <pointsize>20</pointsize>
+        <pointsize>14</pointsize>
        </font>
       </property>
       <property name="text">
@@ -177,7 +177,7 @@
      <widget class="RDLineEdit" name="resourceNameEdit">
       <property name="font">
        <font>
-        <pointsize>20</pointsize>
+        <pointsize>14</pointsize>
        </font>
       </property>
      </widget>

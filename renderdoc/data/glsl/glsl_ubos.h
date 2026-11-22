@@ -46,7 +46,7 @@ BINDING(0) uniform MeshUBOData
   float exploderScale;
 
   vec3 exploderCentre;
-  float padding;
+  uint componentSelectedVertices;
 
   uvec4 meshletColours[12];
 }

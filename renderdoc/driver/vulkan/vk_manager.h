@@ -56,10 +56,11 @@ struct VkInitialContents
   enum Tag
   {
     BufferCopy = 0,
-    ClearColorImage = 1,
+    ClearColorImage,
     ClearDepthStencilImage,
     DescriptorSet,
     SparseTableOnly,
+    PreInit,
   };
 
   VkInitialContents()
@@ -376,7 +377,7 @@ public:
 
     if(IsReplayMode(m_State))
     {
-      ResourceManager::RemoveWrapper(ToTypedHandle(Unwrap(obj)));
+      ResourceManager::RemoveWrapper(GetWrapped(obj), ToTypedHandle(Unwrap(obj)));
     }
 
     ResourceManager::ReleaseResource(id);

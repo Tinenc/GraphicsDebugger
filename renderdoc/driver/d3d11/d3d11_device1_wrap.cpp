@@ -102,16 +102,9 @@ bool WrappedID3D11Device::Serialise_CreateBlendState1(SerialiserType &ser,
     }
     else
     {
-      if(GetResourceManager()->HasWrapper(ret))
-      {
-        ret->Release();
-        ret = (ID3D11BlendState1 *)GetResourceManager()->GetWrapper(ret);
-        ret->AddRef();
-      }
-      else
-      {
-        ret = new WrappedID3D11BlendState1(pState, ret, this);
-      }
+      GetResourceManager()->OverrideWrapper(ret);
+
+      ret = new WrappedID3D11BlendState1(pState, ret, this);
     }
 
     AddResource(pState, ResourceType::StateObject, "Blend State");
@@ -216,16 +209,9 @@ bool WrappedID3D11Device::Serialise_CreateRasterizerState1(
     }
     else
     {
-      if(GetResourceManager()->HasWrapper(ret))
-      {
-        ret->Release();
-        ret = (ID3D11RasterizerState1 *)GetResourceManager()->GetWrapper(ret);
-        ret->AddRef();
-      }
-      else
-      {
-        ret = new WrappedID3D11RasterizerState2(pState, ret, this);
-      }
+      GetResourceManager()->OverrideWrapper(ret);
+
+      ret = new WrappedID3D11RasterizerState2(pState, ret, this);
     }
 
     AddResource(pState, ResourceType::StateObject, "Rasterizer State");
