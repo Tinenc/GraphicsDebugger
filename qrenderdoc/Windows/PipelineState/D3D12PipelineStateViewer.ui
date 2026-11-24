@@ -173,7 +173,7 @@
     <widget class="PipelineFlowChart" name="pipeFlow">
      <property name="font">
       <font>
-       <pointsize>12</pointsize>
+       <pointsize>11</pointsize>
       </font>
      </property>
     </widget>
@@ -420,7 +420,7 @@
                <widget class="QLabel" name="topology">
                 <property name="font">
                  <font>
-                  <pointsize>14</pointsize>
+                  <pointsize>11</pointsize>
                  </font>
                 </property>
                 <property name="text">
@@ -460,7 +460,7 @@
                <widget class="QLabel" name="primRestart">
                 <property name="font">
                  <font>
-                  <pointsize>14</pointsize>
+                  <pointsize>11</pointsize>
                  </font>
                 </property>
                 <property name="text">
@@ -2377,11 +2377,6 @@
           </item>
           <item row="0" column="1">
            <widget class="QLabel" name="fillMode">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>Solid</string>
             </property>
@@ -2408,11 +2403,6 @@
           </item>
           <item row="0" column="3">
            <widget class="QLabel" name="cullMode">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>None</string>
             </property>
@@ -2491,11 +2481,6 @@
           </item>
           <item row="0" column="9">
            <widget class="QLabel" name="baseShadingRate">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>1x1</string>
             </property>
@@ -2532,11 +2517,6 @@
           </item>
           <item row="1" column="1">
            <widget class="QLabel" name="depthBias">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>0.00</string>
             </property>
@@ -2563,11 +2543,6 @@
           </item>
           <item row="1" column="3">
            <widget class="QLabel" name="depthBiasClamp">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>0.00</string>
             </property>
@@ -2594,11 +2569,6 @@
           </item>
           <item row="1" column="5">
            <widget class="QLabel" name="slopeScaledBias">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>0.00</string>
             </property>
@@ -2625,11 +2595,6 @@
           </item>
           <item row="1" column="7">
            <widget class="QLabel" name="forcedSampleCount">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>0</string>
             </property>
@@ -2650,11 +2615,6 @@
           </item>
           <item row="1" column="9">
            <widget class="QLabel" name="shadingRateCombiners">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>Keep, Keep</string>
             </property>
@@ -2704,11 +2664,6 @@
           </item>
           <item row="2" column="5">
            <widget class="QLabel" name="lineAA">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>Quadrilateral</string>
             </property>
@@ -2735,11 +2690,6 @@
           </item>
           <item row="2" column="7">
            <widget class="QLabel" name="sampleMask">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>FFFFFFFF</string>
             </property>
@@ -2828,11 +2778,6 @@
           </item>
           <item>
            <widget class="QLabel" name="predicateSkipIfZero">
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
-            </property>
             <property name="text">
              <string>== 0</string>
             </property>
@@ -3686,11 +3631,6 @@
               </item>
               <item row="1" column="1" colspan="3">
                <widget class="QLabel" name="blendFactor">
-                <property name="font">
-                 <font>
-                  <pointsize>12</pointsize>
-                 </font>
-                </property>
                 <property name="text">
                  <string>0.00, 0.00, 0.00, 0.00</string>
                 </property>
@@ -3770,11 +3710,6 @@
               </item>
               <item row="1" column="1">
                <widget class="QLabel" name="depthFunc">
-                <property name="font">
-                 <font>
-                  <pointsize>12</pointsize>
-                 </font>
-                </property>
                 <property name="text">
                  <string>GREATER_EQUAL</string>
                 </property>
@@ -3798,11 +3733,6 @@
               </item>
               <item row="2" column="1">
                <widget class="QLabel" name="depthWrite">
-                <property name="font">
-                 <font>
-                  <pointsize>12</pointsize>
-                 </font>
-                </property>
                 <property name="text">
                  <string/>
                 </property>
@@ -3829,11 +3759,6 @@
               </item>
               <item row="3" column="1">
                <widget class="QLabel" name="depthBounds">
-                <property name="font">
-                 <font>
-                  <pointsize>12</pointsize>
-                 </font>
-                </property>
                 <property name="text">
                  <string/>
                 </property>

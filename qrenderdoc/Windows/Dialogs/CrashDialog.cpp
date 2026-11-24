@@ -41,7 +41,7 @@
 
 const qint64 MaxUploadSize = 2250LL * 1024LL * 1024LL;
 
-CrashDialog::CrashDialog(PersistantConfig &cfg, QVariantMap crashReportJSON, QWidget *parent)
+CrashDialog::CrashDialog(PersistentConfig &cfg, QVariantMap crashReportJSON, QWidget *parent)
     : QDialog(parent), ui(new Ui::CrashDialog), m_Config(cfg)
 {
   ui->setupUi(this);
@@ -178,11 +178,10 @@ CrashDialog::CrashDialog(PersistantConfig &cfg, QVariantMap crashReportJSON, QWi
              "you can edit/censor if you wish.</p>")
               .arg(QUrl::fromLocalFile(m_ReportPath).toString());
 
-  text += tr("<p>More information about <a href=\"" BUGREPORT_URL
-             "\">the bug "
-             "reporter</a> and <a href=\"" BUGREPORT_URL
-             "/privacy\">privacy statement</a> "
-             "for submissions.");
+  text += tr("<p>More information about <a href=\"%1\">the bug reporter</a> and "
+             "<a href=\"%2\">privacy statement</a> for submissions.</p>")
+              .arg(QString::fromUtf8(BUGREPORT_URL),
+                   QString::fromUtf8(BUGREPORT_URL "/privacy"));
 
   if(!QSslSocket::supportsSsl())
   {
@@ -197,46 +196,55 @@ CrashDialog::CrashDialog(PersistantConfig &cfg, QVariantMap crashReportJSON, QWi
         "Unfortunately something went wrong while initialising the bug reporter as Qt was unable "
         "to load SSL support at runtime.</p>");
 
-    text +=
-        tr("<p>Due to legal reasons only official builds can be distributed with the OpenSSL "
-           "libraries needed for SSL support. "
-           "If you are building locally, check that ");
+    QString sslRequirement;
 
 #if(QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
 
 #if defined(Q_OS_WIN32)
 #if QT_POINTER_SIZE == 8
-    text +=
-        tr("you have libcrypto-1_1-64.dll and libssl-1_1-64.dll available next to qrenderdoc.exe.");
+    sslRequirement =
+        tr("libcrypto-1_1-64.dll and libssl-1_1-64.dll are available next to qrenderdoc.exe.");
 #else
-    text += tr("you have libcrypto-1_1.dll and libssl-1_1.dll available next to qrenderdoc.exe.");
+    sslRequirement =
+        tr("libcrypto-1_1.dll and libssl-1_1.dll are available next to qrenderdoc.exe.");
 #endif
 #else
-    text += tr("you have the runtime libopenssl library >= 1.1.1 available in your system.");
+    sslRequirement =
+        tr("the runtime libopenssl library >= 1.1.1 is available on your system.");
 #endif
 
 #else
 
 #if defined(Q_OS_WIN32)
-    text += tr("you have libeay32.dll and ssleay32.dll available next to qrenderdoc.exe.");
+    sslRequirement =
+        tr("libeay32.dll and ssleay32.dll are available next to qrenderdoc.exe.");
 #else
-    text += tr("you have the runtime libopenssl library >= 1.0.0 available in your system.");
+    sslRequirement =
+        tr("the runtime libopenssl library >= 1.0.0 is available on your system.");
 #endif
 
 #endif
 
-    text += lit("</p>");
-
-    text += tr("<p>There is no non-secure bug reporting system available so unfortunately we can't "
-               "proceed. If you'd like to send in the capture directly you can "
-               "<a href=\"mailto:baldurk@baldurk.org\">email it to me</a> attaching "
-               "<a href=\"%1\">this report</a> ")
-                .arg(QUrl::fromLocalFile(m_ReportPath).toString());
+    text += tr("<p>Due to legal reasons only official builds can be distributed with the OpenSSL "
+               "libraries needed for SSL support. If you are building locally, check that %1</p>")
+                .arg(sslRequirement);
 
     if(ui->captureFilename->isVisible())
-      text += tr(" and if you'd like, the capture linked below.");
-
-    text += lit("</p>");
+    {
+      text += tr("<p>There is no non-secure bug reporting system available so unfortunately we "
+                 "can't proceed. If you'd like to send in the capture directly you can "
+                 "<a href=\"mailto:baldurk@baldurk.org\">email it to me</a>, attaching "
+                 "<a href=\"%1\">this report</a> and, if you wish, the capture linked below.</p>")
+                  .arg(QUrl::fromLocalFile(m_ReportPath).toString());
+    }
+    else
+    {
+      text += tr("<p>There is no non-secure bug reporting system available so unfortunately we "
+                 "can't proceed. If you'd like to send in the capture directly you can "
+                 "<a href=\"mailto:baldurk@baldurk.org\">email it to me</a>, attaching "
+                 "<a href=\"%1\">this report</a>.</p>")
+                  .arg(QUrl::fromLocalFile(m_ReportPath).toString());
+    }
   }
 
   ui->reportText->setTextFormat(Qt::RichText);
@@ -256,14 +264,14 @@ CrashDialog::~CrashDialog()
   delete ui;
 }
 
-bool CrashDialog::HasCaptureReady(PersistantConfig &cfg)
+bool CrashDialog::HasCaptureReady(PersistentConfig &cfg)
 {
   QFileInfo capInfo(cfg.CrashReport_LastOpenedCapture);
 
   return capInfo.exists() && capInfo.size() <= MaxUploadSize;
 }
 
-bool CrashDialog::CaptureTooLarge(PersistantConfig &cfg)
+bool CrashDialog::CaptureTooLarge(PersistentConfig &cfg)
 {
   QFileInfo capInfo(cfg.CrashReport_LastOpenedCapture);
 

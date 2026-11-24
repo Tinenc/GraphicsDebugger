@@ -457,7 +457,7 @@ VKMeshDisplayPipelines VulkanDebugManager::CacheMeshDisplayPipelines(VkPipelineL
 }
 
 void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secondaryDraws,
-                              const MeshDisplay &cfg)
+                              const MeshDisplay &cfg, const MeshComponentHighlight &components)
 {
   if(cfg.position.vertexResourceId == ResourceId() ||
      !m_pDriver->GetResourceManager()->HasResource(cfg.position.vertexResourceId) ||
@@ -476,6 +476,21 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
     return;
 
   VkDevice dev = m_pDriver->GetDev();
+  GPUBuffer &componentVB = m_MeshRender.ComponentHighlightVB;
+  const VkDeviceSize componentBytes = components.vertices.byteSize();
+  if(componentBytes && (componentVB.UnwrappedBuffer() == VK_NULL_HANDLE ||
+                        componentBytes > componentVB.TotalSize() / componentVB.GetRingCount()))
+  {
+    if(componentVB.UnwrappedBuffer() != VK_NULL_HANDLE)
+    {
+      m_pDriver->SubmitCmds();
+      m_pDriver->FlushQ();
+      componentVB.Destroy();
+      componentVB = GPUBuffer();
+    }
+    componentVB.Create(m_pDriver, dev, AlignUp(componentBytes, VkDeviceSize(64 * 1024)), 4,
+                       GPUBuffer::eGPUBufferVBuffer);
+  }
   VkCommandBuffer cmd = m_pDriver->GetNextCmd();
   const VkDevDispatchTable *vt = ObjDisp(dev);
 
@@ -511,11 +526,7 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
   VkViewport viewport = {0.0f, 0.0f, (float)m_DebugWidth, (float)m_DebugHeight, 0.0f, 1.0f};
   vt->CmdSetViewport(Unwrap(cmd), 0, 1, &viewport);
 
-  float nearPlane = cfg.cam ? ((Camera *)cfg.cam)->GetNear() : 0.1f;
-  float farPlane = cfg.cam ? ((Camera *)cfg.cam)->GetFar() : 100000.0f;
-
-  Matrix4f projMat =
-      Matrix4f::Perspective(90.0f, nearPlane, farPlane, float(m_DebugWidth) / float(m_DebugHeight));
+  Matrix4f projMat = Camera::MeshProjection(cfg.cam, float(m_DebugWidth) / float(m_DebugHeight));
   Matrix4f InvProj = projMat.Inverse();
 
   Matrix4f camMat = cfg.cam ? ((Camera *)cfg.cam)->GetMatrix() : Matrix4f::Identity();
@@ -1027,6 +1038,41 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
                         Unwrap(cache.pipes[VKMeshDisplayPipelines::ePipe_Wire]));
 
     vt->CmdDraw(Unwrap(cmd), 24, 1, 0, 0);
+  }
+
+  if(!components.vertices.empty() && componentVB.UnwrappedBuffer() != VK_NULL_HANDLE)
+  {
+    const bool points = components.topology == Topology::PointList;
+    helper.topology = points ? Topology::TriangleList : components.topology;
+    cache = GetDebugManager()->CacheMeshDisplayPipelines(m_MeshRender.PipeLayout, helper, helper);
+    meshUniforms.mvp = components.DepthBiasedTransform(
+        projMat.Mul(camMat.Mul(cfg.position.unproject ? guessProjInv : axisMapMat)), cfg.cam);
+    meshUniforms.homogenousInput = cfg.position.unproject;
+    meshUniforms.color = Vec4f(1.0f, 0.36f, 0.035f, 1.0f);
+    if(points)
+    {
+      meshUniforms.pointSpriteSize = Vec2f(-800.0f / m_DebugWidth, 800.0f / m_DebugHeight);
+      meshUniforms.componentSelectedVertices = components.selectedVertices;
+    }
+    MeshUBOData *data = (MeshUBOData *)m_MeshRender.UBO.Map(&dynOffs[0]);
+    if(!data)
+      return;
+    *data = meshUniforms;
+    m_MeshRender.UBO.Unmap();
+    meshUniforms.pointSpriteSize = Vec2f(0.0f, 0.0f);
+    VkDeviceSize offset = 0;
+    void *vertices = componentVB.Map(offset, components.vertices.byteSize());
+    if(!vertices)
+      return;
+    memcpy(vertices, components.vertices.data(), components.vertices.byteSize());
+    componentVB.Unmap();
+    vt->CmdBindDescriptorSets(Unwrap(cmd), VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              Unwrap(m_MeshRender.PipeLayout), 0, 1,
+                              UnwrapPtr(m_MeshRender.DescSet), 2, dynOffs);
+    vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, &componentVB.UnwrappedBuffer(), &offset);
+    vt->CmdBindPipeline(Unwrap(cmd), VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        Unwrap(cache.pipes[VKMeshDisplayPipelines::ePipe_SolidDepth]));
+    vt->CmdDraw(Unwrap(cmd), uint32_t(components.vertices.size()), 1, 0, 0);
   }
 
   // show highlighted vertex

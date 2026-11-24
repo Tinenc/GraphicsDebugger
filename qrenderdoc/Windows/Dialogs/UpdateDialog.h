@@ -25,44 +25,65 @@
 #pragma once
 
 #include <QDialog>
+#include <QElapsedTimer>
+#include <QTemporaryDir>
+#include <QUrl>
+#include <functional>
+#include <memory>
 
 namespace Ui
 {
 class UpdateDialog;
 }
 
-class QNetworkAccessManager;
-class QNetworkReply;
-class QElapsedTimer;
+class QProcess;
+class QTimer;
 
-struct Thumbnail;
+struct BreadRelease
+{
+  QString version;
+  QString notesHtml;
+  QString notesText;
+  QUrl page;
+  QUrl download;
+  QString sha256;
+  qint64 size = 0;
+
+  static QUrl RepositoryPage();
+  static QUrl ReleasesPage();
+  static QString InstalledVersion();
+  static bool InstallationInProgress();
+  static BreadRelease FromGitHub(const QByteArray &json);
+  static void Check(QObject *owner, const QString &installedVersion,
+                    std::function<void(QByteArray, QString)> completed);
+};
 
 class UpdateDialog : public QDialog
 {
   Q_OBJECT
 public:
-  explicit UpdateDialog(QString updateResponse, QWidget *parent = 0);
+  UpdateDialog(const QString &installedVersion, const BreadRelease &release, QWidget *parent);
   ~UpdateDialog();
 
+  std::unique_ptr<QTemporaryDir> TakeStaging() { return std::move(m_Staging); }
+  static bool StartInstaller(const QTemporaryDir &staging, const QString &installedVersion,
+                             const BreadRelease &release);
+
 private slots:
-  // automatic slots
   void on_releaseNotes_clicked();
-  void on_close_clicked();
   void on_update_clicked();
 
 private:
-  void keyPressEvent(QKeyEvent *e) override;
-  void closeEvent(QCloseEvent *) override;
-
-  QString m_NewVer;
-  QString m_URL;
-  uint32_t m_Size = 0;
+  void reject() override;
+  void DownloadFailed(const QString &error);
+  void StartDownload();
 
   Ui::UpdateDialog *ui;
-
-  QElapsedTimer *m_DownloadTimer = NULL;
-
-  QNetworkAccessManager *m_NetManager;
-  QNetworkReply *m_Request = NULL;
+  BreadRelease m_Release;
+  QProcess *m_Download;
+  QTimer *m_ProgressTimer;
+  QElapsedTimer m_DownloadTimer;
+  std::unique_ptr<QTemporaryDir> m_Staging;
   bool m_Cancelled = false;
+  int m_DownloadAttempts = 0;
 };

@@ -23,6 +23,7 @@
  ******************************************************************************/
 
 #include "d3d12_replay.h"
+#include <algorithm>
 #include "core/plugins.h"
 #include "core/settings.h"
 #include "driver/dx/official/d3dcompiler.h"
@@ -36,13 +37,17 @@
 #include "maths/formatpacking.h"
 #include "maths/matrix.h"
 #include "replay/dummy_driver.h"
+#include "replay/replay_timing.h"
 #include "serialise/rdcfile.h"
 #include "strings/string_utils.h"
+#include "d3d12_command_list.h"
 #include "d3d12_command_queue.h"
+#include "d3d12_commit_audit.inl"
 #include "d3d12_debug.h"
 #include "d3d12_device.h"
 #include "d3d12_hooks.h"
 #include "d3d12_resources.h"
+#include "d3d12_rootsig.h"
 #include "d3d12_shader_cache.h"
 
 #include "data/hlsl/hlsl_cbuffers.h"
@@ -73,9 +78,41 @@ void D3D12Replay::Shutdown()
 {
   bool apiValidation = m_pDevice->GetReplayOptions().apiValidation;
 
+  DrainTextureDisplaySubmit();
+  if(!m_GPUPhaseAudits.empty())
+  {
+    if(m_pDevice->DeviceWaitForIdle())
+      FinishGPUPhaseAudit(true);
+  }
+
+  // ReplayLab event CBuffer resources are replay-owned and may still be referenced by the cached
+  // CPU render state. Restore that state and release every shadow before destroying the device.
+  ClearEventShaderOverrides();
+  ReleaseEventShaderPipelines();
+  ReleaseEventShaderScratch();
+  ClearEventCBufferOverrides();
+
+  if(!m_TextureSnapshots.empty() || !m_InitialStateSourceCache.empty() ||
+     !m_ShaderPairUnconfirmed.empty())
+  {
+    // Snapshot creation is intentionally asynchronous during use. Teardown must drain that work
+    // before dropping the application's explicit D3D12 resource references.
+    m_pDevice->ExecuteLists();
+    m_pDevice->FlushLists(true);
+  }
+
   for(size_t i = 0; i < m_ProxyResources.size(); i++)
     m_ProxyResources[i]->Release();
   m_ProxyResources.clear();
+  m_TextureSnapshots.clear();
+  for(ID3D12DeviceChild *resource : m_ShaderPairUnconfirmed)
+    resource->Release();
+  m_ShaderPairUnconfirmed.clear();
+
+  for(auto &entry : m_InitialStateSourceCache)
+    SAFE_RELEASE(entry.second);
+  m_InitialStateSourceCache.clear();
+  SAFE_RELEASE(m_InitialStateCacheAdapter);
 
   DXBC::ResetSearchDirsCache();
 
@@ -111,6 +148,117 @@ void D3D12Replay::Shutdown()
   }
 
   Threading::JobSystem::Shutdown();
+}
+
+ID3D12Resource *D3D12Replay::ResolveInitialStateCopySource(
+    ID3D12Resource *wrappedSource, ID3D12GraphicsCommandListX *wrappedList, bool allowLoading)
+{
+  ID3D12Resource *source = Unwrap(wrappedSource);
+  const D3D12_RESOURCE_DESC desc = source->GetDesc();
+
+  // Loading uses the original upload source, so all capture allocations are known before we
+  // reserve extra VRAM. Validation/conservative replay also retains the original path for A/B QA.
+  if(Process::GetEnvVariable("RENDERDOC_D3D12_DISABLE_INITIAL_SOURCE_CACHE") == "1" ||
+     m_pDevice->ShouldUseConservativeReplaySync(allowLoading) ||
+     desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    return source;
+
+  const ResourceId id = GetResID(wrappedSource);
+  auto found = m_InitialStateSourceCache.find(id);
+  if(found != m_InitialStateSourceCache.end())
+  {
+    if(found->second)
+    {
+      AddReplayTimingCounter(ReplayTimingCounter::InitialUploadCacheHits);
+      AddReplayTimingCounter(ReplayTimingCounter::InitialUploadCacheBytes, desc.Width);
+      return found->second;
+    }
+    AddReplayTimingCounter(ReplayTimingCounter::InitialUploadCacheFallbackBytes, desc.Width);
+    return source;
+  }
+
+  D3D12_HEAP_PROPERTIES sourceHeap = {};
+  if(FAILED(source->GetHeapProperties(&sourceHeap, NULL)) ||
+     sourceHeap.Type != D3D12_HEAP_TYPE_UPLOAD)
+    return source;
+
+  // Cache a rejected source too: repeated interaction must not retry allocations or query DXGI
+  // per resource when this capture has exhausted its spare budget. No eviction or GPU drain is
+  // performed while dragging. A new capture gets a fresh budget and cache.
+  m_InitialStateSourceCache[id] = NULL;
+  const auto fallback = [&]() {
+    AddReplayTimingCounter(ReplayTimingCounter::InitialUploadCacheFallbackBytes, desc.Width);
+    return source;
+  };
+
+  if(desc.Width < 64ULL * 1024)
+    return fallback();
+
+  const bool firstBudgetQuery = !m_InitialStateCacheAdapterChecked;
+  if(!m_InitialStateCacheAdapterChecked)
+  {
+    m_InitialStateCacheAdapterChecked = true;
+    IDXGIAdapter *adapter = NULL;
+    if(m_pFactory && SUCCEEDED(EnumAdapterByLuid(m_pFactory, m_pDevice->GetAdapterLuid(), &adapter)))
+    {
+      adapter->QueryInterface(__uuidof(IDXGIAdapter3), (void **)&m_InitialStateCacheAdapter);
+      adapter->Release();
+    }
+  }
+
+  DXGI_QUERY_VIDEO_MEMORY_INFO memory = {};
+  if(!m_InitialStateCacheAdapter ||
+     FAILED(m_InitialStateCacheAdapter->QueryVideoMemoryInfo(
+         0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &memory)))
+    return fallback();
+
+  const D3D12_RESOURCE_ALLOCATION_INFO allocation =
+      m_pDevice->GetReal()->GetResourceAllocationInfo(0, 1, &desc);
+  const uint64_t reserve = RDCMAX(512ULL * 1024 * 1024, memory.Budget / 8);
+  if(firstBudgetQuery && (Process::GetEnvVariable("RENDERDOC_EID_TIMING") == "1" ||
+                          Process::GetEnvVariable("RENDERDOC_D3D12_SOURCE_BUDGET_LOG") == "1"))
+    AppendReplayTimingLog(StringFormat::Fmt(
+        "api=D3D12InitialSourceBudget localBudgetBytes=%llu currentUsageBytes=%llu "
+        "reserveBytes=%llu cacheLimitBytes=%llu requestedBytes=%llu",
+        (unsigned long long)memory.Budget, (unsigned long long)memory.CurrentUsage,
+        (unsigned long long)reserve, (unsigned long long)(memory.Budget / 3),
+        (unsigned long long)allocation.SizeInBytes));
+  if(allocation.SizeInBytes == ~0ULL || memory.CurrentUsage >= memory.Budget ||
+     memory.Budget - memory.CurrentUsage <= reserve ||
+     allocation.SizeInBytes > memory.Budget - memory.CurrentUsage - reserve ||
+     m_InitialStateSourceCacheBytes + allocation.SizeInBytes > memory.Budget / 3)
+    return fallback();
+
+  D3D12_HEAP_PROPERTIES heap = {};
+  heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+  heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+  ID3D12Resource *resident = NULL;
+  D3D12CommitAudit commitAudit("fastInitialSource", desc.Width, D3D12_HEAP_TYPE_DEFAULT,
+                               desc.Dimension);
+  HRESULT hr = m_pDevice->GetReal()->CreateCommittedResource(
+      &heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+      __uuidof(ID3D12Resource), (void **)&resident);
+  if(FAILED(hr))
+    return fallback();
+
+  resident->SetName(L"RenderDoc immutable initial-state source");
+  ID3D12GraphicsCommandList *list = Unwrap(wrappedList);
+  list->CopyBufferRegion(resident, 0, source, 0, desc.Width);
+  D3D12_RESOURCE_BARRIER barrier = {};
+  barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+  barrier.Transition.pResource = resident;
+  barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+  barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+  barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+  list->ResourceBarrier(1, &barrier);
+
+  // The copy and its first consumer share this list/queue. The existing initial-state dependencies
+  // order later captured queues, and the next full replay drains prior work before reusing it.
+  // These are capture initial bytes, not event outputs: live edits never make this source stale.
+  m_InitialStateSourceCache[id] = resident;
+  m_InitialStateSourceCacheBytes += allocation.SizeInBytes;
+  AddReplayTimingCounter(ReplayTimingCounter::InitialUploadCachePromotedBytes, desc.Width);
+  return resident;
 }
 
 void D3D12Replay::Initialise(IDXGIFactory1 *factory, D3D12DevConfiguration *config)
@@ -169,7 +317,8 @@ IReplayDriver *D3D12Replay::MakeDummyDriver()
   rdcarray<const ShaderReflection *> shaders;
   WrappedID3D12Shader::GetReflections(shaders);
 
-  IReplayDriver *dummy = new DummyDriver(this, shaders, m_pDevice->DetachStructuredFile());
+  IReplayDriver *dummy = new DummyDriver(this, shaders, m_pDevice->DetachStructuredFile(),
+                                         m_pDevice->DetachAnnotations());
 
   return dummy;
 }
@@ -272,9 +421,191 @@ void D3D12Replay::DestroyResources()
   SAFE_DELETE(m_pNVCounters);
 }
 
+struct D3D12InitialSourceWarmupCandidate
+{
+  ResourceId source;
+  ID3D12Resource *wrappedSource = NULL;
+  uint64_t sourceBufferBytes = 0;
+  uint32_t firstObservedWrite = ~0U;
+};
+
+static bool InitialSourceWarmupWriteUsage(ResourceUsage usage)
+{
+  return (usage >= ResourceUsage::VS_RWResource && usage <= ResourceUsage::All_RWResource) ||
+         usage == ResourceUsage::CPUWrite || usage == ResourceUsage::CopyDst ||
+         usage == ResourceUsage::Copy || usage == ResourceUsage::ResolveDst ||
+         usage == ResourceUsage::Resolve || usage == ResourceUsage::Clear ||
+         usage == ResourceUsage::ColorTarget || usage == ResourceUsage::DepthStencilTarget ||
+         usage == ResourceUsage::StreamOut || usage == ResourceUsage::GenMips;
+}
+
+static void AddInitialSourceWarmupWrite(std::map<ResourceId, uint32_t> &writes, ResourceId id,
+                                       uint32_t eventId)
+{
+  if(id == ResourceId() || eventId == ~0U)
+    return;
+  auto found = writes.insert({id, eventId});
+  found.first->second = RDCMIN(found.first->second, eventId);
+}
+
+static rdcarray<D3D12InitialSourceWarmupCandidate> OrderInitialSourceWarmup(
+    const rdcarray<D3D12InitialSourceWarmupCandidate> &candidates, bool firstWrite)
+{
+  // The legacy mode preserves even duplicate source visits and their exact original order.
+  if(!firstWrite)
+    return candidates;
+  rdcarray<D3D12InitialSourceWarmupCandidate> result;
+  std::map<ResourceId, size_t> sources;
+  for(const D3D12InitialSourceWarmupCandidate &candidate : candidates)
+  {
+    auto source = sources.insert({candidate.source, result.size()});
+    if(source.second)
+      result.push_back(candidate);
+    else
+      result[source.first->second].firstObservedWrite =
+          RDCMIN(result[source.first->second].firstObservedWrite, candidate.firstObservedWrite);
+  }
+  std::sort(result.begin(), result.end(), [](const D3D12InitialSourceWarmupCandidate &a,
+                                           const D3D12InitialSourceWarmupCandidate &b) {
+    if(a.firstObservedWrite != b.firstObservedWrite)
+      return a.firstObservedWrite < b.firstObservedWrite;
+    return a.source < b.source;
+  });
+  return result;
+}
+
+#include "3rdparty/zstd/xxhash.h"
+#include "d3d12_initial_source_storage.inl"
+#include "d3d12_memory_audit.inl"
+
 RDResult D3D12Replay::ReadLogInitialisation(RDCFile *rdc, bool storeStructuredBuffers)
 {
-  return m_pDevice->ReadLogInitialisation(rdc, storeStructuredBuffers);
+  RDResult result = m_pDevice->ReadLogInitialisation(rdc, storeStructuredBuffers);
+  if(result != ResultCode::Succeeded || m_pDevice->ShouldUseConservativeReplaySync(true) ||
+     Process::GetEnvVariable("RENDERDOC_D3D12_DISABLE_INITIAL_SOURCE_CACHE") == "1")
+    return result;
+
+  // All captured allocations and the writable-resource set are now known. Pay the one-time
+  // upload cost while opening the capture, before the first user gesture, without replaying or
+  // changing any captured resource contents. A separate timing API keeps this out of scrub stats.
+  ScopedReplayTiming timing("D3D12InitialWarmup", 0, 0, eReplay_Full, true);
+  const rdcstr sourceOrder = Process::GetEnvVariable("RENDERDOC_D3D12_INITIAL_SOURCE_CACHE_ORDER");
+  // Prefer positive observed writes within the existing budget. This changes cache admission
+  // order only: unknown sources remain candidates and every required restore still executes.
+  // Explicit legacy/unknown controls retain the original order for independent comparisons.
+  const bool firstWrite = sourceOrder.empty() || sourceOrder == "first-write";
+  const bool logPlan = IsReplayTimingActive();
+  D3D12ResourceManager *manager = m_pDevice->GetResourceManager();
+  std::map<ResourceId, uint32_t> writes;
+  if(firstWrite || logPlan)
+  {
+    // Positive, already-loaded write-use records are only a cache-priority heuristic. Missing
+    // usages, bindless accesses, and future edited dependencies never justify skipping a restore.
+    for(const auto &resource : m_pDevice->GetQueue()->GetCommandData()->m_ResourceUses)
+      for(const EventUsage &usage : resource.second)
+        if(InitialSourceWarmupWriteUsage(usage.usage))
+          AddInitialSourceWarmupWrite(writes, resource.first, usage.eventId);
+    // A placed resource obtains its immutable source from the physical heap. Aggregate evidence
+    // to that source owner without relying on negative GetUsage(heap) results or changing aliases.
+    for(const auto &resource : m_pDevice->GetResourceList())
+    {
+      auto observed = writes.find(resource.first);
+      if(observed != writes.end() && resource.second->GetHeap())
+        AddInitialSourceWarmupWrite(writes, GetResID(resource.second->GetHeap()), observed->second);
+    }
+  }
+  rdcarray<D3D12InitialSourceWarmupCandidate> candidates;
+  for(ResourceId id : manager->GetInitialContentResourceIDs())
+  {
+    ID3D12DeviceChild *live = manager->GetResource(id);
+    if(!live || m_pDevice->IsReadOnlyResource(GetResID(live)))
+      continue;
+
+    D3D12InitialContents data = manager->GetInitialContents(id);
+    if((data.resourceType != Resource_Resource && data.resourceType != Resource_Heap) ||
+       (data.tag != D3D12InitialContents::Copy && data.tag != D3D12InitialContents::ForceCopy) ||
+       !data.resource)
+      continue;
+
+    D3D12InitialSourceWarmupCandidate candidate;
+    candidate.wrappedSource = (ID3D12Resource *)data.resource;
+    candidate.source = GetResID(candidate.wrappedSource);
+    if(firstWrite || logPlan)
+    {
+      const D3D12_RESOURCE_DESC desc = Unwrap(candidate.wrappedSource)->GetDesc();
+      if(desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        candidate.sourceBufferBytes = desc.Width;
+      auto observed = writes.find(GetResID(live));
+      if(observed != writes.end())
+        candidate.firstObservedWrite = observed->second;
+    }
+    candidates.push_back(candidate);
+  }
+  const rdcarray<D3D12InitialSourceWarmupCandidate> ordered =
+      OrderInitialSourceWarmup(candidates, firstWrite);
+  const uint64_t residentBefore = m_InitialStateSourceCacheBytes;
+  ID3D12GraphicsCommandListX *list = NULL;
+  for(const D3D12InitialSourceWarmupCandidate &candidate : ordered)
+  {
+    if(!list)
+    {
+      list = m_pDevice->GetNewList();
+      if(!list)
+        return m_pDevice->FatalErrorCheck();
+    }
+    ResolveInitialStateCopySource(candidate.wrappedSource, list, true);
+  }
+
+  if(list)
+  {
+    HRESULT hr = list->Close();
+    CHECK_HR(m_pDevice, hr);
+    if(FAILED(hr))
+      return m_pDevice->FatalErrorCheck();
+    // Keep the conservative default: there may also be loading-time debug lists pending.
+    m_pDevice->ExecuteLists(NULL, true);
+    const bool drained = m_pDevice->FlushLists(true);
+    if(drained && !m_pDevice->HasFatalError() && !storeStructuredBuffers)
+    {
+      RetireD3D12InitialUploadDuplicates(m_pDevice, m_InitialStateSourceCache);
+      DeduplicateD3D12InitialUploadSources(m_pDevice);
+    }
+  }
+  if(logPlan)
+  {
+    // Unique source counts are comparable even though the legacy loop can visit one source twice.
+    const auto unique = OrderInitialSourceWarmup(candidates, true);
+    uint64_t bytes = 0, observedBytes = 0;
+    size_t observed = 0;
+    for(const D3D12InitialSourceWarmupCandidate &candidate : unique)
+    {
+      bytes += candidate.sourceBufferBytes;
+      if(candidate.firstObservedWrite != ~0U)
+      {
+        observed++;
+        observedBytes += candidate.sourceBufferBytes;
+      }
+    }
+    rdcstr firstSources;
+    for(size_t i = 0; i < RDCMIN(size_t(8), ordered.size()); i++)
+      firstSources += StringFormat::Fmt("%s%s:%u:%llu", i ? "," : "",
+                                         ToStr(ordered[i].source).c_str(),
+                                         ordered[i].firstObservedWrite,
+                                         (unsigned long long)ordered[i].sourceBufferBytes);
+    const rdcstr line = StringFormat::Fmt(
+        "api=D3D12InitialSourceWarmup order=%s candidates=%zu observedWriteCandidates=%zu "
+        "candidateSourceBufferBytes=%llu observedWriteSourceBufferBytes=%llu visits=%zu "
+        "residentAllocationBytesBefore=%llu residentAllocationBytesAfter=%llu "
+        "firstSources=%s fatal=%u", firstWrite ? "first-write" : "legacy", unique.size(), observed,
+        (unsigned long long)bytes, (unsigned long long)observedBytes, ordered.size(),
+        (unsigned long long)residentBefore, (unsigned long long)m_InitialStateSourceCacheBytes,
+        firstSources.empty() ? "none" : firstSources.c_str(), m_pDevice->HasFatalError() ? 1U : 0U);
+    RDCLOG("%s", line.c_str());
+    AppendReplayTimingLog(line);
+  }
+  WarmD3D12ParameterReadIndex(m_pDevice);
+  AuditD3D12Memory(m_pDevice);
+  return m_pDevice->FatalErrorCheck();
 }
 
 rdcarray<GPUDevice> D3D12Replay::GetAvailableGPUs()
@@ -340,19 +671,605 @@ APIProperties D3D12Replay::GetAPIProperties()
   return ret;
 }
 
+void D3D12Replay::ConfigureReplayCheckpoints(
+    const ReplayCheckpointConfig &config, const rdcarray<ReplayCheckpointCandidate> &candidates)
+{
+  m_pDevice->ConfigureReplayCheckpoints(config, candidates);
+}
+
+void D3D12Replay::InvalidateReplayCheckpoints(uint32_t firstAffectedEvent)
+{
+  m_pDevice->InvalidateReplayCheckpoints(firstAffectedEvent);
+}
+
+ReplayCheckpointStats D3D12Replay::GetReplayCheckpointStats()
+{
+  return m_pDevice->GetReplayCheckpointStats();
+}
+
+bool D3D12Replay::RefreshReplayCheckpointMemoryBudget()
+{
+  return m_pDevice->RefreshReplayCheckpointMemoryBudget();
+}
+
+rdcstr D3D12Replay::SetReplayBufferPatches(const rdcarray<ReplayBufferPatch> &patches)
+{
+  return m_pDevice->SetReplayBufferPatches(patches);
+}
+
+uint32_t D3D12Replay::GetReplayBufferPatchFirstAffectedEvent() const
+{
+  return m_pDevice->GetReplayBufferPatchFirstAffectedEvent();
+}
+
 void D3D12Replay::ReplayLog(uint32_t endEventID, ReplayLogType replayType)
 {
-  if(replayType == eReplay_OnlyDraw)
+  const bool ordinaryTarget = replayType == eReplay_OnlyDraw && !m_EventShaderStateApplied &&
+                              !m_EventCBufferStateApplied &&
+                              m_EventCBufferOverrides.empty() &&
+                              m_pDevice->GetQueue()->GetCommandData()->m_ActionCallback == NULL;
+  const bool ordinaryRoot = replayType == eReplay_WithoutDraw && !m_ReplayCheckpointBypass &&
+                            !m_EventCBufferStateApplied && m_EventCBufferOverrides.empty() &&
+                            m_pDevice->GetQueue()->GetCommandData()->m_ActionCallback == NULL;
+  if(replayType == eReplay_OnlyDraw && !m_EventShaderStateApplied)
   {
+    const bool previousFeedbackScope = m_KnownOrdinaryTargetFeedback;
+    m_KnownOrdinaryTargetFeedback = ordinaryTarget;
     bool replayed = FetchShaderFeedback(endEventID);
+    m_KnownOrdinaryTargetFeedback = previousFeedbackScope;
     if(replayed)
+    {
+      if(ordinaryTarget)
+        m_pDevice->CompleteLiveForwardTarget(endEventID);
       return;
+    }
   }
 
-  m_pDevice->ReplayLog(0, endEventID, replayType);
+  // Internal analysis paths call the device directly and retain its default checkpoint bypass.
+  // Only the ordinary driver entry may reuse a prefix; the shared controller additionally
+  // bypasses this entry for canonical verification, analysis, and temporary event overrides.
+  // Prefix reuse and target provenance are separate: an unmodified target can preserve its
+  // matching root's complete dirty-write proof, including a natural reference replay.
+  const bool naturalReference = m_ReplayCheckpointBypass && m_ReplayCheckpointNaturalReference &&
+                                !m_EventCBufferStateApplied &&
+                                m_pDevice->GetQueue()->GetCommandData()->m_ActionCallback == NULL;
+  const bool bufferMutationRoot = m_ReplayBufferMutationRoot && !m_EventShaderStateApplied &&
+                                  !m_EventCBufferStateApplied && m_EventCBufferOverrides.empty() &&
+                                  m_pDevice->GetQueue()->GetCommandData()->m_ActionCallback == NULL;
+  const bool shaderMutationRoot =
+      m_ReplayShaderMutationRoot && m_pDevice->CanTrackCheckedShaderMutation() &&
+      !m_EventShaderStateApplied && !m_EventCBufferStateApplied && m_EventCBufferOverrides.empty() &&
+      m_pDevice->GetQueue()->GetCommandData()->m_ActionCallback == NULL;
+  m_pDevice->ReplayLog(0, endEventID, replayType, !m_ReplayCheckpointBypass, false, ordinaryTarget,
+                       naturalReference, ordinaryRoot, bufferMutationRoot, shaderMutationRoot);
+  m_pDevice->AuditReplayDescriptorDecodeCache();
+
+  if(ordinaryTarget)
+    m_pDevice->CompleteLiveForwardTarget(endEventID);
 
   if(replayType == eReplay_WithoutDraw)
-    m_pDevice->ReplayWorkWaitForIdle();
+  {
+    MarkGPUPhaseAudit(2);
+    const bool defer = ordinaryRoot && !m_pDevice->GetReplayOptions().apiValidation &&
+                       Process::GetEnvVariable("RENDERDOC_D3D12_DEFER_PREFIX_COMPLETION") == "1";
+    PerformanceTimer timer;
+    if(!defer)
+      m_pDevice->ReplayWorkWaitForIdle();
+    if(!defer)
+      FinishGPUPhaseAudit(!m_pDevice->HasFatalError());
+    if(Process::GetEnvVariable("RENDERDOC_EID_TIMING") == "1")
+      AppendReplayTimingLog(
+          StringFormat::Fmt("api=D3D12PostPrefixWait event=%u deferred=%u duration_ms=%.6f",
+                            endEventID, defer ? 1U : 0U, timer.GetMilliseconds()));
+  }
+}
+
+void D3D12Replay::BeginGPUPhaseAudit(uint32_t eventId)
+{
+  // The caller has drained the previous full prefix before entering initial restoration.
+  if(!m_GPUPhaseAudits.empty())
+    FinishGPUPhaseAudit(true);
+  if(Process::GetEnvVariable("RENDERDOC_D3D12_GPU_PHASE_TIMING") != "1" ||
+     Process::GetEnvVariable("RENDERDOC_EID_TIMING") != "1")
+    return;
+  m_GPUPhaseAuditEvent = eventId;
+  D3D12_HEAP_PROPERTIES heap = {};
+  heap.Type = D3D12_HEAP_TYPE_READBACK;
+  heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+  D3D12_RESOURCE_DESC buffer = {};
+  buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+  buffer.Width = sizeof(uint64_t) * 3;
+  buffer.Height = buffer.SampleDesc.Count = 1;
+  buffer.DepthOrArraySize = buffer.MipLevels = 1;
+  buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+  // Captured COPY queues need optional copy-timestamp support. Skip them rather than assume it.
+  // Every allocation is fixed-size and retired at the existing completion boundary.
+  const auto &queues = m_pDevice->GetQueues();
+  for(WrappedID3D12CommandQueue *wrapped : queues)
+  {
+    if(m_GPUPhaseAudits.size() >= 16)
+      break;
+    if(!wrapped)
+      continue;
+    GPUPhaseAudit probe;
+    probe.queue = wrapped->GetReal();
+    probe.queueId = wrapped->GetResourceID();
+    const D3D12_COMMAND_LIST_TYPE type = probe.queue->GetDesc().Type;
+    if((type != D3D12_COMMAND_LIST_TYPE_DIRECT && type != D3D12_COMMAND_LIST_TYPE_COMPUTE) ||
+       FAILED(probe.queue->GetTimestampFrequency(&probe.frequency)) || !probe.frequency)
+      continue;
+    D3D12_QUERY_HEAP_DESC query = {};
+    query.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    query.Count = 3;
+    bool ok = SUCCEEDED(m_pDevice->GetReal()->CreateQueryHeap(&query, __uuidof(ID3D12QueryHeap),
+                                                              (void **)&probe.queries));
+    ok = ok && SUCCEEDED(m_pDevice->GetReal()->CreateCommittedResource(
+                   &heap, D3D12_HEAP_FLAG_NONE, &buffer, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+                   __uuidof(ID3D12Resource), (void **)&probe.readback));
+    ok = ok && SUCCEEDED(m_pDevice->GetReal()->CreateCommandAllocator(
+                   type, __uuidof(ID3D12CommandAllocator), (void **)&probe.allocator));
+    for(uint32_t i = 0; ok && i < 3; i++)
+    {
+      ok = SUCCEEDED(m_pDevice->GetReal()->CreateCommandList(0, type, probe.allocator, NULL,
+                                                             __uuidof(ID3D12GraphicsCommandList),
+                                                             (void **)&probe.markers[i]));
+      if(ok)
+      {
+        probe.markers[i]->EndQuery(probe.queries, D3D12_QUERY_TYPE_TIMESTAMP, i);
+        if(i == 2)
+          probe.markers[i]->ResolveQueryData(probe.queries, D3D12_QUERY_TYPE_TIMESTAMP, 0, 3,
+                                             probe.readback, 0);
+        ok = SUCCEEDED(probe.markers[i]->Close());
+      }
+    }
+    if(ok)
+      m_GPUPhaseAudits.push_back(probe);
+    else
+    {
+      for(auto &marker : probe.markers)
+        SAFE_RELEASE(marker);
+      SAFE_RELEASE(probe.allocator);
+      SAFE_RELEASE(probe.readback);
+      SAFE_RELEASE(probe.queries);
+    }
+  }
+  MarkGPUPhaseAudit(0);
+}
+
+void D3D12Replay::MarkGPUPhaseAudit(uint32_t index)
+{
+  for(GPUPhaseAudit &probe : m_GPUPhaseAudits)
+    if(index < 3 && probe.issued == index)
+    {
+      ID3D12CommandList *list = probe.markers[index];
+      probe.queue->ExecuteCommandLists(1, &list);
+      probe.issued++;
+      m_pDevice->MarkReplayWorkSubmitted(false);
+    }
+}
+
+void D3D12Replay::FinishGPUPhaseAudit(bool completed)
+{
+  if(!completed)
+    return;    // A failed fence never authorises releasing live query storage/allocators.
+  for(GPUPhaseAudit &probe : m_GPUPhaseAudits)
+  {
+    uint64_t *ticks = NULL;
+    D3D12_RANGE read = {0, 3 * sizeof(uint64_t)}, written = {0, 0};
+    if(completed && probe.issued == 3 && SUCCEEDED(probe.readback->Map(0, &read, (void **)&ticks)))
+    {
+      if(ticks[0] <= ticks[1] && ticks[1] <= ticks[2])
+        AppendReplayTimingLog(StringFormat::Fmt(
+            "api=D3D12GPUPhases event=%u queue=%s type=%u initial_interval_ms=%.6f "
+            "prefix_interval_ms=%.6f total_interval_ms=%.6f scope=queueIntervalsIncludingGaps",
+            m_GPUPhaseAuditEvent, ToStr(probe.queueId).c_str(),
+            (uint32_t)probe.queue->GetDesc().Type, (ticks[1] - ticks[0]) * 1000.0 / probe.frequency,
+            (ticks[2] - ticks[1]) * 1000.0 / probe.frequency,
+            (ticks[2] - ticks[0]) * 1000.0 / probe.frequency));
+      probe.readback->Unmap(0, &written);
+    }
+    for(auto &marker : probe.markers)
+      SAFE_RELEASE(marker);
+    SAFE_RELEASE(probe.allocator);
+    SAFE_RELEASE(probe.readback);
+    SAFE_RELEASE(probe.queries);
+  }
+  m_GPUPhaseAudits.clear();
+}
+
+namespace
+{
+// Paired observations are deliberately smaller than general resource checkpoints. A direct VS/PS
+// draw may change only its color/depth attachments; every other input remains from one prefix.
+struct D3D12ShaderPairAttachment
+{
+  ID3D12Resource *source = NULL;
+  ID3D12Resource *before = NULL;
+  ID3D12Resource *a = NULL;
+  ID3D12Resource *b = NULL;
+  ShaderPairSnapshot snapshot;
+  uint64_t bytes = 0;
+};
+
+struct D3D12ShaderPairScratch
+{
+  D3D12ShaderPairScratch(WrappedID3D12Device *d, rdcarray<ID3D12DeviceChild *> &retained)
+      : device(d), unconfirmed(retained)
+  {
+  }
+  WrappedID3D12Device *device;
+  rdcarray<ID3D12DeviceChild *> &unconfirmed;
+  rdcarray<ID3D12DeviceChild *> owned;
+  bool submitted = false;
+
+  ~D3D12ShaderPairScratch()
+  {
+    // Never free command-list dependencies while the GPU might still be using them. A device-loss
+    // path retains only this bounded transaction's resources until the device itself is destroyed.
+    if(submitted && !device->ReplayWorkWaitForIdle())
+    {
+      for(ID3D12DeviceChild *resource : owned)
+        unconfirmed.push_back(resource);
+      return;
+    }
+    for(ID3D12DeviceChild *resource : owned)
+      resource->Release();
+  }
+};
+
+bool ShaderPairResourcesOverlap(WrappedID3D12Device *device, ID3D12Resource *left,
+                                ID3D12Resource *right)
+{
+  if(left == right)
+    return true;
+  WrappedID3D12Resource *a = (WrappedID3D12Resource *)left;
+  WrappedID3D12Resource *b = (WrappedID3D12Resource *)right;
+  if(a->GetHeap() == NULL || a->GetHeap() != b->GetHeap())
+    return false;
+  const D3D12_RESOURCE_DESC ad = left->GetDesc(), bd = right->GetDesc();
+  const uint64_t as = device->GetReal()->GetResourceAllocationInfo(0, 1, &ad).SizeInBytes;
+  const uint64_t bs = device->GetReal()->GetResourceAllocationInfo(0, 1, &bd).SizeInBytes;
+  const uint64_t ao = a->GetHeapOffset(), bo = b->GetHeapOffset();
+  if(as == ~0ULL || bs == ~0ULL || ao > ~0ULL - as || bo > ~0ULL - bs)
+    return true;
+  return ao < bo + bs && bo < ao + as;
+}
+
+rdcstr CheckShaderPairInputs(WrappedID3D12Device *device, const D3D12RenderState &state,
+                            const rdcarray<D3D12ShaderPairAttachment> &attachments)
+{
+  D3D12ResourceManager *rm = device->GetResourceManager();
+  WrappedID3D12RootSignature *sig =
+      rm->GetResAs<WrappedID3D12RootSignature>(state.graphics.rootsig, true);
+  if(!sig)
+    return "The graphics root signature is unavailable";
+  if(sig->sig.Flags & (D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED |
+                      D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED))
+    return "Paired observations do not support directly indexed descriptor heaps";
+
+  auto checkResource = [&](ResourceId id) -> bool {
+    if(id == ResourceId())
+      return true;
+    ID3D12Resource *resource = rm->GetResAs<ID3D12Resource>(id, true);
+    if(!resource)
+      return false;
+    // Reserved inputs can alias an output through tile mappings without exposing a placed heap.
+    // Require a conventional allocation before relying on the heap-range overlap check below.
+    D3D12_HEAP_PROPERTIES heap = {};
+    D3D12_HEAP_FLAGS flags = D3D12_HEAP_FLAG_NONE;
+    if(FAILED(resource->GetHeapProperties(&heap, &flags)))
+      return false;
+    for(const D3D12ShaderPairAttachment &attachment : attachments)
+      if(ShaderPairResourcesOverlap(device, resource, attachment.source))
+        return false;
+    return true;
+  };
+
+  if(!checkResource(state.ibuffer.buf))
+    return "An index buffer is unavailable, sparse, or aliases a paired output";
+  for(const D3D12RenderState::VertBuffer &vb : state.vbuffers)
+    if(!checkResource(vb.buf))
+      return "A vertex buffer is unavailable, sparse, or aliases a paired output";
+
+  uint64_t checkedDescriptors = 0;
+  for(size_t parameter = 0; parameter < state.graphics.sigelems.size(); parameter++)
+  {
+    const D3D12RenderState::SignatureElement &element = state.graphics.sigelems[parameter];
+    if(element.type == eRootUnknown || element.type == eRootConst)
+      continue;
+    if(parameter >= sig->sig.Parameters.size())
+      return "The graphics root elements do not match their signature";
+    if(element.type == eRootCBV || element.type == eRootSRV || element.type == eRootUAV)
+    {
+      if(!checkResource(element.id))
+        return "A root descriptor is unavailable, sparse, or aliases a paired output";
+      continue;
+    }
+    if(element.type != eRootTable)
+      return "The graphics root element type is unsupported";
+    const D3D12RootSignatureParameter &root = sig->sig.Parameters[parameter];
+    if(root.ParameterType != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+      return "A graphics descriptor table does not match its signature";
+    WrappedID3D12DescriptorHeap *heap = rm->GetResAs<WrappedID3D12DescriptorHeap>(element.id, true);
+    if(!heap)
+      return "A bound descriptor heap is unavailable";
+    uint64_t appendOffset = 0;
+    for(UINT rangeIndex = 0; rangeIndex < root.DescriptorTable.NumDescriptorRanges; rangeIndex++)
+    {
+      const D3D12_DESCRIPTOR_RANGE1 &range = root.DescriptorTable.pDescriptorRanges[rangeIndex];
+      const uint64_t offset = range.OffsetInDescriptorsFromTableStart ==
+                                      D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND
+                                  ? appendOffset
+                                  : range.OffsetInDescriptorsFromTableStart;
+      if(range.NumDescriptors == ~0U || range.NumDescriptors > 4096 ||
+         checkedDescriptors + range.NumDescriptors > 4096 ||
+         element.offset > heap->GetDesc().NumDescriptors ||
+         offset > heap->GetDesc().NumDescriptors - element.offset ||
+         range.NumDescriptors > heap->GetDesc().NumDescriptors - element.offset - offset)
+        return "The paired descriptor closure is unbounded or unavailable";
+      appendOffset = offset + range.NumDescriptors;
+      checkedDescriptors += range.NumDescriptors;
+      if(range.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER)
+        continue;
+      for(UINT i = 0; i < range.NumDescriptors; i++)
+      {
+        const D3D12Descriptor &descriptor =
+            heap->GetDescriptors()[size_t(element.offset + offset + i)];
+        if(descriptor.GetType() == D3D12DescriptorType::Undefined)
+          continue;
+        const ResourceId resource = descriptor.GetType() == D3D12DescriptorType::CBV
+                                        ? WrappedID3D12Resource::GetResIDFromAddr(
+                                              descriptor.GetCBV().BufferLocation)
+                                        : descriptor.GetResResourceId();
+        if(!checkResource(resource) ||
+           (descriptor.GetType() == D3D12DescriptorType::UAV &&
+            !checkResource(descriptor.GetCounterResourceId())))
+          return "A shader descriptor is unavailable, sparse, or aliases a paired output";
+      }
+    }
+  }
+  return {};
+}
+
+void ShaderPairCopy(WrappedID3D12Device *device, ID3D12GraphicsCommandListX *list,
+                    ID3D12Resource *original, ID3D12Resource *snapshot, bool restore)
+{
+  BarrierSet barriers;
+  barriers.Configure(original, device->GetSubresourceStates(GetResID(original)),
+                     restore ? BarrierSet::CopyDestAccess : BarrierSet::CopySourceAccess);
+  barriers.Apply(list);
+  list->CopyResource(restore ? original : snapshot, restore ? snapshot : original);
+  barriers.Unapply(list);
+  if(!restore)
+  {
+    D3D12_RESOURCE_BARRIER ready = {};
+    ready.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    ready.Transition.pResource = snapshot;
+    ready.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    ready.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    ready.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    list->ResourceBarrier(1, &ready);
+    for(D3D12ResourceLayout &layout : device->GetSubresourceStates(GetResID(snapshot)))
+      layout = D3D12ResourceLayout::FromStates(D3D12_RESOURCE_STATE_COPY_SOURCE);
+  }
+}
+}
+
+ShaderPairComparison D3D12Replay::ComparePixelShaderPair(uint32_t eventId,
+                                                        ResourceId expectedOriginal,
+                                                        ResourceId baseline, ResourceId candidate)
+{
+  ShaderPairComparison result;
+  result.eventId = eventId;
+  const ActionDescription *action = m_pDevice->GetAction(eventId);
+  D3D12CommandData &cmd = *m_pDevice->GetQueue()->GetCommandData();
+  auto reject = [&](const rdcstr &reason) -> ShaderPairComparison {
+    result.reason = reason;
+    return std::move(result);
+  };
+  if(!action || !(action->flags & ActionFlags::Drawcall) ||
+     (action->flags & (ActionFlags::Indirect | ActionFlags::MeshDispatch)) || action->drawIndex != 0)
+    return reject("Paired observations require one direct Draw or DrawIndexed action");
+  if(cmd.m_ActionCallback || m_EventCBufferStateApplied || !m_EventCBufferOverrides.empty())
+    return reject("Paired observations cannot nest analysis callbacks or event overrides");
+  if(!m_ShaderPairUnconfirmed.empty())
+  {
+    result.supported = true;
+    return reject("A previous paired observation has unconfirmed GPU work");
+  }
+
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  if(!WrappedID3D12Shader::IsShader(expectedOriginal) || rm->HasReplacement(expectedOriginal))
+    return reject("The original pixel shader must be live and have no shared replacement");
+  if(baseline == ResourceId())
+    baseline = expectedOriginal;
+  if(candidate == ResourceId())
+    candidate = expectedOriginal;
+  if(!WrappedID3D12Shader::IsShader(baseline) || !WrappedID3D12Shader::IsShader(candidate))
+    return reject("Both paired shaders must be live native shader resources");
+
+  // Exactly one canonical prefix, with no target execution, shader-feedback pass, checkpoint
+  // reuse, or viewer refresh. Every A/B/A draw below sees the very same input resource bytes.
+  m_pDevice->ReplayLog(0, eventId, eReplay_WithoutDraw);
+  if(!m_pDevice->ReplayWorkWaitForIdle() || m_pDevice->HasFatalError())
+  {
+    result.supported = true;
+    return reject("The paired observation prefix did not complete");
+  }
+  const D3D12RenderState state = cmd.m_RenderState;
+  WrappedID3D12PipelineState *pipe = rm->GetResAs<WrappedID3D12PipelineState>(state.pipe, true);
+  if(!pipe || !pipe->IsGraphics() || !pipe->VS() || !pipe->PS() ||
+     pipe->PS()->GetResourceID() != expectedOriginal)
+    return reject("The selected pipeline does not bind the expected original pixel shader");
+  bool streamout = false;
+  for(const D3D12RenderState::StreamOut &stream : state.streamouts)
+    streamout |= stream.buf != ResourceId() || stream.countbuf != ResourceId();
+  if(state.renderpass || state.stateobj != ResourceId() || streamout ||
+     state.predication.buffer != ResourceId() || state.shadingRateImage != ResourceId() ||
+     pipe->HS() || pipe->DS() || pipe->GS() || pipe->AS() || pipe->MS())
+    return reject("Paired observations require a VS/PS draw without render passes, stream-out, "
+                  "predication, shading-rate images, or additional shader stages");
+
+  WrappedID3D12Shader *aShader = rm->GetResAs<WrappedID3D12Shader>(baseline, true);
+  WrappedID3D12Shader *bShader = rm->GetResAs<WrappedID3D12Shader>(candidate, true);
+  if(!aShader || !bShader || aShader->GetDetails().stage != ShaderStage::Pixel ||
+     bShader->GetDetails().stage != ShaderStage::Pixel)
+    return reject("Both paired replacements must be pixel shaders");
+  for(WrappedID3D12Shader *shader : {pipe->VS(), pipe->PS(), aShader, bShader})
+  {
+    uint32_t extensionSlot = ~0U, extensionSpace = ~0U;
+    shader->GetShaderExtSlot(extensionSlot, extensionSpace);
+    if(!shader->GetDetails().readWriteResources.empty() || extensionSlot != ~0U)
+      return reject("Paired observations cannot repeat shaders with UAV or vendor-extension effects");
+  }
+
+  rdcarray<D3D12ShaderPairAttachment> attachments;
+  uint64_t totalBytes = 0;
+  auto addAttachment = [&](const D3D12Descriptor &view, uint32_t index, bool depth) -> rdcstr {
+    const ResourceId id = view.GetResResourceId();
+    if(id == ResourceId())
+      return {};
+    ID3D12Resource *resource = rm->GetResAs<ID3D12Resource>(id, true);
+    if(!resource)
+      return "A paired output resource is unavailable";
+    const D3D12_RESOURCE_DESC desc = resource->GetDesc();
+    if(desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || desc.MipLevels != 1 ||
+       desc.DepthOrArraySize != 1 || desc.SampleDesc.Count != 1 || desc.Width == 0 ||
+       desc.Height == 0 || desc.Width > 8192 || desc.Height > 8192)
+      return "Paired outputs must be single-sample 2D textures with one mip and one array slice";
+    if(depth ? (view.GetDSV().ViewDimension != D3D12_DSV_DIMENSION_TEXTURE2D ||
+                view.GetDSV().Texture2D.MipSlice != 0)
+             : (view.GetRTV().ViewDimension != D3D12_RTV_DIMENSION_TEXTURE2D ||
+                view.GetRTV().Texture2D.MipSlice != 0))
+      return "The paired output view does not cover its supported subresource";
+    D3D12_HEAP_PROPERTIES heap = {};
+    D3D12_HEAP_FLAGS flags = D3D12_HEAP_FLAG_NONE;
+    if(FAILED(resource->GetHeapProperties(&heap, &flags)))
+      return "Paired observations do not support sparse output resources";
+    const uint64_t bytes = GetByteSize((int)desc.Width, (int)desc.Height, 1, desc.Format, 0);
+    if(bytes == 0 || bytes > 32ULL * 1024 * 1024 ||
+       totalBytes + bytes > 64ULL * 1024 * 1024 || attachments.size() >= 9)
+      return "Paired output data exceeds the 32 MiB per-output or 64 MiB per-leg budget";
+    for(const D3D12ShaderPairAttachment &existing : attachments)
+      if(ShaderPairResourcesOverlap(m_pDevice, existing.source, resource))
+        return "Paired output resources overlap or alias each other";
+    D3D12ShaderPairAttachment attachment;
+    attachment.source = resource;
+    attachment.bytes = bytes;
+    attachment.snapshot.resourceId = id;
+    attachment.snapshot.index = index;
+    attachment.snapshot.depth = depth;
+    attachment.snapshot.width = (uint32_t)desc.Width;
+    attachment.snapshot.height = desc.Height;
+    attachment.snapshot.format = GetTexture(id).format;
+    const DXGI_FORMAT viewFormat = depth ? view.GetDSV().Format : view.GetRTV().Format;
+    if(viewFormat != DXGI_FORMAT_UNKNOWN)
+      attachment.snapshot.format = MakeResourceFormat(viewFormat);
+    attachments.push_back(std::move(attachment));
+    totalBytes += bytes;
+    return {};
+  };
+  for(uint32_t i = 0; i < state.rts.size(); i++)
+  {
+    rdcstr error = addAttachment(state.rts[i], i, false);
+    if(!error.empty())
+      return reject(error);
+  }
+  if(state.dsv.GetType() == D3D12DescriptorType::DSV)
+  {
+    rdcstr error = addAttachment(state.dsv, 0, true);
+    if(!error.empty())
+      return reject(error);
+  }
+  if(attachments.empty())
+    return reject("The paired draw has no stored output attachments");
+  rdcstr inputError = CheckShaderPairInputs(m_pDevice, state, attachments);
+  if(!inputError.empty())
+    return reject(inputError);
+
+  result.supported = true;
+  D3D12ShaderPairScratch scratch(m_pDevice, m_ShaderPairUnconfirmed);
+  D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC description;
+  pipe->Fill(description);
+  description.CachedPSO = {};
+  ID3D12PipelineState *aPipeline = NULL, *bPipeline = NULL;
+  description.PS = aShader->GetDesc();
+  HRESULT hr = m_pDevice->CreatePipeState(description, &aPipeline);
+  if(FAILED(hr) || !aPipeline)
+    return reject("Failed to create the isolated baseline pixel pipeline");
+  scratch.owned.push_back(aPipeline);
+  description.PS = bShader->GetDesc();
+  hr = m_pDevice->CreatePipeState(description, &bPipeline);
+  if(FAILED(hr) || !bPipeline)
+    return reject("Failed to create the isolated candidate pixel pipeline");
+  scratch.owned.push_back(bPipeline);
+  for(D3D12ShaderPairAttachment &attachment : attachments)
+  {
+    D3D12_RESOURCE_DESC desc = attachment.source->GetDesc();
+    desc.Alignment = 0;
+    D3D12_HEAP_PROPERTIES heap = {};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+    for(ID3D12Resource **destination : {&attachment.before, &attachment.a, &attachment.b})
+    {
+      hr = m_pDevice->CreateCommittedResource(
+          &heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+          __uuidof(ID3D12Resource), (void **)destination);
+      if(FAILED(hr) || !*destination)
+        return reject("Failed to allocate bounded paired output snapshots");
+      scratch.owned.push_back(*destination);
+    }
+  }
+  // Keep this list out of the generic pending queue until it is completely recorded and closed.
+  // A failed Close must never leave a later unrelated ExecuteLists holding released scratch.
+  ID3D12GraphicsCommandListX *list = m_pDevice->StealNewList();
+  if(!list)
+    return reject("Failed to create the paired observation command list");
+  for(D3D12ShaderPairAttachment &attachment : attachments)
+    ShaderPairCopy(m_pDevice, list, attachment.source, attachment.before, false);
+
+  state.ApplyState(m_pDevice, list);
+  list->SetPipelineState(aPipeline);
+  m_pDevice->ReplayDraw(list, *action);
+  for(D3D12ShaderPairAttachment &attachment : attachments)
+  {
+    ShaderPairCopy(m_pDevice, list, attachment.source, attachment.a, false);
+    ShaderPairCopy(m_pDevice, list, attachment.source, attachment.before, true);
+  }
+  list->SetPipelineState(bPipeline);
+  m_pDevice->ReplayDraw(list, *action);
+  for(D3D12ShaderPairAttachment &attachment : attachments)
+  {
+    ShaderPairCopy(m_pDevice, list, attachment.source, attachment.b, false);
+    ShaderPairCopy(m_pDevice, list, attachment.source, attachment.before, true);
+  }
+  list->SetPipelineState(aPipeline);
+  m_pDevice->ReplayDraw(list, *action);
+  // Keep the captured CPU state authoritative. Only the local command list used the trial PSOs.
+  state.ApplyState(m_pDevice, list);
+  if(FAILED(list->Close()) || m_pDevice->HasFatalError())
+  {
+    list->Release();
+    return reject("Failed to close the paired observation command list");
+  }
+  scratch.submitted = true;
+  m_pDevice->ExecuteList(list);
+  if(!m_pDevice->FlushLists(true) || !m_pDevice->ReplayWorkWaitForIdle() || m_pDevice->HasFatalError())
+    return reject("The paired observation GPU work did not complete");
+
+  for(D3D12ShaderPairAttachment &attachment : attachments)
+  {
+    ShaderPairSnapshot &output = attachment.snapshot;
+    GetTextureData(GetResID(attachment.a), output.subresource, GetTextureDataParams(), output.baseline);
+    GetTextureData(GetResID(attachment.b), output.subresource, GetTextureDataParams(), output.candidate);
+    GetTextureData(output.resourceId, output.subresource, GetTextureDataParams(), output.baselineRepeat);
+    if(output.baseline.size() != attachment.bytes || output.candidate.size() != attachment.bytes ||
+       output.baselineRepeat.size() != attachment.bytes || m_pDevice->HasFatalError())
+      return reject("The paired observation did not return complete native attachment data");
+    result.outputs.push_back(std::move(output));
+  }
+  result.completed = true;
+  return result;
 }
 
 SDFile *D3D12Replay::GetStructuredFile()
@@ -394,7 +1311,8 @@ rdcarray<BufferDescription> D3D12Replay::GetBuffers()
   rdcarray<BufferDescription> ret;
 
   for(auto it = m_pDevice->GetResourceList().begin(); it != m_pDevice->GetResourceList().end(); it++)
-    if(it->second->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    if(it->second->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+       !ResourceIDGen::IsReplayOnlyID(it->first))
       ret.push_back(GetBuffer(it->first));
 
   return ret;
@@ -430,6 +1348,12 @@ BufferDescription D3D12Replay::GetBuffer(ResourceId id)
 
   ret.creationFlags = BufferCategory::NoFlags;
   ret.gpuAddress = it->second->GetOriginalVA();
+
+  if(it->second->GetHeap())
+  {
+    ret.memory = it->second->GetHeap()->GetResourceID();
+    ret.memoryOffset = it->second->GetHeapOffset();
+  }
 
   const rdcarray<EventUsage> &usage = m_pDevice->GetQueue()->GetUsage(id);
 
@@ -478,11 +1402,29 @@ TextureDescription D3D12Replay::GetTexture(ResourceId id)
   ret.mips = desc.MipLevels;
   ret.msQual = desc.SampleDesc.Quality;
   ret.msSamp = RDCMAX(1U, desc.SampleDesc.Count);
-  ret.byteSize = 0;
-  for(uint32_t i = 0; i < ret.mips; i++)
-    ret.byteSize += GetByteSize(ret.width, ret.height, ret.depth, desc.Format, i);
-  ret.byteSize *= ret.arraysize;
-  ret.byteSize *= ret.msSamp;
+
+  if(desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+  {
+    ret.byteSize = desc.Width;
+  }
+  else
+  {
+    ret.byteSize = m_pDevice->GetResourceAllocationInfo(0, 1, &desc).SizeInBytes;
+  }
+
+  if(ret.byteSize == 0)
+  {
+    for(uint32_t i = 0; i < ret.mips; i++)
+      ret.byteSize += GetByteSize(ret.width, ret.height, ret.depth, desc.Format, i);
+    ret.byteSize *= ret.arraysize;
+    ret.byteSize *= ret.msSamp;
+  }
+
+  if(it->second->GetHeap())
+  {
+    ret.memory = it->second->GetHeap()->GetResourceID();
+    ret.memoryOffset = it->second->GetHeapOffset();
+  }
 
   switch(ret.dimension)
   {
@@ -532,10 +1474,17 @@ rdcarray<ShaderEntryPoint> D3D12Replay::GetShaderEntryPoints(ResourceId shader)
     return {};
 
   WrappedID3D12Shader *sh = (WrappedID3D12Shader *)res;
+  const DXBC::DXBCContainer *container = sh->GetDXBC();
+
+  if(container != NULL)
+  {
+    rdcarray<ShaderEntryPoint> entries = container->GetEntryPoints();
+    if(!entries.empty())
+      return entries;
+  }
 
   const ShaderReflection &ret = sh->GetDetails();
-
-  return {{"main", ret.stage}};
+  return {{ret.entryPoint.empty() ? "main" : ret.entryPoint, ret.stage}};
 }
 
 const ShaderReflection *D3D12Replay::GetShader(ResourceId pipeline, ResourceId shader,
@@ -727,7 +1676,12 @@ void D3D12Replay::FreeCustomShader(ResourceId id)
 
 rdcarray<EventUsage> D3D12Replay::GetUsage(ResourceId id)
 {
-  if(m_pDevice->GetResourceList().find(id) == m_pDevice->GetResourceList().end())
+  // Shader bytecode is exposed through GetResources(), but it is not an ID3D12Resource and
+  // therefore is intentionally absent from the device resource list. Keep the ordinary resource
+  // gate while allowing the complete Shader action-usage index populated during action
+  // construction.
+  if(m_pDevice->GetResourceList().find(id) == m_pDevice->GetResourceList().end() &&
+     !WrappedID3D12Shader::IsShader(id))
   {
     return {EventUsage(0, ResourceUsage::Unused)};
   }
@@ -788,7 +1742,8 @@ void D3D12Replay::FillDescriptor(Descriptor &dst, const D3D12Descriptor *src)
       if(srv.ViewDimension == D3D12_SRV_DIMENSION_UNKNOWN)
         srv = MakeSRVDesc(res);
 
-      if(srv.ViewDimension == D3D12_SRV_DIMENSION_BUFFER)
+      if(srv.ViewDimension == D3D12_SRV_DIMENSION_BUFFER ||
+         srv.ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET)
         dst.type = DescriptorType::TypedBuffer;
       else
         dst.type = DescriptorType::Image;
@@ -815,6 +1770,17 @@ void D3D12Replay::FillDescriptor(Descriptor &dst, const D3D12Descriptor *src)
         if(srv.Buffer.StructureByteStride > 0)
         {
           dst.elementByteSize = srv.Buffer.StructureByteStride;
+          dst.type = DescriptorType::Buffer;
+        }
+      }
+      else if(srv.ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET)
+      {
+        dst.byteOffset = srv.BufferByteOffset.Offset;
+        dst.byteSize = srv.BufferByteOffset.Size;
+        dst.flags = MakeDescriptorFlags(srv.BufferByteOffset.Flags);
+        if(srv.BufferByteOffset.StructureByteStride > 0)
+        {
+          dst.elementByteSize = srv.BufferByteOffset.StructureByteStride;
           dst.type = DescriptorType::Buffer;
         }
       }
@@ -913,7 +1879,8 @@ void D3D12Replay::FillDescriptor(Descriptor &dst, const D3D12Descriptor *src)
       if(uav.ViewDimension == D3D12_UAV_DIMENSION_UNKNOWN)
         uav = MakeUAVDesc(res);
 
-      if(uav.ViewDimension == D3D12_UAV_DIMENSION_BUFFER)
+      if(uav.ViewDimension == D3D12_UAV_DIMENSION_BUFFER ||
+         uav.ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
         dst.type = uav.Format != DXGI_FORMAT_UNKNOWN ? DescriptorType::ReadWriteTypedBuffer
                                                      : DescriptorType::ReadWriteBuffer;
       else
@@ -942,6 +1909,26 @@ void D3D12Replay::FillDescriptor(Descriptor &dst, const D3D12Descriptor *src)
           bytebuf counterVal;
           GetDebugManager()->GetBufferData(rm->GetResAs<ID3D12Resource>(src->GetCounterResourceId()),
                                            uav.Buffer.CounterOffsetInBytes, 4, counterVal);
+          uint32_t *val = (uint32_t *)&counterVal[0];
+          dst.bufferStructCount = *val;
+        }
+      }
+      else if(uav.ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
+      {
+        dst.byteOffset = uav.BufferByteOffset.Offset;
+        dst.byteSize = uav.BufferByteOffset.Size;
+        dst.flags = MakeDescriptorFlags(uav.BufferByteOffset.Flags);
+        if(uav.BufferByteOffset.StructureByteStride > 0)
+          dst.elementByteSize = uav.BufferByteOffset.StructureByteStride;
+
+        dst.counterByteOffset = uav.BufferByteOffset.CounterOffsetInBytes & 0xffffffff;
+        RDCASSERT(uav.BufferByteOffset.CounterOffsetInBytes < 0xffffffff);
+
+        if(dst.secondary != ResourceId())
+        {
+          bytebuf counterVal;
+          GetDebugManager()->GetBufferData(rm->GetResAs<ID3D12Resource>(src->GetCounterResourceId()),
+                                           uav.BufferByteOffset.CounterOffsetInBytes, 4, counterVal);
           uint32_t *val = (uint32_t *)&counterVal[0];
           dst.bufferStructCount = *val;
         }
@@ -1194,7 +2181,8 @@ void D3D12Replay::SavePipelineState(uint32_t eventId)
   D3D12MarkerRegion::Begin(m_pDevice->GetQueue(),
                            StringFormat::Fmt("FetchShaderFeedback for %u", eventId));
 
-  FetchShaderFeedback(eventId);
+  if(!HasEventShaderOverride(eventId))
+    FetchShaderFeedback(eventId);
 
   D3D12MarkerRegion::End(m_pDevice->GetQueue());
 
@@ -1831,7 +2819,7 @@ rdcarray<Descriptor> D3D12Replay::GetDescriptors(ResourceId descriptorStore,
         WrappedID3D12Resource::GetResIDFromAddr(cbv.BufferLocation, ret[dst].resource,
                                                 ret[dst].byteOffset);
 
-        ret[dst].resource = ret[dst].resource;
+        ret[dst].type = DescriptorType::ConstantBuffer;
         ret[dst].byteSize = cbv.SizeInBytes;
       }
       else if(desc->GetType() == D3D12DescriptorType::Sampler)
@@ -2288,10 +3276,7 @@ uint32_t D3D12Replay::PickVertex(uint32_t eventId, int32_t width, int32_t height
   cbuf.PickFlipY = cfg.position.flipY;
   cbuf.PickOrtho = cfg.ortho;
 
-  float nearPlane = cfg.cam ? ((Camera *)cfg.cam)->GetNear() : 0.1f;
-  float farPlane = cfg.cam ? ((Camera *)cfg.cam)->GetFar() : 100000.0f;
-
-  Matrix4f projMat = Matrix4f::Perspective(90.0f, nearPlane, farPlane, float(width) / float(height));
+  Matrix4f projMat = Camera::MeshProjection(cfg.cam, float(width) / float(height));
 
   Matrix4f camMat = cfg.cam ? ((Camera *)cfg.cam)->GetMatrix() : Matrix4f::Identity();
 
@@ -2349,7 +3334,9 @@ uint32_t D3D12Replay::PickVertex(uint32_t eventId, int32_t width, int32_t height
 
     // set up the NDC near/far pos
     Vec3f nearPosNDC = Vec3f(pickXCanonical, pickYCanonical, 0);
-    Vec3f farPosNDC = Vec3f(pickXCanonical, pickYCanonical, 1);
+    // A small preview near plane can round the depth at infinity to 1.
+    // A second interior sample gives the same ray without a zero homogeneous W.
+    Vec3f farPosNDC = Vec3f(pickXCanonical, pickYCanonical, 0.999f);
 
     if(cfg.position.unproject && cfg.ortho)
     {
@@ -3319,11 +4306,11 @@ rdcarray<uint32_t> D3D12Replay::GetPassEvents(uint32_t eventId)
 
     // if we've come to the start of the log we were outside of a list
     // to start with
-    if(start->previous == NULL)
+    if(start->previousAction == NULL)
       return passEvents;
 
     // step back
-    const ActionDescription *prev = start->previous;
+    const ActionDescription *prev = start->previousAction;
 
     // if the previous is a clear, we're done
     if(prev->flags & ActionFlags::Clear)
@@ -3349,7 +4336,7 @@ rdcarray<uint32_t> D3D12Replay::GetPassEvents(uint32_t eventId)
     if(start->flags & (ActionFlags::MeshDispatch | ActionFlags::Drawcall | ActionFlags::PassBoundary))
       passEvents.push_back(start->eventId);
 
-    start = start->next;
+    start = start->nextAction;
   }
 
   return passEvents;
@@ -3570,9 +4557,16 @@ void D3D12Replay::BuildShader(ShaderEncoding sourceEncoding, const bytebuf &sour
   byteCode.BytecodeLength = dxbcLength;
   byteCode.pShaderBytecode = dxbcBytes;
 
-  WrappedID3D12Shader *sh = WrappedID3D12Shader::AddShader(ResourceId(), byteCode, m_pDevice);
+  bool created = false;
+  WrappedID3D12Shader *sh =
+      WrappedID3D12Shader::AddShader(ResourceId(), byteCode, m_pDevice, &created, true);
 
-  sh->AddRef();
+  // A new replay-only shader's constructor reference belongs to this build.
+  // The lookup table is non-owning: keeping another baseline reference leaks
+  // each temporary target until capture teardown. Existing/captured shaders
+  // instead lend the build one additional reference, balanced by FreeTargetResource.
+  if(!created)
+    sh->AddRef();
 
   id = sh->GetResourceID();
 }
@@ -3587,29 +4581,925 @@ void D3D12Replay::BuildTargetShader(ShaderEncoding sourceEncoding, const bytebuf
   BuildShader(sourceEncoding, source, entry, debugCompileFlags, {}, type, id, errors);
 }
 
-void D3D12Replay::ReplaceResource(ResourceId from, ResourceId to)
+static uint64_t ReplayLabD3D12RootCBVWindowSize(uint64_t reflectedByteSize,
+                                                uint64_t resourceRemainder)
 {
-  if(WrappedID3D12Shader::IsShader(from))
-  {
-    WrappedID3D12Shader *fromsh =
-        (WrappedID3D12Shader *)m_pDevice->GetResourceManager()->GetResource(from);
-    WrappedID3D12Shader *tosh =
-        (WrappedID3D12Shader *)m_pDevice->GetResourceManager()->GetResource(to);
+  if(reflectedByteSize == 0 || reflectedByteSize > 64ULL * 1024ULL)
+    return 0;
+  const uint64_t result = AlignUp(reflectedByteSize, 16ULL);
+  return result <= resourceRemainder ? result : 0;
+}
 
-    if(fromsh && tosh)
+static bool ReplayLabD3D12StageVisible(ShaderStage stage, D3D12_SHADER_VISIBILITY visibility)
+{
+  if(visibility == D3D12_SHADER_VISIBILITY_ALL)
+    return true;
+
+  switch(stage)
+  {
+    case ShaderStage::Vertex: return visibility == D3D12_SHADER_VISIBILITY_VERTEX;
+    case ShaderStage::Hull: return visibility == D3D12_SHADER_VISIBILITY_HULL;
+    case ShaderStage::Domain: return visibility == D3D12_SHADER_VISIBILITY_DOMAIN;
+    case ShaderStage::Geometry: return visibility == D3D12_SHADER_VISIBILITY_GEOMETRY;
+    case ShaderStage::Pixel: return visibility == D3D12_SHADER_VISIBILITY_PIXEL;
+    case ShaderStage::Amplification:
+      return visibility == D3D12_SHADER_VISIBILITY_AMPLIFICATION;
+    case ShaderStage::Mesh: return visibility == D3D12_SHADER_VISIBILITY_MESH;
+    default: return false;
+  }
+}
+
+static WrappedID3D12Shader *ReplayLabD3D12PipelineShader(WrappedID3D12PipelineState *pipe,
+                                                         ShaderStage stage)
+{
+  if(pipe == NULL)
+    return NULL;
+
+  switch(stage)
+  {
+    case ShaderStage::Vertex: return pipe->VS();
+    case ShaderStage::Hull: return pipe->HS();
+    case ShaderStage::Domain: return pipe->DS();
+    case ShaderStage::Geometry: return pipe->GS();
+    case ShaderStage::Pixel: return pipe->PS();
+    case ShaderStage::Amplification: return pipe->AS();
+    case ShaderStage::Mesh: return pipe->MS();
+    case ShaderStage::Compute: return pipe->CS();
+    default: return NULL;
+  }
+}
+
+rdcstr D3D12Replay::ResolveEventCBufferBinding(
+    uint32_t eventId, ShaderStage stage, uint32_t slot, uint32_t registerSpace,
+    ResourceId expectedShader,
+    ResourceId expectedBuffer, uint64_t expectedByteOffset, uint64_t expectedByteSize,
+    EventCBufferBinding &resolved)
+{
+  const ActionDescription *action = m_pDevice->GetAction(eventId);
+  if(action == NULL)
+    return StringFormat::Fmt("Event %u is not a replayable action", eventId);
+
+  const bool compute = stage == ShaderStage::Compute;
+  if(compute)
+  {
+    if(!(action->flags & ActionFlags::Dispatch))
+      return StringFormat::Fmt("Event %u is not a compute Dispatch", eventId);
+  }
+  else if(!(action->flags & (ActionFlags::Drawcall | ActionFlags::MeshDispatch)))
+  {
+    return StringFormat::Fmt("Event %u is not a graphics Draw or MeshDispatch", eventId);
+  }
+
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  D3D12CommandData &cmd = *m_pDevice->GetQueue()->GetCommandData();
+  D3D12RenderState &state = cmd.m_RenderState;
+
+  if(state.stateobj != ResourceId() || state.pipe == ResourceId())
+    return "D3D12 event CBuffer overrides support graphics/compute PSOs, not ray state objects";
+
+  ResourceId capturedPipeId = rm->GetUnreplacedID(state.pipe);
+  ID3D12DeviceChild *pipeResource = rm->GetResourceWithoutReplacement(capturedPipeId, true);
+  WrappedID3D12PipelineState *pipe = (WrappedID3D12PipelineState *)pipeResource;
+  if(pipe == NULL)
+    return "The captured D3D12 pipeline state is no longer available";
+
+  WrappedID3D12Shader *boundShader = ReplayLabD3D12PipelineShader(pipe, stage);
+  if(boundShader == NULL)
+    return StringFormat::Fmt("No %s shader is bound by the captured D3D12 PSO",
+                             ToStr(stage).c_str());
+  if(boundShader->GetResourceID() != expectedShader)
+    return StringFormat::Fmt("Expected shader %s at %s, but the captured PSO binds %s",
+                             ToStr(expectedShader).c_str(), ToStr(stage).c_str(),
+                             ToStr(boundShader->GetResourceID()).c_str());
+
+  const ShaderReflection &reflection = boundShader->GetDetails();
+  if(reflection.stage != stage)
+    return "The captured D3D12 shader reflection stage does not match the requested stage";
+
+  const D3D12RenderState::RootSignature &rootState = compute ? state.compute : state.graphics;
+  WrappedID3D12RootSignature *rootSig =
+      rm->GetResAs<WrappedID3D12RootSignature>(rootState.rootsig, true);
+  if(rootSig == NULL)
+    return "The live D3D12 root signature is unavailable";
+
+  rdcarray<EventCBufferBinding> matches;
+  rdcstr firstMismatch;
+  bool sawReflectedBinding = false;
+  bool sawRootConstants = false;
+
+  for(const ConstantBlock &block : reflection.constantBlocks)
+  {
+    if(block.fixedBindNumber != slot || block.fixedBindSetOrSpace != registerSpace ||
+       block.bindArraySize != 1 || block.compileConstants)
+      continue;
+
+    sawReflectedBinding = true;
+    const uint32_t space = block.fixedBindSetOrSpace;
+    const size_t numRoots = RDCMIN(rootSig->sig.Parameters.size(), rootState.sigelems.size());
+    for(size_t root = 0; root < numRoots; root++)
     {
-      uint32_t slot = ~0U, space = ~0U;
-      // copy the shader ext slot
-      fromsh->GetShaderExtSlot(slot, space);
-      tosh->SetShaderExtSlot(slot, space);
+      const D3D12RootSignatureParameter &param = rootSig->sig.Parameters[root];
+      const D3D12RenderState::SignatureElement &element = rootState.sigelems[root];
+      if(!ReplayLabD3D12StageVisible(stage, param.ShaderVisibility))
+        continue;
+
+      EventCBufferBinding candidate;
+      candidate.compute = compute;
+      candidate.registerSpace = space;
+      candidate.rootIndex = (uint32_t)root;
+
+      if(param.ParameterType == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS &&
+         param.Constants.ShaderRegister == slot && param.Constants.RegisterSpace == space)
+      {
+        sawRootConstants = true;
+        continue;
+      }
+
+      if(param.ParameterType == D3D12_ROOT_PARAMETER_TYPE_CBV &&
+         param.Descriptor.ShaderRegister == slot && param.Descriptor.RegisterSpace == space &&
+         element.type == eRootCBV)
+      {
+        candidate.kind = EventCBufferBindingKind::RootCBV;
+        candidate.buffer = rm->GetUnreplacedID(element.id);
+        candidate.byteOffset = element.offset;
+
+        ID3D12Resource *buffer =
+            (ID3D12Resource *)rm->GetResourceWithoutReplacement(candidate.buffer, true);
+        if(buffer == NULL || buffer->GetDesc().Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
+           candidate.byteOffset >= buffer->GetDesc().Width)
+        {
+          if(firstMismatch.empty())
+            firstMismatch = "The matching root CBV does not resolve to a valid captured buffer";
+          continue;
+        }
+        // A root CBV has no descriptor size, so the generic pipeline view reports the whole
+        // resource remainder (often a multi-megabyte upload ring). The editable window is the
+        // shader's reflected block size, rounded only to D3D constant packing. This preserves all
+        // bytes the shader can legally address without cloning an unrelated ring-buffer tail.
+        candidate.byteSize = ReplayLabD3D12RootCBVWindowSize(
+            block.byteSize, buffer->GetDesc().Width - candidate.byteOffset);
+        if(candidate.byteSize == 0)
+        {
+          if(firstMismatch.empty())
+            firstMismatch = "The reflected root-CBV window is empty, exceeds 64 KiB, or lies "
+                            "outside its captured buffer";
+          continue;
+        }
+      }
+      else if(param.ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE &&
+              element.type == eRootTable)
+      {
+        uint64_t nextRangeOffset = 0;
+        bool foundRange = false;
+        uint64_t descriptorOffset = 0;
+        for(const D3D12_DESCRIPTOR_RANGE1 &range : param.ranges)
+        {
+          uint64_t rangeOffset = range.OffsetInDescriptorsFromTableStart;
+          if(range.OffsetInDescriptorsFromTableStart == D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
+            rangeOffset = nextRangeOffset;
+
+          const uint64_t count =
+              range.NumDescriptors == UINT_MAX ? UINT64_MAX : uint64_t(range.NumDescriptors);
+          nextRangeOffset = count == UINT64_MAX || rangeOffset > UINT64_MAX - count
+                                ? UINT64_MAX
+                                : rangeOffset + count;
+
+          if(range.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_CBV &&
+             range.RegisterSpace == space && range.BaseShaderRegister <= slot &&
+             (range.NumDescriptors == UINT_MAX ||
+              slot - range.BaseShaderRegister < range.NumDescriptors))
+          {
+            const uint64_t registerOffset = uint64_t(slot - range.BaseShaderRegister);
+            if(rangeOffset > UINT64_MAX - registerOffset)
+            {
+              if(firstMismatch.empty())
+                firstMismatch =
+                    "The matching CBV descriptor-table range overflows its table offset";
+              continue;
+            }
+            descriptorOffset = rangeOffset + registerOffset;
+            foundRange = true;
+            break;
+          }
+        }
+
+        if(!foundRange)
+          continue;
+
+        candidate.kind = EventCBufferBindingKind::DescriptorTableCBV;
+        candidate.sourceHeap = element.id;
+        WrappedID3D12DescriptorHeap *heap =
+            rm->GetResAs<WrappedID3D12DescriptorHeap>(element.id, true);
+        if(heap == NULL || descriptorOffset > UINT_MAX ||
+           element.offset > UINT_MAX - descriptorOffset ||
+           element.offset + descriptorOffset >= heap->GetNumDescriptors())
+        {
+          if(firstMismatch.empty())
+            firstMismatch = "The matching CBV descriptor-table location is outside its heap";
+          continue;
+        }
+
+        candidate.descriptorIndex = (uint32_t)(element.offset + descriptorOffset);
+        D3D12Descriptor *descriptor = heap->GetDescriptors() + candidate.descriptorIndex;
+        if(descriptor->GetType() != D3D12DescriptorType::CBV)
+        {
+          if(firstMismatch.empty())
+            firstMismatch = "The matching descriptor-table entry is not a CBV";
+          continue;
+        }
+
+        const D3D12_CONSTANT_BUFFER_VIEW_DESC &cbv = descriptor->GetCBV();
+        ResourceId bufferId;
+        UINT64 bufferOffset = 0;
+        WrappedID3D12Resource::GetResIDFromAddr(cbv.BufferLocation, bufferId, bufferOffset);
+        candidate.buffer = rm->GetUnreplacedID(bufferId);
+        candidate.byteOffset = bufferOffset;
+        candidate.byteSize = cbv.SizeInBytes;
+
+        ID3D12Resource *buffer =
+            (ID3D12Resource *)rm->GetResourceWithoutReplacement(candidate.buffer, true);
+        if(buffer == NULL || buffer->GetDesc().Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
+           candidate.byteOffset > buffer->GetDesc().Width ||
+           candidate.byteSize > buffer->GetDesc().Width - candidate.byteOffset)
+        {
+          if(firstMismatch.empty())
+            firstMismatch = "The matching table CBV window lies outside its captured buffer";
+          continue;
+        }
+      }
+      else
+      {
+        continue;
+      }
+
+      // ExecuteIndirect command signatures may contain CONSTANT_BUFFER_VIEW arguments. Those
+      // arguments are consumed during OnlyDraw and can overwrite the CPU root element installed
+      // above. Until the indirect argument buffer is transactionally patched by root index, a root
+      // CBV override cannot truthfully claim to be active. Descriptor-table CBVs remain safe.
+      if(candidate.kind == EventCBufferBindingKind::RootCBV &&
+         (action->flags & ActionFlags::Indirect))
+      {
+        if(firstMismatch.empty())
+          firstMismatch = "D3D12 ExecuteIndirect root-CBV overrides are excluded because the "
+                          "command signature may overwrite the root descriptor during OnlyDraw";
+        continue;
+      }
+
+      if(candidate.buffer == expectedBuffer && candidate.byteOffset == expectedByteOffset &&
+         candidate.byteSize == expectedByteSize)
+      {
+        matches.push_back(candidate);
+      }
+      else if(firstMismatch.empty())
+      {
+        firstMismatch = StringFormat::Fmt(
+            "Expected D3D12 CBuffer %s offset/size %llu/%llu, but b%u space%u resolves to %s "
+            "%llu/%llu",
+            ToStr(expectedBuffer).c_str(), (unsigned long long)expectedByteOffset,
+            (unsigned long long)expectedByteSize, slot, space,
+            ToStr(candidate.buffer).c_str(), (unsigned long long)candidate.byteOffset,
+            (unsigned long long)candidate.byteSize);
+      }
     }
   }
 
-  // replace the shader module
-  m_pDevice->GetResourceManager()->ReplaceResource(from, to);
+  if(matches.size() == 1)
+  {
+    resolved = matches[0];
+    return {};
+  }
+  if(matches.size() > 1)
+    return "The D3D12 CBuffer binding is ambiguous across root parameters";
+  if(!firstMismatch.empty())
+    return firstMismatch;
+  if(sawRootConstants)
+    return "The reflected D3D12 constant block is backed by root constants, which are excluded";
+  if(!sawReflectedBinding)
+    return StringFormat::Fmt("Shader %s has no fixed, buffer-backed b%u space%u CBuffer",
+                             ToStr(expectedShader).c_str(), slot, registerSpace);
+  return "The reflected D3D12 CBuffer has no supported root-CBV or descriptor-table-CBV binding";
+}
 
-  // now update any derived resources
-  RefreshDerivedReplacements();
+rdcstr D3D12Replay::SetEventCBufferOverride(
+    uint32_t eventId, ShaderStage stage, uint32_t slot, ResourceId expectedShader,
+    ResourceId expectedBuffer, uint64_t expectedByteOffset, uint64_t expectedByteSize,
+    const bytebuf &data, uint32_t registerSpace)
+{
+  RestoreEventCBufferOverrides();
+
+  if(expectedShader == ResourceId() || expectedBuffer == ResourceId())
+    return "D3D12 event CBuffer overrides require captured shader and buffer resources";
+  if(data.empty() || data.size() > 64ULL * 1024ULL || (data.size() % 16) != 0)
+    return "data must be non-empty, 16-byte aligned, and no larger than 64 KiB";
+  if(expectedByteOffset % D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT != 0 ||
+     expectedByteSize == 0 || expectedByteSize > 64ULL * 1024ULL ||
+     (expectedByteSize % 16) != 0)
+    return "D3D12 CBuffer offsets must be 256-byte aligned and sizes must be aligned, non-empty, "
+           "and no larger than 64 KiB";
+
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  if(rm->GetUnreplacedID(expectedShader) != expectedShader)
+    return "expectedShader must identify the canonical captured shader, not a replacement";
+  if(rm->GetUnreplacedID(expectedBuffer) != expectedBuffer)
+    return "expectedBuffer must identify the canonical captured buffer, not a replacement";
+
+  EventCBufferBinding binding;
+  rdcstr error = ResolveEventCBufferBinding(eventId, stage, slot, registerSpace, expectedShader,
+                                            expectedBuffer, expectedByteOffset, expectedByteSize,
+                                            binding);
+  if(!error.empty())
+    return error;
+  if(data.size() != binding.byteSize)
+    return StringFormat::Fmt("data must contain the complete D3D12 CBV window (%llu bytes)",
+                             (unsigned long long)binding.byteSize);
+
+  EventCBufferOverrideKey key = {eventId, stage, slot, registerSpace};
+  auto configuredIt = m_EventCBufferOverrides.find(key);
+  ID3D12Resource *shadow =
+      configuredIt == m_EventCBufferOverrides.end() ? NULL : configuredIt->second.shadow;
+  const uint64_t shadowSize = AlignUp(
+      uint64_t(data.size()), uint64_t(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT));
+  if(shadow != NULL && shadow->GetDesc().Width != shadowSize)
+    shadow = NULL;
+
+  ID3D12Resource *newShadow = NULL;
+  if(shadow == NULL)
+  {
+    newShadow = m_DebugManager->MakeCBuffer(shadowSize);
+    if(newShadow == NULL)
+      return "Failed to create the replay-owned D3D12 event CBuffer shadow";
+  }
+
+  EventCBufferOverride &configured = m_EventCBufferOverrides[key];
+  if(newShadow != NULL)
+  {
+    // The previous OnlyDraw submission may still reference this upload buffer. Restore() only
+    // repairs CPU render state; it is not a GPU fence.
+    if(configured.shadow != NULL && !m_pDevice->DeviceWaitForIdle())
+    {
+      SAFE_RELEASE(newShadow);
+      return "GPU completion could not be confirmed before retiring the D3D12 event CBuffer shadow";
+    }
+    SAFE_RELEASE(configured.shadow);
+    configured.shadow = newShadow;
+  }
+  configured.expectedShader = expectedShader;
+  configured.expectedBuffer = expectedBuffer;
+  configured.expectedByteOffset = expectedByteOffset;
+  configured.expectedByteSize = expectedByteSize;
+  configured.data = data;
+  configured.binding = binding;
+
+  ClearPostVSCache();
+  ClearFeedbackCache();
+  return {};
+}
+
+void D3D12Replay::ReleaseEventCBufferShadowHeaps()
+{
+  for(auto it = m_EventCBufferShadowHeaps.begin(); it != m_EventCBufferShadowHeaps.end(); ++it)
+    SAFE_RELEASE(it->second);
+  m_EventCBufferShadowHeaps.clear();
+}
+
+void D3D12Replay::ClearEventCBufferOverride(uint32_t eventId, ShaderStage stage, uint32_t slot,
+                                            uint32_t registerSpace)
+{
+  RestoreEventCBufferOverrides();
+  EventCBufferOverrideKey key = {eventId, stage, slot, registerSpace};
+  auto it = m_EventCBufferOverrides.find(key);
+  if(it == m_EventCBufferOverrides.end())
+    return;
+
+  // ExecuteLists for the preceding OnlyDraw is asynchronous. Fence before releasing either its
+  // upload buffer or the cloned shader-visible heap it may still have bound.
+  if(!m_pDevice->DeviceWaitForIdle())
+    return;
+  SAFE_RELEASE(it->second.shadow);
+  m_EventCBufferOverrides.erase(it);
+  ReleaseEventCBufferShadowHeaps();
+  ClearPostVSCache();
+  ClearFeedbackCache();
+}
+
+void D3D12Replay::ClearEventCBufferOverrides()
+{
+  RestoreEventCBufferOverrides();
+  if((!m_EventCBufferOverrides.empty() || !m_EventCBufferShadowHeaps.empty()) &&
+     !m_pDevice->DeviceWaitForIdle())
+    return;
+  for(auto it = m_EventCBufferOverrides.begin(); it != m_EventCBufferOverrides.end(); ++it)
+    SAFE_RELEASE(it->second.shadow);
+  m_EventCBufferOverrides.clear();
+  ReleaseEventCBufferShadowHeaps();
+  ClearPostVSCache();
+  ClearFeedbackCache();
+}
+
+rdcstr D3D12Replay::GetOrCreateEventCBufferShadowHeap(ResourceId sourceHeap,
+                                                       ID3D12DescriptorHeap *&shadowHeap)
+{
+  shadowHeap = NULL;
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  WrappedID3D12DescriptorHeap *source =
+      rm->GetResAs<WrappedID3D12DescriptorHeap>(sourceHeap, true);
+  if(source == NULL)
+    return "The captured D3D12 descriptor heap is no longer available";
+
+  D3D12_DESCRIPTOR_HEAP_DESC desc = source->GetDesc();
+  if(desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+     !(desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
+    return "The CBuffer descriptor is not in a shader-visible CBV/SRV/UAV heap";
+  if(desc.NumDescriptors == 0 || desc.NumDescriptors > 1000000)
+    return "The CBuffer descriptor heap size is invalid or exceeds the safe clone limit";
+
+  auto it = m_EventCBufferShadowHeaps.find(sourceHeap);
+  if(it != m_EventCBufferShadowHeaps.end())
+  {
+    D3D12_DESCRIPTOR_HEAP_DESC existing = it->second->GetDesc();
+    if(existing.Type == desc.Type && existing.Flags == desc.Flags &&
+       existing.NumDescriptors == desc.NumDescriptors)
+    {
+      shadowHeap = it->second;
+      return {};
+    }
+    SAFE_RELEASE(it->second);
+    m_EventCBufferShadowHeaps.erase(it);
+  }
+
+  HRESULT hr = m_pDevice->CreateDescriptorHeap(&desc, __uuidof(ID3D12DescriptorHeap),
+                                                (void **)&shadowHeap);
+  if(FAILED(hr) || shadowHeap == NULL)
+  {
+    SAFE_RELEASE(shadowHeap);
+    return StringFormat::Fmt("Failed to create the D3D12 event descriptor-heap shadow: %s",
+                             ToStr(hr).c_str());
+  }
+  rm->SetInternalResource(shadowHeap);
+  m_EventCBufferShadowHeaps[sourceHeap] = shadowHeap;
+  return {};
+}
+
+rdcstr D3D12Replay::ApplyEventCBufferOverrides(uint32_t eventId)
+{
+  if(m_EventCBufferStateApplied)
+    return "A previous D3D12 event CBuffer override was not restored";
+
+  rdcarray<std::pair<const EventCBufferOverrideKey *, EventCBufferOverride *> > pending;
+  for(auto it = m_EventCBufferOverrides.begin(); it != m_EventCBufferOverrides.end(); ++it)
+    if(it->first.eventId == eventId)
+      pending.push_back({&it->first, &it->second});
+  if(pending.empty())
+    return {};
+
+  m_pDevice->InvalidateLiveForward("eventCBufferOverride");
+
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  D3D12CommandData &cmd = *m_pDevice->GetQueue()->GetCommandData();
+  D3D12RenderState &state = cmd.m_RenderState;
+
+  std::map<uint64_t, ResourceId> rootTargets;
+  std::map<std::pair<ResourceId, uint32_t>, ResourceId> tableTargets;
+
+  // Re-resolve every binding against the state produced by WithoutDraw. No shadow is written and
+  // no root/heap state is changed until the full set has passed this validation.
+  for(const auto &item : pending)
+  {
+    EventCBufferBinding live;
+    rdcstr error = ResolveEventCBufferBinding(
+        eventId, item.first->stage, item.first->slot, item.first->registerSpace,
+        item.second->expectedShader,
+        item.second->expectedBuffer, item.second->expectedByteOffset,
+        item.second->expectedByteSize, live);
+    if(!error.empty())
+      return error;
+
+    const EventCBufferBinding &saved = item.second->binding;
+    if(live.compute != saved.compute || live.kind != saved.kind ||
+       live.registerSpace != saved.registerSpace || live.rootIndex != saved.rootIndex ||
+       live.sourceHeap != saved.sourceHeap || live.descriptorIndex != saved.descriptorIndex ||
+       live.buffer != saved.buffer || live.byteOffset != saved.byteOffset ||
+       live.byteSize != saved.byteSize)
+      return "The exact D3D12 root/descriptor binding changed since the override was configured";
+    if(item.second->shadow == NULL)
+      return "A replay-owned D3D12 CBuffer shadow is no longer valid";
+
+    const ResourceId shadowId = GetResID(item.second->shadow);
+    if(live.kind == EventCBufferBindingKind::RootCBV)
+    {
+      const uint64_t key = (uint64_t(live.compute ? 1 : 0) << 32) | live.rootIndex;
+      auto inserted = rootTargets.insert({key, shadowId});
+      if(!inserted.second && inserted.first->second != shadowId)
+        return "Two material sessions request different data for the same D3D12 root CBV";
+    }
+    else
+    {
+      auto key = std::make_pair(live.sourceHeap, live.descriptorIndex);
+      auto inserted = tableTargets.insert({key, shadowId});
+      if(!inserted.second && inserted.first->second != shadowId)
+        return "Two material sessions request different data for the same D3D12 CBV descriptor";
+    }
+  }
+
+  // Upload all buffers first. A map failure still leaves the captured state and descriptors
+  // untouched.
+  //
+  // Shadows are deliberately reused between slider revisions. The previous OnlyDraw submission
+  // is asynchronous, so fence it before overwriting upload memory or cloned heap descriptors.
+  if(!m_pDevice->DeviceWaitForIdle())
+    return "GPU completion could not be confirmed before updating D3D12 event CBuffer shadows";
+  for(const auto &item : pending)
+  {
+    ID3D12Resource *realShadow = Unwrap(item.second->shadow);
+    void *mapped = NULL;
+    D3D12_RANGE noRead = {0, 0};
+    HRESULT hr = realShadow->Map(0, &noRead, &mapped);
+    if(FAILED(hr) || mapped == NULL)
+    {
+      if(SUCCEEDED(hr) && mapped == NULL)
+        realShadow->Unmap(0, NULL);
+      return StringFormat::Fmt("Failed to update the D3D12 event CBuffer shadow: %s",
+                               ToStr(hr).c_str());
+    }
+
+    memset(mapped, 0, (size_t)item.second->shadow->GetDesc().Width);
+    memcpy(mapped, item.second->data.data(), item.second->data.size());
+    D3D12_RANGE written = {0, (SIZE_T)item.second->shadow->GetDesc().Width};
+    realShadow->Unmap(0, &written);
+  }
+
+  // Clone each source heap in full. This preserves unrelated descriptors and supports direct heap
+  // indexing without ever modifying the captured descriptor heap.
+  std::map<ResourceId, ID3D12DescriptorHeap *> shadowHeaps;
+  for(const auto &target : tableTargets)
+  {
+    const ResourceId sourceHeapId = target.first.first;
+    if(shadowHeaps.find(sourceHeapId) != shadowHeaps.end())
+      continue;
+
+    ID3D12DescriptorHeap *shadowHeap = NULL;
+    rdcstr error = GetOrCreateEventCBufferShadowHeap(sourceHeapId, shadowHeap);
+    if(!error.empty())
+      return error;
+
+    WrappedID3D12DescriptorHeap *source =
+        rm->GetResAs<WrappedID3D12DescriptorHeap>(sourceHeapId, true);
+    WrappedID3D12DescriptorHeap *destination = (WrappedID3D12DescriptorHeap *)shadowHeap;
+    D3D12_CPU_DESCRIPTOR_HANDLE dst = destination->GetCPUDescriptorHandleForHeapStart();
+    for(uint32_t i = 0; i < source->GetNumDescriptors(); i++)
+    {
+      source->GetDescriptors()[i].Create(source->GetDesc().Type, m_pDevice, dst);
+      dst.ptr += sizeof(D3D12Descriptor);
+    }
+    shadowHeaps[sourceHeapId] = shadowHeap;
+  }
+
+  for(const auto &target : tableTargets)
+  {
+    ID3D12DescriptorHeap *shadowHeap = shadowHeaps[target.first.first];
+    ID3D12Resource *shadowBuffer = rm->GetResAs<ID3D12Resource>(target.second, true);
+    if(shadowHeap == NULL || shadowBuffer == NULL)
+      return "A D3D12 event descriptor or buffer shadow disappeared during apply";
+
+    D3D12_CONSTANT_BUFFER_VIEW_DESC cbv = {};
+    cbv.BufferLocation = shadowBuffer->GetGPUVirtualAddress();
+    cbv.SizeInBytes = (UINT)AlignUp(
+        shadowBuffer->GetDesc().Width,
+        uint64_t(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT));
+    D3D12_CPU_DESCRIPTOR_HANDLE dst = shadowHeap->GetCPUDescriptorHandleForHeapStart();
+    dst.ptr += target.first.second * sizeof(D3D12Descriptor);
+    m_pDevice->CreateConstantBufferView(&cbv, dst);
+  }
+
+  if(m_pDevice->HasFatalError())
+    return "Creating the D3D12 event descriptor shadow caused a replay device error";
+
+  m_AppliedEventCBufferOriginalState = state;
+  m_EventCBufferStateApplied = true;
+
+  for(const auto &item : pending)
+  {
+    const EventCBufferBinding &binding = item.second->binding;
+    if(binding.kind != EventCBufferBindingKind::RootCBV)
+      continue;
+    D3D12RenderState::RootSignature &root = binding.compute ? state.compute : state.graphics;
+    root.sigelems[binding.rootIndex] = D3D12RenderState::SignatureElement(
+        eRootCBV, GetResID(item.second->shadow), 0);
+  }
+
+  for(const auto &heap : shadowHeaps)
+  {
+    const ResourceId shadowId = GetResID(heap.second);
+    bool heapBound = false;
+    for(ResourceId &boundHeap : state.heaps)
+    {
+      if(boundHeap == heap.first)
+      {
+        boundHeap = shadowId;
+        heapBound = true;
+      }
+    }
+    if(!heapBound)
+    {
+      RestoreEventCBufferOverrides();
+      return "The source CBV descriptor heap is not bound in the live D3D12 state";
+    }
+
+    for(D3D12RenderState::SignatureElement &element : state.graphics.sigelems)
+      if(element.type == eRootTable && element.id == heap.first)
+        element.id = shadowId;
+    for(D3D12RenderState::SignatureElement &element : state.compute.sigelems)
+      if(element.type == eRootTable && element.id == heap.first)
+        element.id = shadowId;
+  }
+
+  return {};
+}
+
+void D3D12Replay::RestoreEventCBufferOverrides()
+{
+  if(!m_EventCBufferStateApplied || m_pDevice == NULL || m_pDevice->GetQueue() == NULL)
+    return;
+
+  m_pDevice->GetQueue()->GetCommandData()->m_RenderState = m_AppliedEventCBufferOriginalState;
+  m_AppliedEventCBufferOriginalState = D3D12RenderState();
+  m_EventCBufferStateApplied = false;
+}
+
+static bool D3D12ReadOnlyPixelWriteFootprint(const ShaderReflection &original,
+                                             const ShaderReflection &active)
+{
+  return original.stage == ShaderStage::Pixel && active.stage == ShaderStage::Pixel &&
+         !original.rawBytes.empty() && !active.rawBytes.empty() &&
+         (original.encoding == ShaderEncoding::DXBC || original.encoding == ShaderEncoding::DXIL) &&
+         (active.encoding == ShaderEncoding::DXBC || active.encoding == ShaderEncoding::DXIL) &&
+         original.readWriteResources.empty() && active.readWriteResources.empty();
+}
+
+static bool D3D12PixelReadBoundsPreserved(const ShaderReflection &original,
+                                          const ShaderReflection &active)
+{
+  if(!D3D12ReadOnlyPixelWriteFootprint(original, active))
+    return false;
+  // Loading records whole native CBV declarations, not individual field names or observed
+  // dynamic indices. A new PS may read any byte in that old envelope, but may not grow it.
+  // SRV tables/root descriptors already retain their complete bound ranges in the read proof.
+  for(const ConstantBlock &block : active.constantBlocks)
+  {
+    if(!block.bufferBacked || block.inlineDataBytes || !block.byteSize || block.byteSize > 65536 ||
+       !block.bindArraySize || block.bindArraySize > 65536)
+      return false;
+    bool covered = false;
+    for(const ConstantBlock &captured : original.constantBlocks)
+      if(captured.bufferBacked && !captured.inlineDataBytes &&
+         captured.fixedBindSetOrSpace == block.fixedBindSetOrSpace &&
+         captured.byteSize >= block.byteSize && captured.bindArraySize &&
+         block.fixedBindNumber >= captured.fixedBindNumber &&
+         uint64_t(block.fixedBindNumber) - captured.fixedBindNumber + block.bindArraySize <=
+             captured.bindArraySize)
+        covered = true;
+    if(!covered)
+      return false;
+  }
+  return true;
+}
+
+#if ENABLED(ENABLE_UNIT_TESTS)
+
+#include "3rdparty/catch/catch.hpp"
+
+TEST_CASE("D3D12 immutable-source sharing requires complete byte equality within its budget",
+          "[d3d12][replay][initial-source]")
+{
+  bytebuf a, b;
+  a.resize(2 * 1024 * 1024 + 17);
+  memset(a.data(), 0, a.size());
+  b = a;
+  CHECK(D3D12InitialSourceBytesEqual(a.data(), b.data(), a.size(), []() { return true; }));
+  // Identical prefix/middle/suffix samples must not hide an interior difference.
+  b[12345] = 1;
+  CHECK_FALSE(D3D12InitialSourceBytesEqual(a.data(), b.data(), a.size(), []() { return true; }));
+  b = a;
+  b.back() = 1;
+  CHECK_FALSE(D3D12InitialSourceBytesEqual(a.data(), b.data(), a.size(), []() { return true; }));
+  b = a;
+  size_t chunks = 0;
+  CHECK_FALSE(
+      D3D12InitialSourceBytesEqual(a.data(), b.data(), a.size(), [&]() { return ++chunks < 3; }));
+  CHECK(chunks == 3);
+  alignas(16) byte alignedA[64] = {}, alignedB[64] = {};
+  CHECK(D3D12InitialUploadByteCompare(alignedA, alignedB, sizeof(alignedA)));
+  CHECK(D3D12InitialUploadByteCompare(alignedA + 1, alignedB + 1, 31));
+  alignedB[30] = 1;
+  CHECK_FALSE(D3D12InitialUploadByteCompare(alignedA, alignedB, 31));
+  CHECK_FALSE(D3D12InitialUploadByteCompare(alignedA + 1, alignedB + 1, 31));
+  CHECK(D3D12InitialUploadByteCompare(alignedA, alignedB, 16));
+}
+
+TEST_CASE("D3D12 read-only pixel replacements exclude unclassified write footprints",
+          "[d3d12][replay][shader-dirty]")
+{
+  ShaderReflection original, active;
+  original.stage = active.stage = ShaderStage::Pixel;
+  original.encoding = ShaderEncoding::DXIL;
+  active.encoding = ShaderEncoding::DXBC;
+  CHECK_FALSE(D3D12ReadOnlyPixelWriteFootprint(original, active));
+  original.rawBytes = {1};
+  active.rawBytes = {2};
+  CHECK(D3D12ReadOnlyPixelWriteFootprint(original, active));
+  SECTION("The old Shader could have written UAV contents")
+  {
+    original.readWriteResources.resize(1);
+    CHECK_FALSE(D3D12ReadOnlyPixelWriteFootprint(original, active));
+  }
+  SECTION("The new Shader introduces writes outside the attachment set")
+  {
+    active.readWriteResources.resize(1);
+    CHECK_FALSE(D3D12ReadOnlyPixelWriteFootprint(original, active));
+  }
+  SECTION("Compute and unknown encodings retain conservative invalidation")
+  {
+    active.stage = ShaderStage::Compute;
+    CHECK_FALSE(D3D12ReadOnlyPixelWriteFootprint(original, active));
+    active.stage = ShaderStage::Pixel;
+    active.encoding = ShaderEncoding::SPIRV;
+    CHECK_FALSE(D3D12ReadOnlyPixelWriteFootprint(original, active));
+  }
+}
+
+TEST_CASE("D3D12 pixel replay reuse retains only captured constant-buffer read envelopes",
+          "[d3d12][replay][shader-dirty]")
+{
+  ShaderReflection original, active;
+  original.stage = active.stage = ShaderStage::Pixel;
+  original.encoding = active.encoding = ShaderEncoding::DXIL;
+  original.rawBytes = {1};
+  active.rawBytes = {2};
+  ConstantBlock block;
+  block.bufferBacked = true;
+  block.fixedBindNumber = 3;
+  block.fixedBindSetOrSpace = 2;
+  block.byteSize = 256;
+  block.bindArraySize = 2;
+  original.constantBlocks = {block};
+  active.constantBlocks = {block};
+  CHECK(D3D12PixelReadBoundsPreserved(original, active));
+  active.constantBlocks[0].byteSize = 128;
+  active.constantBlocks[0].fixedBindNumber = 4;
+  active.constantBlocks[0].bindArraySize = 1;
+  CHECK(D3D12PixelReadBoundsPreserved(original, active));
+  SECTION("Growing or relocating reads invalidates captured envelopes")
+  {
+    active.constantBlocks[0].byteSize = 260;
+    CHECK_FALSE(D3D12PixelReadBoundsPreserved(original, active));
+    active.constantBlocks[0] = block;
+    active.constantBlocks[0].fixedBindSetOrSpace++;
+    CHECK_FALSE(D3D12PixelReadBoundsPreserved(original, active));
+    active.constantBlocks[0] = block;
+    active.constantBlocks[0].fixedBindNumber++;
+    CHECK_FALSE(D3D12PixelReadBoundsPreserved(original, active));
+  }
+  SECTION("Unknown and inline declarations are not buffer proofs")
+  {
+    active.constantBlocks[0].byteSize = 0;
+    CHECK_FALSE(D3D12PixelReadBoundsPreserved(original, active));
+    active.constantBlocks[0] = block;
+    active.constantBlocks[0].inlineDataBytes = true;
+    CHECK_FALSE(D3D12PixelReadBoundsPreserved(original, active));
+    active.constantBlocks[0] = block;
+    active.constantBlocks[0].bindArraySize = UINT_MAX;
+    CHECK_FALSE(D3D12PixelReadBoundsPreserved(original, active));
+  }
+  SECTION("Removing unused reads does not grow an envelope")
+  {
+    active.constantBlocks.clear();
+    CHECK(D3D12PixelReadBoundsPreserved(original, active));
+    active.readWriteResources.resize(1);
+    CHECK_FALSE(D3D12PixelReadBoundsPreserved(original, active));
+  }
+}
+
+TEST_CASE("D3D12 first-write source warmup never removes unknown sources",
+          "[d3d12][replay][initial-source-warmup]")
+{
+  const ResourceId late = ResourceIDGen::GetNewUniqueID();
+  const ResourceId early = ResourceIDGen::GetNewUniqueID();
+  const ResourceId unknown = ResourceIDGen::GetNewUniqueID();
+  D3D12InitialSourceWarmupCandidate a, b, c, duplicate;
+  a.source = late;
+  a.firstObservedWrite = 300;
+  a.sourceBufferBytes = 100;
+  b.source = early;
+  b.firstObservedWrite = 40;
+  b.sourceBufferBytes = 200;
+  c.source = unknown;
+  c.sourceBufferBytes = 300;
+  duplicate = a;
+  duplicate.firstObservedWrite = 5;
+  const rdcarray<D3D12InitialSourceWarmupCandidate> input = {a, c, b, duplicate};
+  const auto legacy = OrderInitialSourceWarmup(input, false);
+  REQUIRE(legacy.size() == 4);
+  for(size_t i = 0; i < input.size(); i++)
+  {
+    CHECK(legacy[i].source == input[i].source);
+    CHECK(legacy[i].firstObservedWrite == input[i].firstObservedWrite);
+  }
+  const auto ordered = OrderInitialSourceWarmup(input, true);
+  REQUIRE(ordered.size() == 3);
+  CHECK(ordered[0].source == late);
+  CHECK(ordered[0].firstObservedWrite == 5);
+  CHECK(ordered[0].sourceBufferBytes == 100);
+  CHECK(ordered[1].source == early);
+  CHECK(ordered[2].source == unknown);
+  CHECK(ordered[2].firstObservedWrite == ~0U);
+  // Sorting the private plan cannot alter the shared initial-content application sequence.
+  CHECK(input[0].firstObservedWrite == 300);
+  CHECK(input[1].source == unknown);
+}
+
+TEST_CASE("D3D12 source warmup uses only positive write-use evidence and deterministic ties",
+          "[d3d12][replay][initial-source-warmup]")
+{
+  CHECK(InitialSourceWarmupWriteUsage(ResourceUsage::CPUWrite));
+  CHECK(InitialSourceWarmupWriteUsage(ResourceUsage::Clear));
+  CHECK(InitialSourceWarmupWriteUsage(ResourceUsage::CS_RWResource));
+  CHECK(InitialSourceWarmupWriteUsage(ResourceUsage::CopyDst));
+  CHECK_FALSE(InitialSourceWarmupWriteUsage(ResourceUsage::CopySrc));
+  CHECK_FALSE(InitialSourceWarmupWriteUsage(ResourceUsage::PS_Resource));
+  CHECK_FALSE(InitialSourceWarmupWriteUsage(ResourceUsage::PS_Constants));
+  CHECK_FALSE(InitialSourceWarmupWriteUsage(ResourceUsage::Unused));
+  CHECK_FALSE(InitialSourceWarmupWriteUsage(ResourceUsage::Discard));
+  std::map<ResourceId, uint32_t> writes;
+  const ResourceId heap = ResourceIDGen::GetNewUniqueID();
+  AddInitialSourceWarmupWrite(writes, heap, 80);
+  AddInitialSourceWarmupWrite(writes, heap, 20);
+  AddInitialSourceWarmupWrite(writes, heap, 120);
+  AddInitialSourceWarmupWrite(writes, ResourceId(), 1);
+  REQUIRE(writes.size() == 1);
+  CHECK(writes[heap] == 20);
+  D3D12InitialSourceWarmupCandidate a, b;
+  a.source = ResourceIDGen::GetNewUniqueID();
+  b.source = ResourceIDGen::GetNewUniqueID();
+  a.firstObservedWrite = b.firstObservedWrite = 20;
+  const auto forward = OrderInitialSourceWarmup({a, b}, true);
+  const auto reverse = OrderInitialSourceWarmup({b, a}, true);
+  REQUIRE(forward.size() == 2);
+  REQUIRE(reverse.size() == 2);
+  CHECK(forward[0].source == reverse[0].source);
+  CHECK(forward[1].source == reverse[1].source);
+}
+
+TEST_CASE("ReplayLab D3D12 root CBV window is reflection-bounded",
+          "[d3d12][replaylab][material]")
+{
+  CHECK(ReplayLabD3D12RootCBVWindowSize(48, 8ULL * 1024ULL * 1024ULL) == 48);
+  CHECK(ReplayLabD3D12RootCBVWindowSize(33, 8ULL * 1024ULL * 1024ULL) == 48);
+  CHECK(ReplayLabD3D12RootCBVWindowSize(0, 4096) == 0);
+  CHECK(ReplayLabD3D12RootCBVWindowSize(64ULL * 1024ULL + 1, 128ULL * 1024ULL) == 0);
+  CHECK(ReplayLabD3D12RootCBVWindowSize(64, 32) == 0);
+  CHECK(ReplayLabD3D12StageVisible(ShaderStage::Amplification,
+                                   D3D12_SHADER_VISIBILITY_AMPLIFICATION));
+  CHECK(ReplayLabD3D12StageVisible(ShaderStage::Mesh, D3D12_SHADER_VISIBILITY_MESH));
+}
+
+TEST_CASE("ReplayLab event CBuffer identity includes register space",
+          "[d3d12][replaylab][material]")
+{
+  EventCBufferOverrideKey legacy = {77, ShaderStage::Pixel, 3};
+  EventCBufferOverrideKey space0 = {77, ShaderStage::Pixel, 3, 0};
+  EventCBufferOverrideKey space7 = {77, ShaderStage::Pixel, 3, 7};
+
+  CHECK(legacy.registerSpace == 0);
+  // Force a boolean Catch expression here. Decomposing the custom key
+  // comparison would require a production DoStringise overload solely for
+  // this unit test.
+  CHECK_FALSE((legacy < space0));
+  CHECK_FALSE((space0 < legacy));
+  CHECK((space0 < space7));
+
+  std::map<EventCBufferOverrideKey, uint32_t> sessions;
+  sessions[space0] = 10;
+  sessions[space7] = 20;
+  CHECK(sessions.size() == 2);
+  CHECK(sessions[space0] == 10);
+  CHECK(sessions[space7] == 20);
+}
+
+#endif    // ENABLED(ENABLE_UNIT_TESTS)
+
+void D3D12Replay::ReplaceResource(ResourceId from, ResourceId to)
+{
+  if(WrappedID3D12Shader::IsShader(from) && WrappedID3D12Shader::IsShader(to))
+  {
+    rdcstr error = ReplaceTargetShaderChecked(from, to);
+    if(!error.empty())
+      RDCERR("D3D12 shader replacement failed closed: %s", error.c_str());
+    return;
+  }
+
+  // A non-shader replacement cannot affect a derived shader PSO.
+  m_pDevice->GetResourceManager()->ReplaceResource(from, to);
+  m_pDevice->InvalidatePreparedReplayCache();
 
   ClearPostVSCache();
   ClearFeedbackCache();
@@ -3617,21 +5507,184 @@ void D3D12Replay::ReplaceResource(ResourceId from, ResourceId to)
 
 void D3D12Replay::RemoveReplacement(ResourceId id)
 {
-  if(m_pDevice->GetResourceManager()->HasReplacement(id))
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+
+  if(rm->HasReplacement(id) && WrappedID3D12Shader::IsShader(id))
   {
-    m_pDevice->GetResourceManager()->RemoveReplacement(id);
-
-    RefreshDerivedReplacements();
-
-    ClearPostVSCache();
-    ClearFeedbackCache();
+    rdcstr error = RemoveTargetShaderReplacementChecked(id);
+    if(!error.empty())
+      RDCERR("D3D12 shader replacement removal failed closed: %s", error.c_str());
+    return;
   }
+
+  if(!rm->HasReplacement(id))
+    return;
+
+  rm->RemoveReplacement(id);
+  m_pDevice->InvalidatePreparedReplayCache();
+
+  ClearPostVSCache();
+  ClearFeedbackCache();
+}
+
+rdcstr D3D12Replay::ReplaceTargetShaderChecked(ResourceId from, ResourceId to)
+{
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+
+  if(!WrappedID3D12Shader::IsShader(from) || !WrappedID3D12Shader::IsShader(to))
+    return "Checked D3D12 replacement requires two shader resources";
+  if(from == to)
+    return "The target shader must differ from the captured original";
+  if(rm->GetUnreplacedID(from) != from)
+    return "The original shader must be the canonical captured ResourceId";
+  if(!rm->HasResource(from) || !rm->HasResource(to))
+    return "The original or target shader resource is no longer live";
+
+  const bool hadPrevious = rm->HasReplacement(from);
+  ID3D12DeviceChild *capturedResource =
+      rm->GetResourceWithoutReplacement(from, true);
+  if(capturedResource == NULL || GetResID(capturedResource) != from ||
+     !WrappedID3D12Shader::IsShader(GetResID(capturedResource)))
+    return "The canonical captured shader object could not be resolved";
+  WrappedID3D12Shader *captured = (WrappedID3D12Shader *)capturedResource;
+
+  ID3D12DeviceChild *previousResource = rm->GetResource(from, true);
+  if(previousResource == NULL)
+    return "The original or active replacement resource could not be resolved";
+  ResourceId previousId = GetResID(previousResource);
+  if(!WrappedID3D12Shader::IsShader(previousId))
+    return "The captured shader is currently mapped to a non-shader resource";
+  if(hadPrevious && previousId == from)
+    return "The captured shader has an invalid self-replacement mapping";
+
+  // Idempotence must be checked before rejecting a reverse-owned target: the
+  // current target is of course already owned by this exact original.
+  if(hadPrevious && previousId == to)
+    return {};
+  if(rm->GetUnreplacedID(to) != to)
+    return "The target shader is already owned by another resource replacement";
+  if(rm->HasReplacement(to))
+    return "The target shader is itself a resource replacement key";
+
+  ID3D12DeviceChild *targetResource = rm->GetResource(to, true);
+  if(targetResource == NULL || GetResID(targetResource) != to ||
+     !WrappedID3D12Shader::IsShader(GetResID(targetResource)))
+    return "The original or target shader object could not be resolved";
+  WrappedID3D12Shader *previous = (WrappedID3D12Shader *)previousResource;
+  WrappedID3D12Shader *target = (WrappedID3D12Shader *)targetResource;
+  if(previous->GetDetails().stage != captured->GetDetails().stage)
+    return StringFormat::Fmt(
+        "The active replacement stage %s does not match captured stage %s",
+        ToStr(previous->GetDetails().stage).c_str(),
+        ToStr(captured->GetDetails().stage).c_str());
+  if(captured->GetDetails().stage != target->GetDetails().stage)
+    return StringFormat::Fmt("Replacement stage %s does not match original stage %s",
+                             ToStr(target->GetDetails().stage).c_str(),
+                             ToStr(captured->GetDetails().stage).c_str());
+
+  ResourceId restoreId = hadPrevious ? previousId : ResourceId();
+
+  uint32_t slot = ~0U, space = ~0U;
+  captured->GetShaderExtSlot(slot, space);
+  target->SetShaderExtSlot(slot, space);
+
+  // ResourceManager replacement supersedes are not self-cleaning: remove the previous reverse
+  // mapping first, then install the candidate. The old derived PSOs remain mapped until the
+  // transactional refresh commits.
+  if(hadPrevious)
+    rm->RemoveReplacement(from);
+  rm->ReplaceResource(from, to);
+
+  rdcstr error = RefreshDerivedReplacementsChecked(from);
+  if(!error.empty())
+  {
+    rm->RemoveReplacement(from);
+    if(hadPrevious)
+      rm->ReplaceResource(from, restoreId);
+    return error;
+  }
+
+  ClearPostVSCache();
+  ClearFeedbackCache();
+  return {};
+}
+
+rdcstr D3D12Replay::RemoveTargetShaderReplacementChecked(ResourceId id)
+{
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+
+  if(!WrappedID3D12Shader::IsShader(id))
+    return "Checked D3D12 replacement removal requires a shader ResourceId";
+  if(rm->GetUnreplacedID(id) != id)
+    return "The shader to restore must be the canonical captured ResourceId";
+  if(!rm->HasReplacement(id))
+    return {};
+
+  ID3D12DeviceChild *capturedResource =
+      rm->GetResourceWithoutReplacement(id, true);
+  if(capturedResource == NULL || GetResID(capturedResource) != id ||
+     !WrappedID3D12Shader::IsShader(GetResID(capturedResource)))
+    return "The canonical captured shader object could not be resolved";
+
+  ID3D12DeviceChild *previousResource = rm->GetResource(id, true);
+  if(previousResource == NULL)
+    return "The active target shader object could not be resolved";
+  ResourceId previousId = GetResID(previousResource);
+  if(!WrappedID3D12Shader::IsShader(previousId))
+    return "The captured shader is currently mapped to a non-shader resource";
+  if(previousId == id)
+    return "The captured shader has an invalid self-replacement mapping";
+  WrappedID3D12Shader *captured = (WrappedID3D12Shader *)capturedResource;
+  WrappedID3D12Shader *previous = (WrappedID3D12Shader *)previousResource;
+  if(previous->GetDetails().stage != captured->GetDetails().stage)
+    return "The active replacement stage differs from the canonical captured shader";
+
+  rm->RemoveReplacement(id);
+  rdcstr error = RefreshDerivedReplacementsChecked(id);
+  if(!error.empty())
+  {
+    rm->ReplaceResource(id, previousId);
+    return error;
+  }
+
+  ClearPostVSCache();
+  ClearFeedbackCache();
+  return {};
+}
+
+void D3D12Replay::ClearScrubReplayCache()
+{
+  // Lightweight scrub used by hot replay paths (for example buffer-patch EID
+  // timing) that must keep the initial-state source cache resident.
+  ClearPostVSCache();
+  ClearFeedbackCache();
+}
+
+void D3D12Replay::ReleaseRebuildableReplayResources()
+{
+  // Drop rebuildable replay-time scratch so a long Host-driven session (many
+  // shader edits/observations from the AI workflow) does not accumulate
+  // committed memory. Every resource dropped here is a pure optimization the
+  // next replay recreates on demand; correctness is unaffected.
+  if(!m_InitialStateSourceCache.empty())
+  {
+    // These cached initial-state copies may still be referenced by queued
+    // replay work, so drain it before releasing the application's resources,
+    // mirroring Shutdown's ordering.
+    m_pDevice->ExecuteLists();
+    m_pDevice->FlushLists(true);
+
+    m_InitialStateSourceCacheBytes =
+        RetainD3D12CanonicalInitialSources(m_pDevice, m_InitialStateSourceCache);
+  }
+
+  m_PatchedPSCache.clear();
 }
 
 void D3D12Replay::ClearReplayCache()
 {
-  ClearPostVSCache();
-  ClearFeedbackCache();
+  ClearScrubReplayCache();
+  ReleaseRebuildableReplayResources();
 }
 
 void D3D12Replay::ReloadShaderDebugInformation()
@@ -3641,76 +5694,673 @@ void D3D12Replay::ReloadShaderDebugInformation()
   ClearReplayCache();
 }
 
-void D3D12Replay::RefreshDerivedReplacements()
+static bool D3D12RootSignaturesEqual(WrappedID3D12Device *device,
+                                     const D3D12RootSignature &a,
+                                     const D3D12RootSignature &b)
 {
-  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  bytebuf encodedA = EncodeRootSig(device->RootSigVersion(), a);
+  bytebuf encodedB = EncodeRootSig(device->RootSigVersion(), b);
+  return !encodedA.empty() && encodedA == encodedB;
+}
 
-  // we defer deletes of old replaced resources since it will invalidate elements in the vector
-  // we're iterating
-  rdcarray<ID3D12PipelineState *> deletequeue;
+static rdcstr VerifyImplicitD3D12RootSignature(
+    WrappedID3D12Device *device, WrappedID3D12PipelineState *captured,
+    const D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC &desc)
+{
+  if(desc.GetRootSigIfPresent() != NULL ||
+     desc.GetRootSigBlob().SerializedBlobSizeInBytes > 0)
+    return {};
 
-  for(WrappedID3D12PipelineState *pipe : m_pDevice->GetPipelineList())
+  const D3D12_SHADER_BYTECODE shaders[] = {
+      desc.VS, desc.HS, desc.DS, desc.GS, desc.PS, desc.CS, desc.AS, desc.MS,
+  };
+
+  bool found = false;
+  for(const D3D12_SHADER_BYTECODE &shader : shaders)
   {
-    ResourceId pipesrcid = pipe->GetResourceID();
-    ResourceId origsrcid = pipesrcid;
-
-    // only look at pipelines from the capture, no replay-time programs.
-    if(ResourceIDGen::IsReplayOnlyID(pipesrcid))
+    if(shader.pShaderBytecode == NULL || shader.BytecodeLength == 0 ||
+       !DXBC::DXBCContainer::CheckForRootSig(shader.pShaderBytecode, shader.BytecodeLength))
       continue;
 
-    // if this pipeline has a replacement, remove it and delete the program generated for it
-    if(rm->HasReplacement(origsrcid))
+    D3D12RootSignature candidate =
+        DecodeRootSig(shader.pShaderBytecode, shader.BytecodeLength);
+    if(!D3D12RootSignaturesEqual(device, captured->usedSig, candidate))
+      return "A replacement shader's embedded root signature differs from the captured PSO";
+    found = true;
+  }
+
+  if(!found)
+    return "The captured PSO used an implicit root signature, but no replacement-stage shader "
+           "contains the exact captured signature";
+
+  return {};
+}
+
+rdcstr D3D12Replay::SetEventShaderOverride(uint32_t eventId, ShaderStage stage,
+                                          ResourceId expectedOriginal, ResourceId replacement,
+                                          uint32_t outputTarget, bool independentFloatOutput)
+{
+  RestoreEventShaderOverrides();
+  const ActionDescription *action = m_pDevice->GetAction(eventId);
+  if(!action || !(action->flags & (ActionFlags::Drawcall | ActionFlags::Dispatch | ActionFlags::MeshDispatch)))
+    return "The event is not a graphics draw or compute dispatch";
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  if(!WrappedID3D12Shader::IsShader(expectedOriginal) || !WrappedID3D12Shader::IsShader(replacement) ||
+     rm->GetUnreplacedID(expectedOriginal) != expectedOriginal ||
+     rm->GetUnreplacedID(replacement) != replacement)
+    return "Event Shader override requires a captured original and an unowned target Shader";
+  WrappedID3D12Shader *target = rm->GetResAs<WrappedID3D12Shader>(replacement, true);
+  if(!target || target->GetDetails().stage != stage)
+    return "The target Shader stage does not match the event override";
+  if(outputTarget != ~0U && (stage != ShaderStage::Pixel || outputTarget >= 8))
+    return "A blend bypass requires a valid pixel Shader color target";
+  if(independentFloatOutput && (stage != ShaderStage::Pixel || outputTarget == ~0U))
+    return "Independent float preview requires a pixel Shader color target";
+  m_EventShaderOverrides[{eventId, stage}] = {expectedOriginal, replacement, outputTarget,
+                                           independentFloatOutput};
+  ClearPostVSCache();
+  return {};
+}
+
+void D3D12Replay::ReleaseEventShaderPipelines(ResourceId target)
+{
+  if(m_EventShaderPipelines.empty())
+    return;
+  // PSOs used by an asynchronous OnlyDraw must retire before destruction.
+  if(!m_pDevice->DeviceWaitForIdle())
+    return;
+  for(auto it = m_EventShaderPipelines.begin(); it != m_EventShaderPipelines.end();)
+  {
+    if(target == ResourceId() || it->first.Uses(target))
     {
-      deletequeue.push_back(rm->GetResAs<ID3D12PipelineState>(origsrcid));
-
-      rm->RemoveReplacement(origsrcid);
+      SAFE_RELEASE(it->second);
+      it = m_EventShaderPipelines.erase(it);
     }
+    else
+      ++it;
+  }
+}
 
+void D3D12Replay::ClearEventShaderOverride(uint32_t eventId, ShaderStage stage)
+{
+  RestoreEventShaderOverrides();
+  m_EventShaderOverrides.erase({eventId, stage});
+  ClearPostVSCache();
+}
+
+void D3D12Replay::ClearEventShaderOverrides()
+{
+  RestoreEventShaderOverrides();
+  m_EventShaderOverrides.clear();
+  ClearPostVSCache();
+}
+
+void D3D12Replay::ClearEventShaderOverridesForResource(ResourceId id)
+{
+  RestoreEventShaderOverrides();
+  for(auto it = m_EventShaderOverrides.begin(); it != m_EventShaderOverrides.end();)
+    if(it->second.replacement == id)
+      it = m_EventShaderOverrides.erase(it);
+    else
+      ++it;
+  ReleaseEventShaderPipelines(id);
+}
+
+rdcstr D3D12Replay::ApplyEventShaderOverrides(uint32_t eventId)
+{
+  if(m_EventShaderStateApplied)
+    return "A previous D3D12 event Shader override was not restored";
+  bool configured = false;
+  for(const auto &item : m_EventShaderOverrides)
+    configured |= item.first.first == eventId;
+  if(!configured)
+    return {};
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  D3D12RenderState &state = m_pDevice->GetQueue()->GetCommandData()->m_RenderState;
+  WrappedID3D12PipelineState *pipe = rm->GetResAs<WrappedID3D12PipelineState>(state.pipe, true);
+  if(!pipe)
+    return "The selected event has no live graphics or compute pipeline";
+  EventShaderPipelineKey key;
+  key.pipeline = pipe->GetResourceID();
+  D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC desc;
+  pipe->Fill(desc);
+  desc.CachedPSO = {};
+  WrappedID3D12Shader *bound[] = {pipe->VS(), pipe->HS(), pipe->DS(), pipe->GS(), pipe->PS(),
+                                  pipe->CS(), pipe->AS(), pipe->MS()};
+  D3D12_SHADER_BYTECODE *bytecode[] = {&desc.VS, &desc.HS, &desc.DS, &desc.GS, &desc.PS,
+                                      &desc.CS, &desc.AS, &desc.MS};
+  for(const auto &item : m_EventShaderOverrides)
+  {
+    if(item.first.first != eventId)
+      continue;
+    const uint32_t stage = uint32_t(item.first.second);
+    if(stage >= ARRAY_COUNT(bound) || !bound[stage] ||
+       rm->GetUnreplacedID(bound[stage]->GetResourceID()) != item.second.original)
+      return "The selected event no longer binds the expected Shader";
+    WrappedID3D12Shader *target = rm->GetResAs<WrappedID3D12Shader>(item.second.replacement, true);
+    if(!target || target->GetResourceID() != item.second.replacement ||
+       target->GetDetails().stage != item.first.second)
+      return "The event Shader target is no longer available";
+    uint32_t slot = ~0U, space = ~0U;
+    bound[stage]->GetShaderExtSlot(slot, space);
+    target->SetShaderExtSlot(slot, space);
+    *bytecode[stage] = target->GetDesc();
+    key.replacements[stage] = item.second.replacement;
+    if(item.second.outputTarget != ~0U)
+      key.outputTarget = item.second.outputTarget;
+    key.independentFloatOutput |= item.second.independentFloatOutput;
+  }
+  if(key.outputTarget != ~0U)
+  {
+    if(!pipe->IsGraphics() || key.outputTarget >= desc.RTVFormats.NumRenderTargets)
+      return "The requested debug color target is not bound by this pipeline";
+    if(!desc.BlendState.IndependentBlendEnable)
+      for(size_t i = 1; i < ARRAY_COUNT(desc.BlendState.RenderTarget); i++)
+        desc.BlendState.RenderTarget[i] = desc.BlendState.RenderTarget[0];
+    desc.BlendState.IndependentBlendEnable = TRUE;
+    desc.BlendState.AlphaToCoverageEnable = FALSE;
+    desc.BlendState.RenderTarget[key.outputTarget].BlendEnable = FALSE;
+    desc.BlendState.RenderTarget[key.outputTarget].LogicOpEnable = FALSE;
+    desc.BlendState.RenderTarget[key.outputTarget].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    if(key.independentFloatOutput)
+      desc.RTVFormats.RTFormats[key.outputTarget] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+  }
+  auto cached = m_EventShaderPipelines.find(key);
+  if(cached == m_EventShaderPipelines.end())
+  {
+    rdcstr error = VerifyImplicitD3D12RootSignature(m_pDevice, pipe, desc);
+    if(!error.empty())
+      return error;
+    ID3D12PipelineState *variant = NULL;
+    HRESULT hr = m_pDevice->CreatePipeState(desc, &variant);
+    if(FAILED(hr) || !variant)
+      return StringFormat::Fmt("Creating the event Shader pipeline failed: %s", ToStr(hr).c_str());
+    if(m_EventShaderPipelines.size() >= 64)
+      ReleaseEventShaderPipelines();
+    cached = m_EventShaderPipelines.insert({key, variant}).first;
+  }
+  EventShaderScratch *scratch = NULL;
+  if(key.independentFloatOutput)
+  {
+    rdcstr error = PrepareEventShaderScratch(eventId, key.outputTarget, state, scratch);
+    if(!error.empty())
+      return error;
+  }
+  m_pDevice->InvalidateLiveForward("eventShaderOverride");
+  m_EventShaderPreviousPipeline = state.pipe;
+  if(scratch)
+  {
+    m_EventShaderPreviousRTs = state.rts;
+    m_EventShaderPreviousDSV = state.dsv;
+    state.rts = scratch->renderRTs;
+    state.dsv = scratch->renderDSV;
+    m_EventShaderAttachmentsApplied = true;
+  }
+  state.pipe = GetResID(cached->second);
+  m_EventShaderStateApplied = true;
+  return {};
+}
+
+void D3D12Replay::RestoreEventShaderOverrides()
+{
+  if(!m_EventShaderStateApplied)
+    return;
+  D3D12RenderState &state = m_pDevice->GetQueue()->GetCommandData()->m_RenderState;
+  state.pipe = m_EventShaderPreviousPipeline;
+  if(m_EventShaderAttachmentsApplied)
+  {
+    state.rts = m_EventShaderPreviousRTs;
+    state.dsv = m_EventShaderPreviousDSV;
+    m_EventShaderPreviousRTs.clear();
+    m_EventShaderAttachmentsApplied = false;
+  }
+  m_EventShaderPreviousPipeline = ResourceId();
+  m_EventShaderStateApplied = false;
+}
+
+void D3D12Replay::ReleaseEventShaderScratch()
+{
+  if(m_EventShaderScratch.empty() || !m_pDevice->DeviceWaitForIdle())
+    return;
+  for(auto &item : m_EventShaderScratch)
+  {
+    for(ID3D12Resource *resource : item.second.colors)
+      SAFE_RELEASE(resource);
+    SAFE_RELEASE(item.second.depth);
+    SAFE_RELEASE(item.second.clearHeap);
+  }
+  m_EventShaderScratch.clear();
+}
+
+TextureDescription D3D12Replay::GetEventShaderPreviewTexture(uint32_t eventId, ShaderStage stage)
+{
+  auto binding = m_EventShaderOverrides.find({eventId, stage});
+  if(binding == m_EventShaderOverrides.end() || !binding->second.independentFloatOutput)
+    return {};
+  auto scratch = m_EventShaderScratch.find({eventId, binding->second.outputTarget});
+  if(scratch == m_EventShaderScratch.end() ||
+     binding->second.outputTarget >= scratch->second.colors.size())
+    return {};
+  return GetTexture(GetResID(scratch->second.colors[binding->second.outputTarget]));
+}
+
+rdcstr D3D12Replay::PrepareEventShaderScratch(uint32_t eventId, uint32_t outputTarget,
+                                             const D3D12RenderState &state,
+                                             EventShaderScratch *&scratch)
+{
+  scratch = NULL;
+  if(state.renderpass)
+    return "Independent float preview does not support D3D12 render-pass resolve semantics";
+  if(outputTarget >= state.rts.size() ||
+     state.rts[outputTarget].GetResResourceId() == ResourceId())
+    return "The selected independent preview attachment is not bound";
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  const auto cacheKey = std::make_pair(eventId, outputTarget);
+  rdcarray<ResourceId> liveSources;
+  for(size_t i = 0; i <= state.rts.size(); i++)
+  {
+    ResourceId source = i == state.rts.size() ? state.dsv.GetResResourceId() :
+                                               state.rts[i].GetResResourceId();
+    ID3D12Resource *resource = source == ResourceId() ? NULL :
+                               rm->GetResAs<ID3D12Resource>(source, true);
+    if(source != ResourceId() && !resource)
+      return "An independent preview attachment is unavailable";
+    liveSources.push_back(GetResID(resource));
+  }
+  auto found = m_EventShaderScratch.find(cacheKey);
+  bool matches = found != m_EventShaderScratch.end();
+  auto sameView = [](const D3D12Descriptor &a, const D3D12Descriptor &b, bool depth) {
+    if(a.GetResResourceId() != b.GetResResourceId())
+      return false;
+    // An unbound DSV is deliberately Undefined. ContentsEqual rejects it and
+    // compares unused union bytes for other views, which is appropriate for
+    // descriptor write elision but not for scratch attachment compatibility.
+    if(a.GetResResourceId() == ResourceId())
+      return true;
+    if(depth)
+    {
+      const D3D12_DEPTH_STENCIL_VIEW_DESC &x = a.GetDSV(), &y = b.GetDSV();
+      if(x.Format != y.Format || x.Flags != y.Flags || x.ViewDimension != y.ViewDimension)
+        return false;
+      switch(x.ViewDimension)
+      {
+        case D3D12_DSV_DIMENSION_TEXTURE2D: return x.Texture2D.MipSlice == y.Texture2D.MipSlice;
+        case D3D12_DSV_DIMENSION_TEXTURE2DARRAY:
+          return x.Texture2DArray.MipSlice == y.Texture2DArray.MipSlice &&
+                 x.Texture2DArray.FirstArraySlice == y.Texture2DArray.FirstArraySlice &&
+                 x.Texture2DArray.ArraySize == y.Texture2DArray.ArraySize;
+        case D3D12_DSV_DIMENSION_TEXTURE2DMS: return true;
+        case D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY:
+          return x.Texture2DMSArray.FirstArraySlice == y.Texture2DMSArray.FirstArraySlice &&
+                 x.Texture2DMSArray.ArraySize == y.Texture2DMSArray.ArraySize;
+        default: return false;
+      }
+    }
+    const D3D12_RENDER_TARGET_VIEW_DESC &x = a.GetRTV(), &y = b.GetRTV();
+    if(x.Format != y.Format || x.ViewDimension != y.ViewDimension)
+      return false;
+    switch(x.ViewDimension)
+    {
+      case D3D12_RTV_DIMENSION_TEXTURE2D:
+        return x.Texture2D.MipSlice == y.Texture2D.MipSlice &&
+               x.Texture2D.PlaneSlice == y.Texture2D.PlaneSlice;
+      case D3D12_RTV_DIMENSION_TEXTURE2DARRAY:
+        return x.Texture2DArray.MipSlice == y.Texture2DArray.MipSlice &&
+               x.Texture2DArray.PlaneSlice == y.Texture2DArray.PlaneSlice &&
+               x.Texture2DArray.FirstArraySlice == y.Texture2DArray.FirstArraySlice &&
+               x.Texture2DArray.ArraySize == y.Texture2DArray.ArraySize;
+      case D3D12_RTV_DIMENSION_TEXTURE2DMS: return true;
+      case D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY:
+        return x.Texture2DMSArray.FirstArraySlice == y.Texture2DMSArray.FirstArraySlice &&
+               x.Texture2DMSArray.ArraySize == y.Texture2DMSArray.ArraySize;
+      default: return false;
+    }
+  };
+  if(matches)
+  {
+    matches = found->second.sourceRTs.size() == state.rts.size() &&
+              sameView(found->second.sourceDSV, state.dsv, true) &&
+              found->second.liveSources == liveSources;
+    for(size_t i = 0; matches && i < state.rts.size(); i++)
+      matches = sameView(found->second.sourceRTs[i], state.rts[i], false);
+  }
+  auto destroy = [](EventShaderScratch &entry) {
+    for(ID3D12Resource *resource : entry.colors)
+      SAFE_RELEASE(resource);
+    SAFE_RELEASE(entry.depth);
+    SAFE_RELEASE(entry.clearHeap);
+  };
+  if(!matches && found != m_EventShaderScratch.end())
+  {
+    if(!m_pDevice->DeviceWaitForIdle())
+      return "The previous float preview GPU work did not complete";
+    destroy(found->second);
+    m_EventShaderScratch.erase(found);
+    found = m_EventShaderScratch.end();
+  }
+  if(!matches)
+  {
+    EventShaderScratch entry;
+    entry.sourceRTs = state.rts;
+    entry.liveSources = liveSources;
+    entry.sourceDSV = state.dsv;
+    entry.renderRTs = state.rts;
+    entry.renderDSV = state.dsv;
+    entry.colors.resize(state.rts.size());
+    rdcarray<D3D12_RESOURCE_DESC> descriptions;
+    descriptions.resize(state.rts.size() + 1);
+    D3D12_RENDER_TARGET_VIEW_DESC selectedView = state.rts[outputTarget].GetRTV();
+    for(size_t i = 0; i < descriptions.size(); i++)
+    {
+      const bool depth = i == state.rts.size();
+      ResourceId source = depth ? state.dsv.GetResResourceId() : state.rts[i].GetResResourceId();
+      if(source == ResourceId())
+        continue;
+      ID3D12Resource *resource = rm->GetResAs<ID3D12Resource>(source, true);
+      if(!resource)
+        return "An independent preview attachment is unavailable";
+      D3D12_RESOURCE_DESC desc = resource->GetDesc();
+      if(desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+        return "Independent float preview requires 2D or 2D-array attachments";
+      D3D12_HEAP_PROPERTIES originalHeap = {};
+      D3D12_HEAP_FLAGS originalFlags = D3D12_HEAP_FLAG_NONE;
+      if(FAILED(resource->GetHeapProperties(&originalHeap, &originalFlags)))
+        return "Independent float preview does not support sparse attachments";
+      desc.Alignment = 0;
+      desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+      desc.Flags = depth ? D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL :
+                           D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+      if(i == outputTarget)
+      {
+        UINT mip = 0, layers = 1;
+        switch(selectedView.ViewDimension)
+        {
+          case D3D12_RTV_DIMENSION_TEXTURE2D:
+            mip = selectedView.Texture2D.MipSlice;
+            selectedView.Texture2D.MipSlice = 0;
+            selectedView.Texture2D.PlaneSlice = 0;
+            break;
+          case D3D12_RTV_DIMENSION_TEXTURE2DARRAY:
+            mip = selectedView.Texture2DArray.MipSlice;
+            layers = selectedView.Texture2DArray.ArraySize;
+            selectedView.Texture2DArray.MipSlice = 0;
+            selectedView.Texture2DArray.FirstArraySlice = 0;
+            selectedView.Texture2DArray.PlaneSlice = 0;
+            break;
+          case D3D12_RTV_DIMENSION_TEXTURE2DMS: break;
+          case D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY:
+            layers = selectedView.Texture2DMSArray.ArraySize;
+            selectedView.Texture2DMSArray.FirstArraySlice = 0;
+            break;
+          default: return "The independent float preview attachment view is unsupported";
+        }
+        if(mip >= desc.MipLevels || layers == 0 || layers > desc.DepthOrArraySize)
+          return "The independent float preview attachment has an invalid subresource range";
+        desc.Width = RDCMAX(1ULL, desc.Width >> mip);
+        desc.Height = RDCMAX(1U, desc.Height >> mip);
+        desc.MipLevels = 1;
+        desc.DepthOrArraySize = UINT16(layers);
+        desc.Format = selectedView.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {};
+        support.Format = desc.Format;
+        if(FAILED(m_pDevice->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support,
+                                                 sizeof(support))) ||
+           !(support.Support1 & D3D12_FORMAT_SUPPORT1_RENDER_TARGET) ||
+           !(support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD))
+          return "This device cannot render and inspect an RGBA32F preview";
+        if(desc.SampleDesc.Count > 1)
+        {
+          D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS samples = {};
+          samples.Format = desc.Format;
+          samples.SampleCount = desc.SampleDesc.Count;
+          if(FAILED(m_pDevice->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+                                                   &samples, sizeof(samples))) ||
+             samples.NumQualityLevels == 0 || desc.SampleDesc.Quality >= samples.NumQualityLevels)
+            return "RGBA32F does not support the captured multisample count and quality";
+        }
+      }
+      const D3D12_RESOURCE_ALLOCATION_INFO allocation =
+          m_pDevice->GetResourceAllocationInfo(0, 1, &desc);
+      const uint64_t budget = 512ULL * 1024 * 1024;
+      if(allocation.SizeInBytes > budget || entry.bytes > budget - allocation.SizeInBytes)
+        return "Independent float preview attachments exceed the 512 MiB scratch budget";
+      entry.bytes += allocation.SizeInBytes;
+      descriptions[i] = desc;
+    }
+    uint64_t total = entry.bytes;
+    for(const auto &item : m_EventShaderScratch)
+      total += item.second.bytes;
+    while(m_EventShaderScratch.size() >= 8 || total > 512ULL * 1024 * 1024)
+    {
+      auto oldest = m_EventShaderScratch.end();
+      for(auto it = m_EventShaderScratch.begin(); it != m_EventShaderScratch.end(); ++it)
+      {
+        // A different event may have a user-owned override. Preserve its preview resource.
+        auto active = m_EventShaderOverrides.find({it->first.first, ShaderStage::Pixel});
+        if(active != m_EventShaderOverrides.end() && active->second.independentFloatOutput)
+          continue;
+        if(oldest == m_EventShaderScratch.end() || it->second.used < oldest->second.used)
+          oldest = it;
+      }
+      if(oldest == m_EventShaderScratch.end() || !m_pDevice->DeviceWaitForIdle())
+        return "Independent float preview cache is full of active or unfinished GPU resources";
+      total -= oldest->second.bytes;
+      destroy(oldest->second);
+      m_EventShaderScratch.erase(oldest);
+    }
+    D3D12_HEAP_PROPERTIES heap = {};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+    for(size_t i = 0; i < descriptions.size(); i++)
+    {
+      if(descriptions[i].Width == 0)
+        continue;
+      const bool depth = i == state.rts.size();
+      ID3D12Resource **destination = depth ? &entry.depth : &entry.colors[i];
+      HRESULT hr = m_pDevice->CreateCommittedResource(
+          &heap, D3D12_HEAP_FLAG_NONE, &descriptions[i],
+          depth ? D3D12_RESOURCE_STATE_DEPTH_WRITE : D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
+          __uuidof(ID3D12Resource), (void **)destination);
+      if(FAILED(hr) || !*destination)
+      {
+        destroy(entry);
+        return StringFormat::Fmt("Allocating independent float preview failed: %s", ToStr(hr).c_str());
+      }
+      (*destination)->SetName(L"Bread independent Shader preview");
+      if(depth)
+        entry.renderDSV.Init(*destination, &state.dsv.GetDSV());
+      else
+        entry.renderRTs[i].Init(*destination,
+                               i == outputTarget ? &selectedView : &state.rts[i].GetRTV());
+    }
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
+    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    heapDesc.NumDescriptors = 1;
+    HRESULT hr = m_pDevice->CreateDescriptorHeap(&heapDesc, __uuidof(ID3D12DescriptorHeap),
+                                                 (void **)&entry.clearHeap);
+    if(FAILED(hr) || !entry.clearHeap)
+    {
+      destroy(entry);
+      return "Allocating the independent float preview RTV failed";
+    }
+    m_pDevice->CreateRenderTargetView(entry.colors[outputTarget], &selectedView,
+                                    entry.clearHeap->GetCPUDescriptorHandleForHeapStart());
+    found = m_EventShaderScratch.insert({cacheKey, std::move(entry)}).first;
+  }
+  EventShaderScratch &entry = found->second;
+  // Do not put an unclosed copy list in the device's pending submission queue.
+  ID3D12GraphicsCommandListX *list = m_pDevice->StealNewList();
+  if(!list)
+    return "Creating the independent float preview copy list failed";
+  for(size_t i = 0; i <= state.rts.size(); i++)
+  {
+    if(i == outputTarget)
+      continue;
+    const bool depth = i == state.rts.size();
+    ID3D12Resource *destination = depth ? entry.depth : entry.colors[i];
+    if(!destination)
+      continue;
+    ResourceId sourceId = depth ? state.dsv.GetResResourceId() : state.rts[i].GetResResourceId();
+    ID3D12Resource *source = rm->GetResAs<ID3D12Resource>(sourceId, true);
+    BarrierSet sourceBarriers, destinationBarriers;
+    sourceBarriers.Configure(source, m_pDevice->GetSubresourceStates(GetResID(source)),
+                             BarrierSet::CopySourceAccess);
+    destinationBarriers.Configure(destination,
+                                  m_pDevice->GetSubresourceStates(GetResID(destination)),
+                                  BarrierSet::CopyDestAccess);
+    sourceBarriers.Apply(list);
+    destinationBarriers.Apply(list);
+    list->CopyResource(destination, source);
+    destinationBarriers.Unapply(list);
+    sourceBarriers.Unapply(list);
+  }
+  const FLOAT clear[] = {0.0f, 0.0f, 0.0f, 0.0f};
+  list->ClearRenderTargetView(entry.clearHeap->GetCPUDescriptorHandleForHeapStart(), clear, 0, NULL);
+  HRESULT hr = list->Close();
+  if(FAILED(hr))
+  {
+    list->Release();
+    return "Closing the independent float preview copy list failed";
+  }
+  m_pDevice->ExecuteList(list);
+  entry.used = ++m_EventShaderScratchClock;
+  scratch = &entry;
+  return {};
+}
+
+rdcstr D3D12Replay::RefreshDerivedReplacementsChecked(ResourceId requiredShader)
+{
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  bool readOnlyPixelShader = false;
+  bool readBoundsPreserved = false;
+  if(requiredShader != ResourceId() && WrappedID3D12Shader::IsShader(requiredShader) &&
+     Process::GetEnvVariable("RENDERDOC_D3D12_DISABLE_READ_ONLY_SHADER_REPLAY_REUSE") != "1")
+  {
+    ID3D12DeviceChild *original = rm->GetResourceWithoutReplacement(requiredShader, true);
+    ID3D12DeviceChild *active = rm->GetResource(requiredShader, true);
+    if(original && active && WrappedID3D12Shader::IsShader(GetResID(active)))
+    {
+      readOnlyPixelShader =
+          D3D12ReadOnlyPixelWriteFootprint(((WrappedID3D12Shader *)original)->GetDetails(),
+                                           ((WrappedID3D12Shader *)active)->GetDetails());
+      readBoundsPreserved =
+          D3D12PixelReadBoundsPreserved(((WrappedID3D12Shader *)original)->GetDetails(),
+                                        ((WrappedID3D12Shader *)active)->GetDetails());
+    }
+  }
+
+  struct PendingPipeline
+  {
+    ResourceId original;
+    ID3D12PipelineState *previous = NULL;
+    ID3D12PipelineState *replacement = NULL;
+    bool hadPrevious = false;
+  };
+
+  rdcarray<WrappedID3D12PipelineState *> capturedPipelines;
+  for(WrappedID3D12PipelineState *pipe : m_pDevice->GetPipelineList())
+    if(!ResourceIDGen::IsReplayOnlyID(pipe->GetResourceID()))
+      capturedPipelines.push_back(pipe);
+
+  rdcarray<PendingPipeline> pending;
+  uint32_t requiredUses = 0;
+
+  for(WrappedID3D12PipelineState *pipe : capturedPipelines)
+  {
+    ResourceId pipesrcid = pipe->GetResourceID();
     bool usesReplacedShader = false;
+    bool usesRequiredShader = false;
 
     if(pipe->IsGraphics())
     {
-      ResourceId shaders[NumShaderStages];
-
-      if(pipe->VS())
-        shaders[0] = pipe->VS()->GetResourceID();
-      if(pipe->HS())
-        shaders[1] = pipe->HS()->GetResourceID();
-      if(pipe->DS())
-        shaders[2] = pipe->DS()->GetResourceID();
-      if(pipe->GS())
-        shaders[3] = pipe->GS()->GetResourceID();
-      if(pipe->PS())
-        shaders[4] = pipe->PS()->GetResourceID();
-      if(pipe->AS())
-        shaders[6] = pipe->AS()->GetResourceID();
-      if(pipe->MS())
-        shaders[7] = pipe->MS()->GetResourceID();
-
-      for(size_t i = 0; i < ARRAY_COUNT(shaders); i++)
+      WrappedID3D12Shader *shaders[] = {
+          pipe->VS(), pipe->HS(), pipe->DS(), pipe->GS(), pipe->PS(), pipe->AS(), pipe->MS(),
+      };
+      for(WrappedID3D12Shader *shader : shaders)
       {
-        usesReplacedShader = rm->HasReplacement(shaders[i]);
-        if(usesReplacedShader)
-          break;
+        if(shader == NULL)
+          continue;
+        ResourceId shaderId = shader->GetResourceID();
+        usesReplacedShader |= rm->HasReplacement(shaderId);
+        usesRequiredShader |= (shaderId == requiredShader);
       }
     }
     else
     {
-      if(rm->HasReplacement(pipe->CS()->GetResourceID()))
+      WrappedID3D12Shader *shader = pipe->CS();
+      if(shader != NULL)
       {
-        usesReplacedShader = true;
+        ResourceId shaderId = shader->GetResourceID();
+        usesReplacedShader = rm->HasReplacement(shaderId);
+        usesRequiredShader = (shaderId == requiredShader);
       }
     }
 
-    // if there are replaced shaders in use, create a new pipeline with any/all replaced shaders.
+    if(usesRequiredShader)
+    {
+      requiredUses++;
+      // Direct heap indexing can conceal UAV writes from ordinary reflection. Implicit/unknown
+      // signatures and other stages also retain the existing permanent fallback. Fixed RT/DS
+      // bindings are already included in the captured command's possible-write upper bound.
+      ID3D12RootSignature *nativeRoot =
+          pipe->IsGraphics() ? pipe->graphics->GetRootSigIfPresent() : NULL;
+      WrappedID3D12RootSignature *root =
+          nativeRoot ? rm->GetResAs<WrappedID3D12RootSignature>(GetResID(nativeRoot)) : NULL;
+      if(!root || (root->sig.Flags & (D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED |
+                                      D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED)))
+        readOnlyPixelShader = false;
+    }
+
+    PendingPipeline item;
+    item.original = pipesrcid;
+    item.hadPrevious = rm->HasReplacement(pipesrcid);
+    if(item.hadPrevious)
+    {
+      ID3D12DeviceChild *previousResource = rm->GetResource(pipesrcid, true);
+      ResourceId previousId =
+          previousResource ? GetResID(previousResource) : ResourceId();
+      if(previousId == pipesrcid || rm->GetUnreplacedID(previousId) != pipesrcid)
+      {
+        for(PendingPipeline &created : pending)
+          SAFE_RELEASE(created.replacement);
+        return StringFormat::Fmt(
+            "Captured PSO %s has an invalid or multiply-owned replacement target",
+            ToStr(pipesrcid).c_str());
+      }
+      for(WrappedID3D12PipelineState *candidate : m_pDevice->GetPipelineList())
+      {
+        if(candidate->GetResourceID() == previousId)
+        {
+          item.previous = candidate;
+          break;
+        }
+      }
+      if(item.previous == NULL)
+      {
+        for(PendingPipeline &created : pending)
+          SAFE_RELEASE(created.replacement);
+        return StringFormat::Fmt(
+            "Captured PSO %s is mapped to a missing or non-pipeline resource",
+            ToStr(pipesrcid).c_str());
+      }
+    }
+
+    // If no shader replacement remains, committing this item simply removes the old derived PSO.
+    if(!usesReplacedShader)
+    {
+      if(item.hadPrevious)
+        pending.push_back(item);
+      continue;
+    }
+
+    D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC desc =
+        pipe->IsGraphics() ? *pipe->graphics : *pipe->compute;
+    desc.CachedPSO = {NULL, 0};
+
     if(usesReplacedShader)
     {
-      ID3D12PipelineState *newpipe = NULL;
-
       if(pipe->IsGraphics())
       {
-        D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC desc = *pipe->graphics;
-
         D3D12_SHADER_BYTECODE *shaders[] = {
             &desc.VS, &desc.HS, &desc.DS, &desc.GS, &desc.PS, &desc.AS, &desc.MS,
         };
@@ -3722,38 +6372,106 @@ void D3D12Replay::RefreshDerivedReplacements()
             WrappedID3D12Shader *stage = (WrappedID3D12Shader *)shaders[s]->pShaderBytecode;
 
             // this will pick up any replacements
-            stage = rm->GetResAs<WrappedID3D12Shader>(stage->GetResourceID());
+            ID3D12DeviceChild *stageResource =
+                rm->GetResource(stage->GetResourceID(), true);
+            ResourceId stageId = stageResource ? GetResID(stageResource) : ResourceId();
+            if(stageResource == NULL || !WrappedID3D12Shader::IsShader(stageId))
+            {
+              for(PendingPipeline &created : pending)
+                SAFE_RELEASE(created.replacement);
+              return StringFormat::Fmt(
+                  "A replacement stage for PSO %s is missing or mapped to a non-shader resource",
+                  ToStr(pipesrcid).c_str());
+            }
+            stage = (WrappedID3D12Shader *)stageResource;
 
             *shaders[s] = stage->GetDesc();
           }
         }
-
-        m_pDevice->CreatePipeState(desc, &newpipe);
       }
       else
       {
-        D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC desc = *pipe->compute;
-
         WrappedID3D12Shader *stage = pipe->CS();
 
         // this will pick up any replacements
-        stage = rm->GetResAs<WrappedID3D12Shader>(stage->GetResourceID());
+        ID3D12DeviceChild *stageResource =
+            stage ? rm->GetResource(stage->GetResourceID(), true) : NULL;
+        ResourceId stageId = stageResource ? GetResID(stageResource) : ResourceId();
+        if(stageResource == NULL || !WrappedID3D12Shader::IsShader(stageId))
+        {
+          for(PendingPipeline &created : pending)
+            SAFE_RELEASE(created.replacement);
+          return StringFormat::Fmt(
+              "A replacement compute stage for PSO %s is missing or mapped to a non-shader "
+              "resource",
+              ToStr(pipesrcid).c_str());
+        }
+        stage = (WrappedID3D12Shader *)stageResource;
 
         desc.CS = stage->GetDesc();
-
-        m_pDevice->CreatePipeState(desc, &newpipe);
       }
 
-      rm->ReplaceResource(origsrcid, GetResID(newpipe));
+      rdcstr rootError = VerifyImplicitD3D12RootSignature(m_pDevice, pipe, desc);
+      if(!rootError.empty())
+      {
+        for(PendingPipeline &created : pending)
+          SAFE_RELEASE(created.replacement);
+        return StringFormat::Fmt("PSO %s: %s", ToStr(pipesrcid).c_str(), rootError.c_str());
+      }
+
+      HRESULT hr = m_pDevice->CreatePipeState(desc, &item.replacement);
+      if(FAILED(hr) || item.replacement == NULL)
+      {
+        SAFE_RELEASE(item.replacement);
+        for(PendingPipeline &created : pending)
+          SAFE_RELEASE(created.replacement);
+        return StringFormat::Fmt("Rebuilding D3D12 PSO %s failed: %s", ToStr(pipesrcid).c_str(),
+                                 ToStr(hr).c_str());
+      }
+
+      pending.push_back(item);
     }
   }
 
-  m_pDevice->DeviceWaitForIdle();
-
-  for(ID3D12PipelineState *pipe : deletequeue)
+  if(requiredShader != ResourceId() && requiredUses == 0)
   {
-    SAFE_RELEASE(pipe);
+    for(PendingPipeline &created : pending)
+      SAFE_RELEASE(created.replacement);
+    return "The captured shader is not referenced by any captured graphics/compute PSO";
   }
+
+  // Nothing above changed a mapping. Commit only after every required PSO and root signature has
+  // succeeded, then retire old derived PSOs after the device is idle.
+  if(!m_pDevice->DeviceWaitForIdle())
+  {
+    for(PendingPipeline &created : pending)
+      SAFE_RELEASE(created.replacement);
+    return "GPU completion could not be confirmed before installing replacement D3D12 pipelines";
+  }
+  m_pDevice->InvalidatePreparedReplayCache(readOnlyPixelShader,
+                                           readOnlyPixelShader && readBoundsPreserved);
+
+  if(m_pDevice->HasFatalError())
+  {
+    for(PendingPipeline &created : pending)
+      SAFE_RELEASE(created.replacement);
+    return "D3D12 pipeline cache retirement failed before replacement mappings could be installed";
+  }
+
+  for(PendingPipeline &item : pending)
+  {
+    if(item.hadPrevious)
+      rm->RemoveReplacement(item.original);
+    if(item.replacement != NULL)
+      rm->ReplaceResource(item.original, GetResID(item.replacement));
+  }
+
+  for(PendingPipeline &item : pending)
+  {
+    SAFE_RELEASE(item.previous);
+  }
+
+  return {};
 }
 
 void D3D12Replay::GetTextureData(ResourceId tex, const Subresource &sub,
@@ -3762,7 +6480,11 @@ void D3D12Replay::GetTextureData(ResourceId tex, const Subresource &sub,
   bool wasms = false;
   bool resolve = params.resolve;
 
-  m_pDevice->ReplayWorkWaitForIdle();
+  if(!m_pDevice->ReplayWorkWaitForIdle())
+  {
+    data.clear();
+    return;
+  }
 
   ID3D12Resource *resource = NULL;
 
@@ -4337,6 +7059,7 @@ void D3D12Replay::BuildCustomShader(ShaderEncoding sourceEncoding, const bytebuf
 
 ResourceId D3D12Replay::ApplyCustomShader(TextureDisplay &display)
 {
+  m_pDevice->InvalidateLiveForward("customShaderAnalysis");
   ID3D12Resource *resource = NULL;
 
   {
@@ -4449,17 +7172,349 @@ ResourceId D3D12Replay::ApplyCustomShader(TextureDisplay &display)
   return m_CustomShaderResourceId;
 }
 
-#pragma region not yet implemented
+#pragma region proxy resources
 
 ResourceId D3D12Replay::CreateProxyTexture(const TextureDescription &templateTex)
 {
-  return ResourceId();
+  // ReplayController's persistent event snapshots deliberately use this small common subset. Keep
+  // the proxy implementation equally strict instead of silently changing unsupported topology.
+  if(templateTex.dimension != 2 || templateTex.type != TextureType::Texture2D ||
+     templateTex.depth != 1 || templateTex.arraysize != 1 || templateTex.mips != 1 ||
+     templateTex.msSamp != 1 || templateTex.width == 0 || templateTex.height == 0)
+  {
+    RDCERR("Unsupported D3D12 proxy texture description");
+    return ResourceId();
+  }
+
+  const DXGI_FORMAT format = MakeDXGIFormat(templateTex.format);
+  if(format == DXGI_FORMAT_UNKNOWN)
+  {
+    RDCERR("Unsupported D3D12 proxy texture format %s", templateTex.format.Name().c_str());
+    return ResourceId();
+  }
+
+  D3D12_HEAP_PROPERTIES heapProps = {};
+  heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+  heapProps.CreationNodeMask = 1;
+  heapProps.VisibleNodeMask = 1;
+
+  D3D12_RESOURCE_DESC desc = {};
+  desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  desc.Width = templateTex.width;
+  desc.Height = templateTex.height;
+  desc.DepthOrArraySize = 1;
+  desc.MipLevels = 1;
+  desc.Format = format;
+  desc.SampleDesc.Count = 1;
+  desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+  ID3D12Resource *proxy = NULL;
+  HRESULT hr = m_pDevice->CreateCommittedResource(
+      &heapProps, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, NULL,
+      __uuidof(ID3D12Resource), (void **)&proxy);
+  if(FAILED(hr) || proxy == NULL)
+  {
+    RDCERR("Couldn't create D3D12 proxy texture: %s", ToStr(hr).c_str());
+    return ResourceId();
+  }
+
+  proxy->SetName(L"RenderDoc persistent event texture snapshot");
+  m_ProxyResources.push_back(proxy);
+  return GetResID(proxy);
+}
+
+ResourceId D3D12Replay::CreateProxyTextureSnapshot(const TextureDescription &templateTex)
+{
+  ResourceId snapshot = CreateProxyTexture(templateTex);
+  if(snapshot != ResourceId())
+    m_TextureSnapshots.push_back(snapshot);
+  return snapshot;
+}
+
+ResourceId D3D12Replay::CreateTextureSnapshot(ResourceId source, const Subresource &sourceSub,
+                                              CompType typeCast, Subresource &snapshotSub)
+{
+  (void)typeCast;
+
+  auto sourceIt = m_pDevice->GetResourceList().find(source);
+  if(sourceIt == m_pDevice->GetResourceList().end() || sourceIt->second == NULL)
+    return ResourceId();
+
+  ID3D12Resource *sourceResource = sourceIt->second;
+  const D3D12_RESOURCE_DESC sourceDesc = sourceResource->GetDesc();
+  if(sourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER || sourceDesc.MipLevels == 0 ||
+     sourceDesc.Width == 0 || sourceDesc.Height == 0 || sourceDesc.SampleDesc.Count != 1 ||
+     (sourceDesc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
+    return ResourceId();
+
+  // Reserved (sparse) resources don't expose heap properties and require tile-by-tile residency
+  // handling. Keep them on the portable fallback instead of taking a potentially incomplete copy.
+  D3D12_HEAP_PROPERTIES sourceHeap = {};
+  D3D12_HEAP_FLAGS sourceHeapFlags = D3D12_HEAP_FLAG_NONE;
+  if(FAILED(sourceResource->GetHeapProperties(&sourceHeap, &sourceHeapFlags)))
+    return ResourceId();
+
+  D3D12_FEATURE_DATA_FORMAT_INFO formatInfo = {};
+  formatInfo.Format = sourceDesc.Format;
+  if(FAILED(m_pDevice->CheckFeatureSupport(D3D12_FEATURE_FORMAT_INFO, &formatInfo,
+                                            sizeof(formatInfo))) ||
+     formatInfo.PlaneCount != 1)
+    return ResourceId();
+
+  const UINT mip = RDCMIN(sourceSub.mip, UINT(sourceDesc.MipLevels - 1));
+  const bool is3D = sourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+  const UINT arraySize = is3D ? 1U : UINT(sourceDesc.DepthOrArraySize);
+  const UINT slice = is3D ? 0U : RDCMIN(sourceSub.slice, arraySize - 1);
+
+  D3D12_RESOURCE_DESC snapshotDesc = sourceDesc;
+  snapshotDesc.Alignment = 0;
+  snapshotDesc.Width = RDCMAX(1ULL, sourceDesc.Width >> mip);
+  snapshotDesc.Height = RDCMAX(1U, sourceDesc.Height >> mip);
+  snapshotDesc.DepthOrArraySize =
+      is3D ? UINT16(RDCMAX(1U, UINT(sourceDesc.DepthOrArraySize) >> mip)) : 1;
+  snapshotDesc.MipLevels = 1;
+  snapshotDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+  D3D12_HEAP_PROPERTIES heapProps = {};
+  heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+  heapProps.CreationNodeMask = 1;
+  heapProps.VisibleNodeMask = 1;
+
+  ID3D12Resource *snapshot = NULL;
+  HRESULT hr = m_pDevice->CreateCommittedResource(
+      &heapProps, D3D12_HEAP_FLAG_NONE, &snapshotDesc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+      __uuidof(ID3D12Resource), (void **)&snapshot);
+  if(FAILED(hr) || snapshot == NULL)
+    return ResourceId();
+
+  ID3D12GraphicsCommandListX *list = m_pDevice->GetNewList();
+  if(list == NULL)
+  {
+    snapshot->Release();
+    return ResourceId();
+  }
+
+  BarrierSet sourceBarriers;
+  sourceBarriers.Configure(sourceResource, m_pDevice->GetSubresourceStates(source),
+                           BarrierSet::CopySourceAccess);
+  sourceBarriers.Apply(list);
+
+  D3D12_TEXTURE_COPY_LOCATION dst = {};
+  dst.pResource = snapshot;
+  dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  dst.SubresourceIndex = 0;
+
+  D3D12_TEXTURE_COPY_LOCATION src = {};
+  src.pResource = sourceResource;
+  src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  src.SubresourceIndex =
+      D3D12CalcSubresource(mip, slice, 0, sourceDesc.MipLevels, arraySize);
+
+  list->CopyTextureRegion(&dst, 0, 0, 0, &src, NULL);
+  sourceBarriers.Unapply(list);
+
+  D3D12_RESOURCE_BARRIER ready = {};
+  ready.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+  ready.Transition.pResource = snapshot;
+  ready.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+  ready.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+  ready.Transition.StateAfter = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+  list->ResourceBarrier(1, &ready);
+  list->Close();
+
+  m_pDevice->ExecuteLists();
+
+  const ResourceId snapshotId = GetResID(snapshot);
+  SubresourceStateVector &snapshotStates = m_pDevice->GetSubresourceStates(snapshotId);
+  for(D3D12ResourceLayout &state : snapshotStates)
+    state = D3D12ResourceLayout::FromStates(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+
+  snapshot->SetName(L"RenderDoc GPU event texture snapshot");
+  m_ProxyResources.push_back(snapshot);
+  m_TextureSnapshots.push_back(snapshotId);
+
+  snapshotSub = Subresource();
+  if(is3D)
+    snapshotSub.slice =
+        RDCMIN(sourceSub.slice, UINT(snapshotDesc.DepthOrArraySize) - 1);
+  return snapshotId;
+}
+
+void D3D12Replay::FreeTextureSnapshot(ResourceId snapshot)
+{
+  rdcarray<ResourceId> snapshots;
+  snapshots.push_back(snapshot);
+  FreeTextureSnapshots(snapshots);
+}
+
+void D3D12Replay::FreeTextureSnapshots(const rdcarray<ResourceId> &snapshots)
+{
+  bool ownedSnapshot = false;
+  for(ResourceId snapshot : snapshots)
+  {
+    if(m_TextureSnapshots.contains(snapshot))
+    {
+      ownedSnapshot = true;
+      break;
+    }
+  }
+
+  if(!ownedSnapshot)
+    return;
+
+  // D3D12 requires the application to keep resources alive while submitted command lists may
+  // reference them. Batch all LRU victims behind one synchronization point.
+  m_pDevice->ExecuteLists();
+  m_pDevice->FlushLists(true);
+
+  for(ResourceId snapshot : snapshots)
+  {
+    for(size_t snapshotIndex = 0; snapshotIndex < m_TextureSnapshots.size(); snapshotIndex++)
+    {
+      if(m_TextureSnapshots[snapshotIndex] != snapshot)
+        continue;
+
+      for(size_t resourceIndex = 0; resourceIndex < m_ProxyResources.size(); resourceIndex++)
+      {
+        if(GetResID(m_ProxyResources[resourceIndex]) == snapshot)
+        {
+          ID3D12Resource *resource = m_ProxyResources[resourceIndex];
+          m_ProxyResources.erase(resourceIndex);
+          resource->Release();
+          break;
+        }
+      }
+
+      m_TextureSnapshots.erase(snapshotIndex);
+      break;
+    }
+  }
 }
 
 void D3D12Replay::SetProxyTextureData(ResourceId texid, const Subresource &sub, byte *data,
                                       size_t dataSize)
 {
+  m_pDevice->InvalidateLiveForward("proxyTextureWrite");
+  auto it = m_pDevice->GetResourceList().find(texid);
+  if(it == m_pDevice->GetResourceList().end() || it->second == NULL || data == NULL ||
+     sub != Subresource())
+  {
+    RDCERR("Invalid texture or subresource passed to D3D12 SetProxyTextureData");
+    return;
+  }
+
+  ID3D12Resource *proxy = it->second;
+  bool ownedProxy = false;
+  for(ID3D12Resource *resource : m_ProxyResources)
+    ownedProxy |= resource == proxy;
+  if(!ownedProxy)
+  {
+    RDCERR("Non-proxy texture passed to D3D12 SetProxyTextureData");
+    return;
+  }
+
+  const D3D12_RESOURCE_DESC texDesc = proxy->GetDesc();
+  if(texDesc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || texDesc.MipLevels != 1 ||
+     texDesc.DepthOrArraySize != 1 || texDesc.SampleDesc.Count != 1)
+  {
+    RDCERR("Unsupported D3D12 proxy texture topology");
+    return;
+  }
+
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout = {};
+  UINT numRows = 0;
+  UINT64 rowSize = 0;
+  UINT64 uploadSize = 0;
+  m_pDevice->GetCopyableFootprints(&texDesc, 0, 1, 0, &layout, &numRows, &rowSize, &uploadSize);
+
+  const UINT64 requiredDataSize = rowSize * UINT64(numRows) * layout.Footprint.Depth;
+  if(dataSize < requiredDataSize || uploadSize == 0)
+  {
+    RDCERR("Insufficient data provided to D3D12 SetProxyTextureData");
+    return;
+  }
+
+  D3D12_HEAP_PROPERTIES uploadHeap = {};
+  uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
+  uploadHeap.CreationNodeMask = 1;
+  uploadHeap.VisibleNodeMask = 1;
+
+  D3D12_RESOURCE_DESC uploadDesc = {};
+  uploadDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+  uploadDesc.Width = uploadSize;
+  uploadDesc.Height = 1;
+  uploadDesc.DepthOrArraySize = 1;
+  uploadDesc.MipLevels = 1;
+  uploadDesc.SampleDesc.Count = 1;
+  uploadDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+  ID3D12Resource *upload = NULL;
+  HRESULT hr = m_pDevice->CreateCommittedResource(
+      &uploadHeap, D3D12_HEAP_FLAG_NONE, &uploadDesc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+      __uuidof(ID3D12Resource), (void **)&upload);
+  if(FAILED(hr) || upload == NULL)
+  {
+    RDCERR("Couldn't create D3D12 proxy upload buffer: %s", ToStr(hr).c_str());
+    return;
+  }
+
+  byte *mapped = NULL;
+  const D3D12_RANGE noRead = {0, 0};
+  hr = upload->Map(0, &noRead, (void **)&mapped);
+  if(FAILED(hr) || mapped == NULL)
+  {
+    RDCERR("Couldn't map D3D12 proxy upload buffer: %s", ToStr(hr).c_str());
+    SAFE_RELEASE(upload);
+    return;
+  }
+
+  const byte *src = data;
+  for(UINT z = 0; z < layout.Footprint.Depth; z++)
+  {
+    byte *dstSlice = mapped + layout.Offset + UINT64(z) * layout.Footprint.RowPitch * numRows;
+    for(UINT row = 0; row < numRows; row++)
+    {
+      memcpy(dstSlice + UINT64(row) * layout.Footprint.RowPitch, src, (size_t)rowSize);
+      src += rowSize;
+    }
+  }
+
+  const D3D12_RANGE written = {SIZE_T(layout.Offset), SIZE_T(uploadSize)};
+  upload->Unmap(0, &written);
+
+  ID3D12GraphicsCommandListX *list = m_pDevice->GetNewList();
+  if(list == NULL)
+  {
+    SAFE_RELEASE(upload);
+    return;
+  }
+
+  BarrierSet barriers;
+  barriers.Configure(proxy, m_pDevice->GetSubresourceStates(texid), BarrierSet::CopyDestAccess);
+  barriers.Apply(list);
+
+  D3D12_TEXTURE_COPY_LOCATION dst = {};
+  dst.pResource = proxy;
+  dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  dst.SubresourceIndex = 0;
+
+  D3D12_TEXTURE_COPY_LOCATION srcLocation = {};
+  srcLocation.pResource = upload;
+  srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+  srcLocation.PlacedFootprint = layout;
+
+  list->CopyTextureRegion(&dst, 0, 0, 0, &srcLocation, NULL);
+  barriers.Unapply(list);
+  list->Close();
+
+  m_pDevice->ExecuteLists();
+  m_pDevice->FlushLists();
+  SAFE_RELEASE(upload);
 }
+
+#pragma endregion
+
+#pragma region not yet implemented
 
 ResourceId D3D12Replay::CreateProxyBuffer(const BufferDescription &templateBuf)
 {
@@ -4468,6 +7523,7 @@ ResourceId D3D12Replay::CreateProxyBuffer(const BufferDescription &templateBuf)
 
 void D3D12Replay::SetProxyBufferData(ResourceId bufid, byte *data, size_t dataSize)
 {
+  m_pDevice->InvalidateLiveForward("proxyBufferWrite");
 }
 
 #pragma endregion
@@ -4752,7 +7808,7 @@ RDResult D3D12_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IRepl
       config->devfactory->EnableExperimentalFeatures(1, &D3D12GPUUploadHeapsOnUnsupportedOS, NULL,
                                                      NULL);
     }
-    else
+    else if(enableExperimentalPtr)
     {
       enableExperimentalPtr(1, &D3D12GPUUploadHeapsOnUnsupportedOS, NULL, NULL);
     }

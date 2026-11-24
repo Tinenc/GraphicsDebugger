@@ -57,6 +57,10 @@ private:
   void showEvent(QShowEvent *event) override;
 
   QVector<ResourcePreview *> m_Thumbnails;
+  QVector<ResourcePreview *> m_LastActiveThumbnails;
+  QSize m_LastLayoutSize;
+  int m_LastThumbnailCount = -1;
+  bool m_ScrollRefreshQueued = false;
 
   QBoxLayout *layout;
 

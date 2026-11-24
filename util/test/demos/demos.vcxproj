@@ -23,13 +23,12 @@
     <ProjectGuid>{EC8C6087-E99E-44B3-B8DC-3C9FE7907F47}</ProjectGuid>
     <RootNamespace>demos</RootNamespace>
     <ProjectName>demos</ProjectName>
-    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
+  <Import Project="$(SolutionDir)\..\WindowsSDKTarget.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v140</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
@@ -40,6 +39,11 @@
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+  <!-- WindowsSDKFix is relative to parent solution, replicate it here -->
+  <!-- <Import Project="$(SolutionDir)\..\WindowsSDKFix.props" /> -->
+  <PropertyGroup>
+    <IncludePath>$(SolutionDir)\..\sdkfix;$(IncludePath)</IncludePath>
+  </PropertyGroup>
   <PropertyGroup>
     <OutDir>$(SolutionDir)</OutDir>
     <IntDir>$(ProjectDir)obj\$(Platform)\$(Configuration)\</IntDir>
@@ -178,6 +182,8 @@
     <ClCompile Include="d3d11\d3d11_shader_linkage_zoo.cpp" />
     <ClCompile Include="d3d11\d3d11_simple_dispatch.cpp" />
     <ClCompile Include="d3d11\d3d11_simple_triangle.cpp" />
+    <ClCompile Include="d3d11\d3d11_shared_buffer.cpp" />
+    <ClCompile Include="d3d11\d3d11_buffer_delta.cpp" />
     <ClCompile Include="d3d11\d3d11_stream_out.cpp" />
     <ClCompile Include="d3d11\d3d11_stripped_shaders.cpp" />
     <ClCompile Include="d3d11\d3d11_structured_buffer_misaligned_dirty.cpp" />
@@ -197,6 +203,15 @@
     <ClCompile Include="d3d12\d3d12_blend.cpp" />
     <ClCompile Include="d3d12\d3d12_buffer_truncation.cpp" />
     <ClCompile Include="d3d12\d3d12_cbuffer_zoo.cpp" />
+    <ClCompile Include="d3d12\d3d12_checkpoint_triangle.cpp" />
+    <ClCompile Include="d3d12\d3d12_sparse_initial_residency.cpp" />
+    <ClCompile Include="d3d12\d3d12_checkpoint_query.cpp" />
+    <ClCompile Include="d3d12\d3d12_shared_buffer.cpp" />
+    <ClCompile Include="d3d12\d3d12_checkpoint_buffer_alias.cpp" />
+    <ClCompile Include="d3d12\d3d12_checkpoint_typed_alias.cpp" />
+    <ClCompile Include="d3d12\d3d12_buffer_delta.cpp" />
+    <ClCompile Include="d3d12\d3d12_buffer_cpu_dirty_ranges.cpp" />
+    <ClCompile Include="d3d12\d3d12_uav_declarations.cpp" />
     <ClCompile Include="d3d12\d3d12_compute_only.cpp" />
     <ClCompile Include="d3d12\d3d12_descriptor_indexing.cpp" />
     <ClCompile Include="d3d12\d3d12_discard_zoo.cpp" />
@@ -291,6 +306,9 @@
     <ClCompile Include="gl\gl_shader_editing.cpp" />
     <ClCompile Include="gl\gl_shader_isa.cpp" />
     <ClCompile Include="gl\gl_simple_triangle.cpp" />
+    <ClCompile Include="gl\gl_shared_buffer.cpp" />
+    <ClCompile Include="gl\gl_buffer_delta.cpp" />
+    <ClCompile Include="gl\gl_checkpoint_texture_versions.cpp" />
     <ClCompile Include="gl\gl_spirv_shader.cpp" />
     <ClCompile Include="gl\gl_state_trashing.cpp" />
     <ClCompile Include="gl\gl_structured_buffer_nested.cpp" />
@@ -390,8 +408,11 @@
     <ClCompile Include="vk\vk_adv_cbuffer_zoo.cpp" />
     <ClCompile Include="vk\vk_secondary_cmdbuf.cpp" />
     <ClCompile Include="vk\vk_video_textures.cpp" />
+    <ClCompile Include="vk\vk_vrs.cpp" />
     <ClCompile Include="vk\vk_vs_max_desc_set.cpp" />
     <ClCompile Include="vk\vk_simple_triangle.cpp" />
+    <ClCompile Include="vk\vk_shared_buffer.cpp" />
+    <ClCompile Include="vk\vk_buffer_delta.cpp" />
     <ClCompile Include="vk\vk_test.cpp" />
     <ClCompile Include="3rdparty\volk\volk.c" />
     <ClCompile Include="vk\vk_workgroup_zoo.cpp" />

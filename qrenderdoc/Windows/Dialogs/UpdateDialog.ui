@@ -2,9 +2,6 @@
 <ui version="4.0">
  <class>UpdateDialog</class>
  <widget class="QDialog" name="UpdateDialog">
-  <property name="windowModality">
-   <enum>Qt::ApplicationModal</enum>
-  </property>
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -195,7 +192,7 @@
         </property>
         <property name="font">
          <font>
-          <pointsize>20</pointsize>
+          <pointsize>14</pointsize>
          </font>
         </property>
         <property name="text">
@@ -223,46 +220,6 @@
      <property name="bottomMargin">
       <number>12</number>
      </property>
-     <item>
-      <widget class="RDLabel" name="updateText">
-       <property name="sizePolicy">
-        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-         <horstretch>0</horstretch>
-         <verstretch>0</verstretch>
-        </sizepolicy>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>0</width>
-         <height>200</height>
-        </size>
-       </property>
-       <property name="autoFillBackground">
-        <bool>true</bool>
-       </property>
-       <property name="frameShape">
-        <enum>QFrame::Box</enum>
-       </property>
-       <property name="textFormat">
-        <enum>Qt::RichText</enum>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
-       </property>
-       <property name="wordWrap">
-        <bool>true</bool>
-       </property>
-       <property name="margin">
-        <number>6</number>
-       </property>
-       <property name="openExternalLinks">
-        <bool>true</bool>
-       </property>
-       <property name="textInteractionFlags">
-        <set>Qt::TextBrowserInteraction</set>
-       </property>
-      </widget>
-     </item>
      <item>
       <widget class="QFrame" name="metadataFrame">
        <layout class="QGridLayout" name="gridLayout_2">

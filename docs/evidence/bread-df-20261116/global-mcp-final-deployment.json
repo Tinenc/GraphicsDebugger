@@ -1,0 +1,23 @@
+{
+  "status": "passed",
+  "application": "x64/BreadDevelopment/qTinecmaTool.exe",
+  "processId": 65680,
+  "capture": "C:\\Users\\Administrator\\Desktop\\DF-Wen4.rdc",
+  "ping": {
+    "status": "ok",
+    "server": "renderdoc_mcp",
+    "ipc_dir": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\renderdoc_mcp_ipc"
+  },
+  "captureStatus": {
+    "loaded": true,
+    "api": "GraphicsAPI.D3D12",
+    "renderer": "GraphicsAPI.D3D12",
+    "frameNumber": 11641,
+    "draws": 737,
+    "dispatches": 86,
+    "stats_note": "Stats not available in this RenderDoc version",
+    "triangles": 2885735,
+    "stats_source": "computed_from_actions"
+  },
+  "sharedExtensionSha256": "C82637E0BEA259211546AE7F9B61DB70C1FE576861C0124508AB20554A614C3F"
+}

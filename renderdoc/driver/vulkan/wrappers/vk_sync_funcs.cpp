@@ -188,7 +188,7 @@ bool WrappedVulkan::Serialise_vkGetFenceStatus(SerialiserType &ser, VkDevice dev
 
   if(IsReplayingAndReading())
   {
-    ObjDisp(device)->DeviceWaitIdle(Unwrap(device));
+    WaitForCapturedFence(device);
   }
 
   return true;
@@ -293,7 +293,7 @@ bool WrappedVulkan::Serialise_vkWaitForFences(SerialiserType &ser, VkDevice devi
 
   if(IsReplayingAndReading())
   {
-    ObjDisp(device)->DeviceWaitIdle(Unwrap(device));
+    WaitForCapturedFence(device);
   }
 
   return true;
@@ -555,22 +555,8 @@ bool WrappedVulkan::Serialise_vkCreateSemaphore(SerialiserType &ser, VkDevice de
     {
       ResourceId live;
 
-      if(GetResourceManager()->HasWrapper(ToTypedHandle(sem)))
-      {
-        live = GetResourceManager()->GetNonDispWrapper(sem)->id;
+      GetResourceManager()->OverrideWrapper(ToTypedHandle(sem));
 
-        RDCWARN(
-            "On replay, semaphore got a duplicate handle - maybe a bug, or it could be an "
-            "indication of an implementation that doesn't use semaphores");
-
-        // destroy this instance of the duplicate, as we must have matching create/destroy
-        // calls and there won't be a wrapped resource hanging around to destroy this one.
-        ObjDisp(device)->DestroySemaphore(Unwrap(device), sem, NULL);
-
-        // whenever the new ID is requested, return the old ID, via replacements.
-        GetResourceManager()->ReplaceResource(Semaphore, live);
-      }
-      else
       {
         live = GetResourceManager()->WrapResource(Semaphore, Unwrap(device), sem);
       }
@@ -824,9 +810,8 @@ bool WrappedVulkan::Serialise_vkCmdWaitEvents(
         const VkImageMemoryBarrier &b = pImageMemoryBarriers[i];
         if(b.image != VK_NULL_HANDLE && b.oldLayout == VK_IMAGE_LAYOUT_UNDEFINED)
         {
-          m_BakedCmdBufferInfo[m_LastCmdBufferID].resourceUsage.push_back(make_rdcpair(
-              GetResID(b.image), EventUsage(m_BakedCmdBufferInfo[m_LastCmdBufferID].curEventID,
-                                            ResourceUsage::Discard)));
+          m_LoadingEventNode.resourceUsage.push_back(
+              make_rdcpair(GetResID(b.image), ResourceUsage::Discard));
         }
       }
     }
@@ -1337,9 +1322,8 @@ bool WrappedVulkan::Serialise_vkCmdWaitEvents2(SerialiserType &ser, VkCommandBuf
           if(b.image != VK_NULL_HANDLE && b.oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
              b.newLayout != VK_IMAGE_LAYOUT_UNDEFINED)
           {
-            m_BakedCmdBufferInfo[m_LastCmdBufferID].resourceUsage.push_back(make_rdcpair(
-                GetResID(b.image), EventUsage(m_BakedCmdBufferInfo[m_LastCmdBufferID].curEventID,
-                                              ResourceUsage::Discard)));
+            m_LoadingEventNode.resourceUsage.push_back(
+                make_rdcpair(GetResID(b.image), ResourceUsage::Discard));
           }
         }
       }
@@ -1394,7 +1378,8 @@ bool WrappedVulkan::Serialise_vkCmdWaitEvents2(SerialiserType &ser, VkCommandBuf
             continue;
           }
 
-          if(!IsLoading(m_State) && barrier.oldLayout == VK_IMAGE_LAYOUT_PREINITIALIZED)
+          if(!IsLoading(m_State) && (barrier.oldLayout == VK_IMAGE_LAYOUT_PREINITIALIZED ||
+                                     barrier.oldLayout == VK_IMAGE_LAYOUT_ZERO_INITIALIZED_EXT))
           {
             // This is a transition from PRENITIALIZED, but we've already done this barrier once
             // (when loading); Since we couldn't transition back to PREINITIALIZED, we instead left

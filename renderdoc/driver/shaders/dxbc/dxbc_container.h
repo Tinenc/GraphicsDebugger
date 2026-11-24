@@ -204,6 +204,11 @@ public:
   } m_Version;
 
   const bytebuf &GetInitialShaderBlob() const { return m_InitialShaderBlob; }
+  uint64_t GetRetainedByteStorage() const
+  {
+    return m_DebugShaderBlob.capacity() + m_ShaderBlob.capacity() + m_InitialShaderBlob.capacity() +
+           m_Disassembly.capacity();
+  }
   const bytebuf &GetShaderBlob() const { return m_ShaderBlob; }
   const IDebugInfo *GetDebugInfo() const { return m_DebugInfo; }
   const Reflection *GetReflection() const { return m_Reflection; }

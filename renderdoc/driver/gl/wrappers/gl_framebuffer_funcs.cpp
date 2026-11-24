@@ -2147,6 +2147,7 @@ bool WrappedOpenGL::Serialise_glBlitNamedFramebuffer(SerialiserType &ser,
     // we are running without ARB_dsa support, these functions are emulated in the obvious way. This
     // is necessary since these functions can be serialised even if ARB_dsa was not used originally,
     // and we need to support this case.
+    RecordReplayCheckpointTextureWrite(drawFramebuffer);
     GL.glBlitNamedFramebuffer(readFramebuffer.name, drawFramebuffer.name, srcX0, srcY0, srcX1,
                               srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
 

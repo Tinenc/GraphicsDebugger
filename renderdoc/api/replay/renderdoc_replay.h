@@ -34,7 +34,6 @@
 
 #define RENDERDOC_AllocArrayMem RDOCSELF_AllocArrayMem
 #define RENDERDOC_FreeArrayMem RDOCSELF_FreeArrayMem
-#define RENDERDOC_GetDefaultCaptureOptions RDOCSELF_GetDefaultCaptureOptions
 #define RENDERDOC_NeedVulkanLayerRegistration RDOCSELF_NeedVulkanLayerRegistration
 #define RENDERDOC_UpdateVulkanLayerRegistration RDOCSELF_UpdateVulkanLayerRegistration
 #define RENDERDOC_ExecuteAndInject RDOCSELF_ExecuteAndInject
@@ -192,7 +191,7 @@ inline const WindowingData CreateAndroidWindowingData(ANativeWindow *window)
 typedef void *NSView;
 typedef void *CALayer;
 
-DOCUMENT(R"(Create a :class:`WindowingData` for an metal/opengl-compatible macOS ``CALayer`` handle
+DOCUMENT(R"(Create a :class:`WindowingData` for an Metal/OpenGL-compatible macOS ``CALayer`` handle
 and ``NSView`` handle (as void pointers).
 
 :param NSView view: The native ``NSView`` handle for this window.
@@ -374,6 +373,49 @@ Should only be called for mesh outputs.
 )");
   virtual rdcpair<uint32_t, uint32_t> PickVertex(uint32_t x, uint32_t y) = 0;
 
+  // Keep this analysis-only output addition at the end of IReplayOutput's public vtable so older
+  // binary consumers retain their existing method slots.
+  DOCUMENT(R"(Render a texture output from the resource state immediately after a different event,
+without changing the replay controller's selected/current event.
+
+For presentation-only configurations, the output retains a replay-owned static snapshot so the
+main output, pixel context, resizing, and later presentation changes remain independent of another
+frame replay. Event-derived overlays and custom display shaders use a transient high-fidelity path
+instead. Other thumbnails attached to the output are not refreshed. This is intended for embedded
+event-history views that need the normal texture display controls while keeping global event
+selection unchanged.
+
+:param int eventId: The event whose post-action resource state should be displayed.
+:param TextureDisplay config: The texture display configuration to render.
+)");
+  virtual void DisplayTextureAtEvent(uint32_t eventId, const TextureDisplay &config) = 0;
+
+  DOCUMENT(R"(Render and read back a bounded sequence of texture-history previews.
+
+The selected/current controller event and other replay outputs are preserved. Headless outputs may
+reuse an ascending ordinary replay sequence and restore the live event once for the batch. Other
+outputs retain the per-event fallback. At most 24 events are accepted per call.
+
+:param List[int] eventIds: Ordered events whose post-action texture state should be previewed.
+:param TextureDisplay config: Texture display configuration for every preview.
+:param KillCallback cancelled: Optional cancellation check between replay events.
+:return: A completed prefix of tightly packed RGB byte arrays. The call may yield early to bound
+  background queue occupancy; callers may submit the remaining events later.
+:rtype: List[bytes]
+)");
+  virtual rdcarray<bytebuf> ReadbackTextureAtEvents(const rdcarray<uint32_t> &eventIds,
+                                                    const TextureDisplay &config,
+                                                    RENDERDOC_KillCallback cancelled = {})
+  {
+    rdcarray<bytebuf> result;
+    if(eventIds.empty() || eventIds.size() > 24 || (cancelled && cancelled()))
+      return result;
+    // Non-native/complex-display fallbacks retain one-event foreground latency.
+    DisplayTextureAtEvent(eventIds.front(), config);
+    result.push_back(ReadbackOutputTexture());
+    return result;
+  }
+
   static const uint32_t NoResult = ~0U;
 
 protected:
@@ -383,6 +425,10 @@ protected:
 
 DOCUMENT(R"(The primary interface to access the information in a capture and the current state, as
 well as control the replay and analysis functionality available.
+
+Available as a blocking interface in UI scripts via
+:meth:`~qrenderdoc.CaptureContext.GetBlockingController` or directly on the replay thread using
+:meth:`~qrenderdoc.ReplayManager.AsyncInvoke`.
 
 .. function:: KillCallback()
 
@@ -409,8 +455,8 @@ well as control the replay and analysis functionality available.
   Not an actual member function - the signature for any ``PreviewWindowCallback`` callbacks.
 
   Called when a preview window could optionally be opened to display some information. It will be
-  called repeatedly with :paramref:`active` set to ``True`` to allow any platform-specific message
-  pumping.
+  called repeatedly with :paramref:`PreviewWindowCallback.active` set to ``True`` to allow any
+  platform-specific message pumping.
 
   :param bool active: ``True`` if a preview window is active/opened, ``False`` if it has closed.
   :return: The windowing data for a preview window, or empty/default values if no window should be
@@ -482,6 +528,282 @@ function must be called from another thread.
   already current. This can be useful if external factors might cause the replay to vary.
 )");
   virtual void SetFrameEvent(uint32_t eventId, bool force) = 0;
+
+  DOCUMENT(R"(Returns the logical event currently selected on this replay controller.
+
+Interactive scrubbing publishes this event after replaying its resources. Read-only analysis can
+temporarily move the replay device elsewhere; operations requiring live captured resources restore
+the selected event as needed.
+
+:return: The current effective event ID.
+:rtype: int
+)");
+  virtual uint32_t GetCurrentEventID() = 0;
+
+  DOCUMENT(R"(Configure bounded replay-state checkpoints for this capture.
+
+Checkpoints save resumable resource and device state, not rendered images. The controller proposes
+module boundaries from the capture's action/output structure; the backend validates safe positions.
+Unsupported states fall back to normal replay. Immutable source data may be shared between points.
+Disabling releases checkpoints. A forced :meth:`SetFrameEvent` bypasses checkpoints without
+discarding them, allowing an independent full-replay reference for validation.
+
+:param bool enabled: Enable automatic checkpoint construction and reuse.
+:param int byteBudget: Total checkpoint storage budget in bytes; zero chooses a capture-size budget.
+:param int maxCheckpoints: Maximum retained checkpoints; zero selects the automatic limit.
+)");
+  virtual void ConfigureReplayCheckpoints(bool enabled, uint64_t byteBudget = 0,
+                                           uint32_t maxCheckpoints = 0) = 0;
+
+  DOCUMENT(R"(Return checkpoint configuration, candidate boundaries and backend counters as JSON.
+
+The diagnostic schema is ``renderdoc-replay-checkpoints/v1``. A supported backend may still reject
+particular captures or boundaries; inspect its reason, build and hit counters. Reported allocation
+bytes cover the backend's checkpoint storage, not all replay resources or total process memory.
+
+:return: A JSON diagnostic object for the current replay driver.
+:rtype: str
+)");
+  virtual rdcstr GetReplayCheckpointStatus() = 0;
+
+  DOCUMENT(R"(Attempt one idle checkpoint-maintenance replay of the current effective event.
+
+This is optional maintenance for an idle replay thread. It only admits missing checkpoints already
+shown useful by automatic foreground measurements, or candidates explicitly enabled by the caller.
+Same-layout buffer value edits keep this admission history while invalidating native downstream
+versions. Global shader, buffer-layout and clear operations discard it; automatic maintenance then
+waits for new foreground cost evidence instead of assuming an old performance benefit survives.
+The expected event and both mutation generations must still match. The current event, cached pipeline
+state, output bindings and presented images are not republished or replaced by this operation.
+
+At most one normal current-event replay work unit is performed. It may build multiple native points
+on a backend with several safe boundaries. This call is synchronous and cannot preempt an executing
+native replay or GPU submission. A scheduler must give foreground work priority, cancel stale queued
+callbacks, and must not treat a time estimate as a hard execution deadline. Repeated calls for the
+same event, generations and checkpoint configuration do not repeat performed maintenance.
+
+:param int expectedEventId: Effective event returned by :meth:`GetCurrentEventID`.
+:param int expectedMutationGeneration: :meth:`GetShaderReplacementGeneration` for that event.
+:param int expectedBufferGeneration: :meth:`GetSharedBufferPatchGeneration` for the capture.
+:return: JSON receipt with schema ``renderdoc-replay-checkpoint-maintenance/v1``, performed/reason,
+         actual event/generations, checkpoint build/hit deltas and measured wall times.
+:rtype: str
+)");
+  virtual rdcstr RunIdleCheckpointMaintenance(uint32_t expectedEventId,
+                                             uint64_t expectedMutationGeneration,
+                                             uint64_t expectedBufferGeneration) = 0;
+
+  DOCUMENT(R"(Configure a shader replacement that is applied only while replaying one action.
+
+The replacement is *not* installed through :meth:`ReplaceResource`. Immediately before the main
+``OnlyDraw`` replay performed by :meth:`SetFrameEvent`, RenderDoc verifies that ``expectedOriginal``
+is still bound at ``stage``, binds ``replacement``, replays the action, and then restores the
+previous shader. Capture loading, action discovery, pipeline-state inspection and unrelated replay
+operations continue to use the captured shader.
+
+This operation supports D3D11, D3D12, Vulkan and OpenGL/OpenGL ES, including remote replay
+when the peer advertises the event-Shader control capability. ``replacement`` must be a
+target shader returned by :meth:`BuildTargetShader` on this replay controller. Supplying the
+expected original shader makes the operation fail closed if the selected action or pipeline has
+changed. Configuring another replacement for the same effective event and stage replaces the old
+configuration. The effective ``eventId`` must already be current; call :meth:`SetFrameEvent` first.
+
+The caller remains responsible for validating the replacement shader's complete interface ABI
+before configuring it. An empty return string indicates success; otherwise the returned string
+describes why no override was configured. D3D11 dynamic shader linkage is not supported by this
+initial implementation: if class instances are bound at the target stage, the override fails
+closed when the action is replayed.
+
+:param int eventId: The action event ID. Event remapping is applied in the same way as
+  :meth:`SetFrameEvent`.
+:param ShaderStage stage: The shader stage to override.
+:param ResourceId expectedOriginal: The captured shader expected to be bound at the action.
+:param ResourceId replacement: A target shader created by :meth:`BuildTargetShader`.
+:param int outputTarget: Optional color target index to bypass blending and enable channel writes.
+  The default 4294967295 preserves captured output state. Attachment format conversion still applies.
+:param bool independentFloatOutput: Redirect the selected color slot into independent RGBA32_FLOAT
+  storage, preserving captured depth/stencil tests against a private copy. Requires an explicit
+  pixel color target. Unsupported format/sample/topology combinations return an error; no lower
+  precision fallback is used. Query the output with GetEventShaderPreviewTexture.
+:return: An empty string on success, or an error message on failure.
+:rtype: str
+)");
+  virtual rdcstr SetEventShaderOverride(uint32_t eventId, ShaderStage stage,
+                                        ResourceId expectedOriginal, ResourceId replacement,
+                                        uint32_t outputTarget = ~0U,
+                                        bool independentFloatOutput = false) = 0;
+
+  DOCUMENT(R"(Return the current event Shader replacement registration.
+
+The returned typed resource IDs can be retained and passed back to SetEventShaderOverride to
+restore a previous registration. The getter works for both local and remote replay.
+:rtype: EventShaderOverrideState
+)");
+  virtual EventShaderOverrideState GetEventShaderOverride(uint32_t eventId, ShaderStage stage) = 0;
+
+  DOCUMENT(R"(Return independent RGBA32_FLOAT output for an active event Shader override.
+
+A null resource ID indicates no independent preview is available. The texture remains readable
+after transient draw bindings have been restored. Callers must stop displaying it before changing
+or clearing its registration or freeing its target Shader. Inactive scratch may be evicted to
+keep the replay controller's preview cache bounded.
+The captured attachment view is normalized to mip 0 and first array layer 0, retaining its view
+dimensions, layer count and sample count. The redirected draw writes private color and depth
+attachments; captured attachments therefore retain their contents immediately before this draw.
+Clearing the override replays the complete normal draw result.
+
+:rtype: TextureDescription
+)");
+  virtual TextureDescription GetEventShaderPreviewTexture(uint32_t eventId, ShaderStage stage) = 0;
+
+  DOCUMENT(R"(Remove the event-scoped shader override for one effective event and stage.
+
+This does not free the replacement shader. Use :meth:`FreeTargetResource` when it is no longer
+needed.
+
+:param int eventId: The action event ID. Event remapping is applied in the same way as
+  :meth:`SetFrameEvent`.
+:param ShaderStage stage: The shader stage whose override should be removed.
+)");
+  virtual void ClearEventShaderOverride(uint32_t eventId, ShaderStage stage) = 0;
+
+  DOCUMENT(R"(Remove every event-scoped shader override configured on this replay controller.
+
+This does not free any target shaders.
+)");
+  virtual void ClearEventShaderOverrides() = 0;
+
+  DOCUMENT(R"(Configure constant-buffer bytes that are bound only while replaying one D3D11 or
+D3D12 action.
+
+This is an event-scoped shadow binding, not a global buffer replacement. Immediately before the
+main ``OnlyDraw`` replay in :meth:`SetFrameEvent`, RenderDoc verifies the original shader and the
+captured constant-buffer binding, uploads ``data`` to a replay-owned constant buffer, and binds
+that shadow at ``stage`` and ``slot``. After the action, the exact original root/binding state is
+restored.
+
+The effective ``eventId`` must already be current and replay must be local. ``data`` must be
+non-empty, 16-byte aligned, and no larger than 64 KiB. D3D11 ``slot`` values are limited to b0-b13
+in register space 0. D3D12 accepts fixed CBV descriptor-table and root-CBV bindings for graphics,
+compute and mesh actions. D3D12 root constants, descriptor arrays, ray-tracing state objects, and
+ambiguous b-registers are rejected. Root-CBV overrides on ``ExecuteIndirect`` actions are also
+rejected because an indirect command-signature argument can overwrite the root descriptor during
+``OnlyDraw``; descriptor-table CBVs remain supported. D3D12 buffer offsets must be 256-byte aligned.
+
+When ``expectedBuffer`` is non-null, its canonical resource ID and the byte range described by
+``expectedByteOffset`` and ``expectedByteSize`` must exactly match the live binding. When it is
+null on D3D11, the slot must currently be unbound and both expected byte values must be zero. The
+latter form allows a D3D11 replacement shader to consume a new ReplayLab-owned constant buffer
+without changing the captured buffer globally. D3D12 requires an existing captured buffer. For a
+descriptor-table CBV, ``data`` must contain the complete descriptor window. A root CBV has no
+descriptor size, so its safe window is the reflected block byte size (16-byte rounded), not the
+remainder of a potentially much larger upload ring. Callers must copy that complete window and
+patch only desired bytes so untouched constants are preserved.
+
+D3D12 never mutates the captured resource or descriptor heap. Root CBVs are temporarily redirected
+to replay-owned upload buffers. Descriptor-table CBVs use a replay-owned full clone of the current
+shader-visible heap with only the selected descriptor changed, preserving unrelated descriptors and
+direct heap indexing. The original render state is restored after the action.
+
+Constant-buffer overrides are applied before event-scoped shader overrides. If any configured
+binding fails validation, all temporary bindings are restored and the captured draw is replayed
+without event overrides. An empty return string indicates success; otherwise the new configuration
+is removed and the returned string describes the failure.
+
+:param int eventId: The currently selected effective action event ID.
+:param ShaderStage stage: The shader stage containing the binding.
+:param int slot: The physical b-register. D3D11 accepts 0 to 13; D3D12 accepts a fixed uint32
+  b-register.
+:param ResourceId expectedShader: The canonical captured shader expected at ``stage``.
+:param ResourceId expectedBuffer: The canonical captured buffer expected at ``slot``, or null for
+  an unbound D3D11 slot.
+:param int expectedByteOffset: The expected bound-buffer byte offset.
+:param int expectedByteSize: The complete expected binding window.
+:param bytes data: The complete replacement constant-buffer contents.
+:param int registerSpace: The physical register space. This must be 0 for D3D11 and defaults to 0
+  for compatibility with older callers.
+:return: An empty string on success, or an error message on failure.
+:rtype: str
+)");
+  virtual rdcstr SetEventCBufferOverride(uint32_t eventId, ShaderStage stage, uint32_t slot,
+                                         ResourceId expectedShader, ResourceId expectedBuffer,
+                                         uint64_t expectedByteOffset, uint64_t expectedByteSize,
+                                         bytebuf data, uint32_t registerSpace = 0) = 0;
+
+  DOCUMENT(R"(Remove one event-scoped D3D11 or D3D12 constant-buffer override.
+
+:param int eventId: The action event ID. Event remapping is applied as in :meth:`SetFrameEvent`.
+:param ShaderStage stage: The shader stage containing the binding.
+:param int slot: The physical b-register.
+:param int registerSpace: The physical register space. This must be 0 for D3D11 and defaults to 0.
+)");
+  virtual void ClearEventCBufferOverride(uint32_t eventId, ShaderStage stage, uint32_t slot,
+                                         uint32_t registerSpace = 0) = 0;
+
+  DOCUMENT(R"(Remove every event-scoped constant-buffer override from this replay controller.)");
+  virtual void ClearEventCBufferOverrides() = 0;
+
+  DOCUMENT(R"(Persistently edit a byte range of a captured buffer for all replayed consumers.
+
+The identity is the captured buffer and absolute byte range, not the currently selected event or
+shader binding. Add a binding's base offset to a reflected member offset before calling. Original
+initial contents are preserved. Supported drivers reapply active edits after captured writes, and
+clearing an edit restores ordinary replay. This is separate from event-scoped temporary overrides.
+Overlapping edits use the most recently set range; clearing it reveals any earlier overlapping edit.
+Driver limitations are returned explicitly. An accepted change refreshes the current event.
+
+:param ResourceId buffer: The original captured buffer resource.
+:param int byteOffset: Absolute byte offset in that buffer.
+:param bytes data: New bytes for this exact range.
+:return: Empty on success, otherwise a diagnostic. A rejected configuration preserves prior edits.
+:rtype: str
+)");
+  virtual rdcstr SetSharedBufferPatch(ResourceId buffer, uint64_t byteOffset, bytebuf data) = 0;
+
+  DOCUMENT(R"(Remove the persistent edit identified by exactly this buffer, offset and length.
+
+:param ResourceId buffer: The original captured buffer resource.
+:param int byteOffset: Absolute byte offset used when setting the edit.
+:param int byteLength: Byte length used when setting the edit.
+:return: Empty on success, otherwise a diagnostic.
+:rtype: str
+)");
+  virtual rdcstr ClearSharedBufferPatch(ResourceId buffer, uint64_t byteOffset, uint64_t byteLength) = 0;
+
+  DOCUMENT(R"(Restore a captured buffer byte range by removing every overlapping persistent edit.
+
+Unlike :meth:`ClearSharedBufferPatch`, this restores the capture's replayed values instead of
+revealing an older edit. Bytes outside the requested range keep their edits, and their original
+exact edit identities remain available for undo. An accepted change refreshes the current event.
+
+:param ResourceId buffer: The original captured buffer resource.
+:param int byteOffset: Absolute byte offset in that buffer.
+:param int byteLength: Number of bytes to restore.
+:return: Empty on success, otherwise a diagnostic. A rejected configuration preserves prior edits.
+:rtype: str
+)");
+  virtual rdcstr ResetSharedBufferRange(ResourceId buffer, uint64_t byteOffset, uint64_t byteLength) = 0;
+
+  DOCUMENT(R"(Remove every persistent buffer edit and refresh the selected event.
+
+:return: Empty on success, otherwise a diagnostic.
+:rtype: str
+)");
+  virtual rdcstr ClearSharedBufferPatches() = 0;
+
+  DOCUMENT(R"(Return the generation of the accepted persistent buffer edit configuration.
+
+:return: Zero before the first edit, then a monotonically increasing generation.
+:rtype: int
+)");
+  virtual uint64_t GetSharedBufferPatchGeneration() = 0;
+
+  DOCUMENT(R"(Sets the user-selected event ID, used to distinguish between selecting a MultiAction
+parent (where effectiveEID maps to the last child) and selecting the last child directly.
+
+:param int selectedEventId: The event ID of the item the user actually selected in the UI.
+)");
+  virtual void SetSelectedEventID(uint32_t selectedEventId) = 0;
 
   DOCUMENT(R"(Retrieve the current :class:`D3D11State` pipeline state.
 
@@ -582,7 +904,7 @@ Multiple ranges within the store can be queried at once, and are returned in a c
 
   DOCUMENT(R"(Retrieve the list of possible disassembly targets for :meth:`DisassembleShader`. The
 values are implementation dependent but will always include a default target first which is the
-native disassembly of the shader. Further options may be available for additional diassembly views
+native disassembly of the shader. Further options may be available for additional disassembly views
 or hardware-specific ISA formats.
 
 :param bool withPipeline: More disassembly may be available when a pipeline is specified.
@@ -722,6 +1044,43 @@ See :meth:`BuildTargetShader`, :meth:`RemoveReplacement`.
 )");
   virtual void ReplaceResource(ResourceId original, ResourceId replacement) = 0;
 
+  DOCUMENT(R"(Replace a target shader while requiring the replay driver to prove that every
+derived pipeline can be rebuilt before changing any live replacement mapping.
+
+This is a fail-closed companion to :meth:`ReplaceResource` for shader editing. The replacement
+must have been returned by :meth:`BuildTargetShader` on this replay controller. On D3D12, all
+captured graphics/compute pipeline states which reference ``original`` are first rebuilt with
+their captured root signature and the replacement shader. Cached PSO blobs are not reused. If any
+pipeline creation fails, no shader or pipeline replacement mapping is changed.
+
+Only replay drivers which explicitly implement checked shader replacement accept this call. An
+empty return string indicates success; otherwise the returned diagnostic describes why the
+replacement was not installed.
+
+:param ResourceId original: The captured shader resource to substitute.
+:param ResourceId replacement: A target shader returned by :meth:`BuildTargetShader`.
+:return: An empty string on success, or a fail-closed diagnostic.
+:rtype: str
+)");
+  virtual rdcstr ReplaceTargetShaderChecked(ResourceId original, ResourceId replacement) = 0;
+
+  DOCUMENT(R"(Return the current resource-scoped Shader replacement for a captured Shader.
+
+The typed target ID is the replacement registered through this replay controller, independently
+of the current event. A null ID means that no resource-scoped replacement is registered. Event
+Shader overrides are separate and are not returned. This query performs no replay and does not
+change the selected event or replacement generation. It works for local and remote replay.
+
+Retaining this ID does not acquire a resource reference. Callers restoring a previous replacement
+must keep that target alive and verify that they still own the current replacement before calling
+:meth:`ReplaceTargetShaderChecked` or :meth:`RemoveTargetShaderReplacementChecked`.
+
+:param ResourceId original: The canonical captured Shader resource.
+:return: The registered target Shader, or a null resource ID.
+:rtype: ResourceId
+)");
+  virtual ResourceId GetTargetShaderReplacement(ResourceId original) = 0;
+
   DOCUMENT(R"(Clear any cached data from previous replays and ensure subsequent replays fully
 re-initialise any data, including e.g. bindless feedback, printf results or mesh output data.
 )");
@@ -738,6 +1097,18 @@ See :meth:`ReplaceResource`.
 :param ResourceId id: The id of the resource that was previously being substituted.
 )");
   virtual void RemoveReplacement(ResourceId id) = 0;
+
+  DOCUMENT(R"(Remove a checked target-shader replacement transactionally.
+
+On D3D12, any remaining shader replacements are used to prebuild all affected captured pipeline
+states before the current replacement is removed. If this rebuild fails, the existing shader and
+pipeline mappings remain active.
+
+:param ResourceId id: The captured shader resource whose checked replacement should be removed.
+:return: An empty string on success, or a fail-closed diagnostic.
+:rtype: str
+)");
+  virtual rdcstr RemoveTargetShaderReplacementChecked(ResourceId id) = 0;
 
   DOCUMENT(R"(Free a previously created target shader.
 
@@ -1069,8 +1440,8 @@ otherwise.
 :param ResourceId buffer: The id of the buffer to use for data. If
   :data:`ConstantBlock.bufferBacked` is ``False`` this is ignored.
 :param int offset: Retrieve buffer contents starting at this byte offset.
-:param int length: Retrieve this many bytes after :paramref:`offset`. May be 0 to fetch the rest of the
-  buffer.
+:param int length: Retrieve this many bytes after :paramref:`GetCBufferVariableContents.offset`.
+  May be 0 to fetch the rest of the buffer.
 :return: The shader variables with their contents.
 :rtype: List[ShaderVariable]
 )");
@@ -1122,7 +1493,144 @@ texture to something compatible with the target file format.
 )");
   virtual bytebuf GetTextureData(ResourceId tex, const Subresource &sub) = 0;
 
+  // Keep these analysis-only controller additions at the end of IReplayController's public vtable
+  // so older binary consumers retain their existing method slots.
+  DOCUMENT(R"(Temporarily replay the captured commands up to and including the given event without
+changing the controller's selected/current event, cached pipeline state, or any existing replay
+outputs.
+
+This is intended for short, serialised analysis operations that read a resource immediately after
+the call. The replay device is left at ``eventId``; callers must call
+:meth:`RestoreFrameEventAfterAnalysis` before returning control to unrelated replay work. Active
+event-scoped shader and constant-buffer overrides are applied identically to :meth:`SetFrameEvent`.
+
+:param int eventId: The :data:`eventId <APIEvent.eventId>` to replay to temporarily.
+)");
+  virtual void ReplayFrameEventForAnalysis(uint32_t eventId) = 0;
+
+  DOCUMENT(R"(Restore the replay device to the controller's effective current event after one or
+more calls to :meth:`ReplayFrameEventForAnalysis`.
+
+This does not change the selected/current event, cached pipeline state, or replay outputs.
+)");
+  virtual void RestoreFrameEventAfterAnalysis() = 0;
+
+  DOCUMENT(R"(Return the render-output mutation generation that can affect an event-history image.
+
+The method retains its historical shader-specific name for API compatibility. Passing ``0``
+returns the latest serial for any output-affecting replacement. Passing an event ID returns the
+latest global mutation serial or the latest event-scoped mutation serial for that effective event,
+whichever is newer. Global shader, texture, buffer, and other resource replacements invalidate all
+events. Event-scoped shader and constant-buffer replacements invalidate their effective event. The
+value changes for replacement install, supersede, removal, and rollback, but not for unrelated
+replay or UI activity.
+
+Callers can compare the ``0`` value first to avoid checking individual events when render output
+has not been mutated. If it differs, compare each cached event's value to invalidate only affected
+event-scoped entries; global replacements conservatively invalidate every event.
+
+:param int eventId: ``0`` for the overall mutation serial, otherwise the event to query.
+:return: The current render-output mutation generation.
+:rtype: int
+)");
+  virtual uint64_t GetShaderReplacementGeneration(uint32_t eventId) = 0;
+
+  DOCUMENT(R"(Resolve a texture at an earlier event into a persistent replay-owned snapshot.
+
+The first call for an event, source texture, subresource, and type cast replays that event and
+captures the selected subresource. Later calls return the same snapshot without replaying until a
+shader, constant-buffer, or resource replacement can change its rendered contents. The returned
+display preserves presentation controls from ``source`` but refers to a replay-owned snapshot.
+Native snapshots can preserve the source format and topology; the portable fallback is a
+single-mip, single-slice RGBA32 texture.
+
+This helper is intended for presentation-only history operations such as display, pixel picking,
+histograms and range fitting. Event-derived overlays, YUV decoding, and custom display shaders are
+not resolved by this helper.
+
+:param int eventId: The :data:`eventId <APIEvent.eventId>` to capture.
+:param TextureDisplay source: The source texture and selected subresource.
+:param TextureDisplay snapshot: The display configuration rewritten to refer to the snapshot.
+:return: ``True`` if ``snapshot`` can be used without temporarily replaying ``eventId``.
+:rtype: bool
+)");
+  virtual bool ResolveEventTextureSnapshot(uint32_t eventId, const TextureDisplay &source,
+                                           TextureDisplay &snapshot) = 0;
+
+  DOCUMENT(R"(Replay an event for interactive scrubbing (dragging the event slider or holding an
+arrow key).
+
+This executes the canonical replay sequence on the actual replay device, including event-scoped
+shader and constant-buffer overrides. It does not use cached event images or present output windows.
+Pipeline-state fetching is completed by :meth:`CommitScrubFrameEvent`.
+
+Call :meth:`CommitScrubFrameEvent` after each completed scrub replay, update viewer resource bindings
+from the resulting pipeline state, then display the outputs. This keeps the image and panels at the
+same actual event throughout interaction without first presenting the previous event's bindings.
+
+:param int eventId: The :data:`eventId <APIEvent.eventId>` to move to. Event remapping is applied
+  as in :meth:`SetFrameEvent`.
+)");
+  virtual void ScrubFrameEvent(uint32_t eventId) = 0;
+
+  DOCUMENT(R"(Publish pipeline state for a completed interactive scrub replay.
+
+If the actual device still contains the requested scrub event, this fetches its current pipeline
+state without repeating the replay. If another operation invalidated that state, or no scrub replay
+was issued, this first replays the requested event. It never publishes a cached pipeline state from a
+previous visit. Output windows are presented by the caller after updating their resource bindings.
+
+:param int eventId: The :data:`eventId <APIEvent.eventId>` to commit. Event remapping is applied as
+  in :meth:`SetFrameEvent`.
+)");
+  virtual void CommitScrubFrameEvent(uint32_t eventId) = 0;
+
+  DOCUMENT(R"(Compare two pixel Shaders using one replay prefix.
+
+The driver snapshots all writable render targets and depth-stencil contents before the draw, then
+executes baseline, candidate and baseline again, restoring the same contents between draws. Shader
+resource mappings and the controller's current event, cached pipeline state and replay outputs are
+not changed. Call :meth:`RestoreFrameEventAfterAnalysis` before returning to unrelated replay work,
+including after an incomplete comparison.
+
+This is a bounded diagnostic, not a replacement or equivalence verdict. Unsupported drivers,
+event-scoped overrides, shader side effects and unsupported resource layouts are rejected with an
+explicit reason. The initial implementation accepts at most nine single-sample 2D outputs with
+one mip and one array slice, 32 MiB per output and 64 MiB per original/candidate/repeat leg.
+The original Shader must be the capture's currently bound Shader with no global replacement.
+
+:param int eventId: The draw to compare; normal event remapping is applied.
+:param ResourceId expectedOriginal: The capture's original pixel Shader resource.
+:param ResourceId baseline: A built target Shader; null or ``expectedOriginal`` uses the captured Shader.
+:param ResourceId candidate: A built target Shader; null or ``expectedOriginal`` uses the captured Shader.
+:return: Self-contained snapshots and completion status.
+:rtype: ShaderPairComparison
+)");
+  virtual ShaderPairComparison ComparePixelShaderPair(uint32_t eventId, ResourceId expectedOriginal,
+                                                       ResourceId baseline, ResourceId candidate) = 0;
+
   static const uint32_t NoPreference = ~0U;
+
+  DOCUMENT(R"(Coalesce automatic checked-Shader replay/display work until the matching end call.
+
+Checked pipeline creation and each resource's replacement remain immediate. Explicit event
+selection still replays normally. Call EndShaderReplacementBatch in a finally block, including
+after a failed item. A zero token means batching is unavailable or already owned.
+
+:return: An opaque controller-local ownership token, or zero.
+:rtype: int
+)");
+  virtual uint64_t BeginShaderReplacementBatch() { return 0; }
+
+  DOCUMENT(R"(Finish an owned Shader replacement batch and replay/display its current event once.
+
+An unrelated or stale token cannot release another owner's batch.
+
+:param int token: The nonzero token returned by BeginShaderReplacementBatch.
+:return: True if this token owned and finished the batch.
+:rtype: bool
+)");
+  virtual bool EndShaderReplacementBatch(uint64_t token) { return false; }
 
 protected:
   IReplayController() = default;
@@ -1215,12 +1723,12 @@ The details of the types of messages that can be received are listed under
 :class:`TargetControlMessage`.
 
 .. note:: If no message has been received, this function will pump the connection. You are expected
-  to continually call this function and process any messages to kee pthe connection alive.
+  to continually call this function and process any messages to keep the connection alive.
 
   This function will block but only to a limited degree. If no message is waiting after a small time
   it will return with a No-op message to allow further processing.
 
-:param ProgressCallback progress: A callback that will be repeatedly called with an updated progress
+:param Callable[[float], None] progress: A callback that will be repeatedly called with an updated progress
   value when a long blocking message is coming through, e.g. a capture copy. Can be ``None`` if no
   progress is desired.
   Callback function signature must match :func:`ProgressCallback`.
@@ -1231,6 +1739,20 @@ The details of the types of messages that can be received are listed under
 
   DOCUMENT("Cycle the currently active window if there are more windows to capture.");
   virtual void CycleActiveWindow() = 0;
+
+  DOCUMENT(R"(Send a Python monitor script to the target for execution.
+
+:param str scriptSource: The Python script source code.
+)");
+  virtual void SendMonitorScript(const rdcstr &scriptSource) = 0;
+
+  DOCUMENT(R"(Send a monitor control command to the target.
+
+:param str command: The command string (load_python, unload, reload, status).
+:param str pythonDllPath: Optional path to python36.dll for load_python command.
+)");
+  virtual void SendMonitorControl(const rdcstr &command,
+                                  const rdcstr &pythonDllPath = rdcstr()) = 0;
 
 protected:
   ITargetControl() = default;
@@ -1322,7 +1844,7 @@ separate thread.
   If this is ``False``, the function will not interact or block forever on user interaction and will
   always assume the input is effectively 'cancel' or empty. This may cause the symbol resolution to
   fail.
-:param ProgressCallback progress: A callback that will be repeatedly called with an updated progress
+:param Callable[[float], None] progress: A callback that will be repeatedly called with an updated progress
   value for the resolver process. Can be ``None`` if no progress is desired.
   Callback function signature must match :func:`ProgressCallback`.
 :return: The result of the operation.
@@ -1379,14 +1901,14 @@ by calling :meth:`EmbedDependenciesIntoCapture`.
 )");
   virtual ResultDetails RemoveDependenciesFromCapture() = 0;
 
-  DOCUMENT(R"(Are there any depdendent files embedded in the capture i.e. shader debug files.
+  DOCUMENT(R"(Are there any dependent files embedded in the capture i.e. shader debug files.
 
 :return: ``True`` if the capture has embedded dependent files, or ``False`` if the capture does not any embedded dependent files.
 :rtype: bool
 )");
   virtual bool HasEmbeddedDependencies() = 0;
 
-  DOCUMENT(R"(Does the capture have references to dependecies i.e. shader debug files.
+  DOCUMENT(R"(Does the capture have references to dependencies i.e. shader debug files.
 
 :return: ``True`` if the capture has references to dependent files, or ``False`` if the capture does not contain references to dependent files.
 :rtype: bool
@@ -1397,7 +1919,7 @@ by calling :meth:`EmbedDependenciesIntoCapture`.
 by the capture i.e. shader debug files.
 
 .. note::
-  The nicknames can be arbitary and do not have to be a filename or a file path.
+  The nicknames can be arbitrary and do not have to be a filename or a file path.
 
 :return: A list of the nicknames used to reference dependencies.
 :rtype: List[str]
@@ -1511,7 +2033,7 @@ This is primarily useful for when a capture is only stored locally and must be r
 the capture must be available on the machine where the replay happens.
 
 :param str filename: The path to the file on the local system.
-:param ProgressCallback progress: A callback that will be repeatedly called with an updated progress
+:param Callable[[float], None] progress: A callback that will be repeatedly called with an updated progress
   value for the copy. Can be ``None`` if no progress is desired.
   Callback function signature must match :func:`ProgressCallback`.
 :return: The path on the remote system where the capture was saved temporarily.
@@ -1525,7 +2047,7 @@ This function will block until the copy is fully complete, or an error has occur
 
 :param str remotepath: The remote path where the file should be copied from.
 :param str localpath: The local path where the file should be saved.
-:param ProgressCallback progress: A callback that will be repeatedly called with an updated progress
+:param Callable[[float], None] progress: A callback that will be repeatedly called with an updated progress
   value for the copy. Can be ``None`` if no progress is desired.
   Callback function signature must match :func:`ProgressCallback`.
 )");
@@ -1545,10 +2067,10 @@ or an error has occurred.
 
 :param int proxyid: The index in the array returned by :meth:`LocalProxies` to use as a local proxy,
   or :data:`NoPreference` to indicate no preference for any proxy.
-:param str logfile: The path on the remote system where the file is. If the file is only available
+:param str filename: The path on the remote system where the file is. If the file is only available
   locally you can use :meth:`CopyCaptureToRemote` to transfer it over the remote connection.
 :param ReplayOptions opts: The options controlling how the capture should be replayed.
-:param ProgressCallback progress: A callback that will be repeatedly called with an updated progress
+:param Callable[[float], None] progress: A callback that will be repeatedly called with an updated progress
   value for the opening. Can be ``None`` if no progress is desired.
   Callback function signature must match :func:`ProgressCallback`.
 :return: A tuple containing the status of opening the capture, whether success or failure, and the
@@ -1556,7 +2078,7 @@ or an error has occurred.
 :rtype: Tuple[ResultDetails,ReplayController]
 )");
   virtual rdcpair<ResultDetails, IReplayController *> OpenCapture(
-      uint32_t proxyid, const rdcstr &logfile, const ReplayOptions &opts,
+      uint32_t proxyid, const rdcstr &filename, const ReplayOptions &opts,
       RENDERDOC_ProgressCallback progress) = 0;
 
   DOCUMENT(R"(Close a capture analysis handle previously opened by :meth:`OpenCapture`.
@@ -1591,7 +2113,7 @@ empty or unrecognised.
 
 :param str filename: The filename of the file to open.
 :param str filetype: The format of the given file.
-:param ProgressCallback progress: A callback that will be repeatedly called with an updated progress
+:param Callable[[float], None] progress: A callback that will be repeatedly called with an updated progress
   value if an import step occurs. Can be ``None`` if no progress is desired.
   Callback function signature must match :func:`ProgressCallback`.
 :return: The result of the operation.
@@ -1608,7 +2130,7 @@ For the :paramref:`OpenBuffer.filetype` parameter, see :meth:`OpenFile`.
 
 :param bytes buffer: The buffer containing the data to process.
 :param str filetype: The format of the given file.
-:param ProgressCallback progress: A callback that will be repeatedly called with an updated progress
+:param Callable[[float], None] progress: A callback that will be repeatedly called with an updated progress
   value if an import step occurs. Can be ``None`` if no progress is desired.
   Callback function signature must match :func:`ProgressCallback`.
 :return: The result of the operation.
@@ -1642,7 +2164,7 @@ representation back to native RDC.
   useful in case the format specifies that it doesn't need buffers, and you already have a
   :class:`ReplayController` open with the structured data. This saves the need to load the file
   again. If ``None`` then structured data will be fetched if not already present and used.
-:param ProgressCallback progress: A callback that will be repeatedly called with an updated progress
+:param Callable[[float], None] progress: A callback that will be repeatedly called with an updated progress
   value for the conversion. Can be ``None`` if no progress is desired.
   Callback function signature must match :func:`ProgressCallback`.
 :return: The result of the operation.
@@ -1691,7 +2213,7 @@ microseconds. May be 1.0 if all timestamps and durations are already in microsec
 )");
   virtual double TimestampFrequency() = 0;
 
-  DOCUMENT(R"(Sets the matadata for this capture handle.
+  DOCUMENT(R"(Sets the metadata for this capture handle.
 
 This function may only be called if the handle is 'empty' - i.e. no file has been opened with
 :meth:`OpenFile` or :meth:`OpenBuffer`.
@@ -1730,7 +2252,7 @@ Once the replay is created, this :class:`CaptureFile` can be shut down, there is
 by the :class:`ReplayController`.
 
 :param ReplayOptions opts: The options controlling how the capture should be replayed.
-:param ProgressCallback progress: A callback that will be repeatedly called with an updated progress
+:param Callable[[float], None] progress: A callback that will be repeatedly called with an updated progress
   value for the opening. Can be ``None`` if no progress is desired.
   Callback function signature must match :func:`ProgressCallback`.
 :return: A tuple containing the status of opening the capture, whether success or failure, and the
@@ -1885,6 +2407,36 @@ DOCUMENT(R"(Create a new camera of a given type.
 )");
 extern "C" RENDERDOC_API ICamera *RENDERDOC_CC RENDERDOC_InitCamera(CameraType type);
 
+#if !defined(SWIG)
+// Independent of the table's single-row highlight. Point selections contain six copies
+// of each position, expanded into screen-space quads by the mesh vertex shader.
+extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_SetMeshComponentHighlight(
+    IReplayOutput *output, const FloatVector *vertices, uint32_t count, Topology topology);
+
+// In point mode, unselected point sprites can follow the selected sprites in the same batch.
+extern "C" RENDERDOC_API void RENDERDOC_CC
+RENDERDOC_SetMeshComponentOverlay(IReplayOutput *output, const FloatVector *vertices,
+                                  uint32_t count, Topology topology, uint32_t selectedVertices);
+
+extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_SetMeshPreviewOrbit(ICamera *camera, float yaw,
+                                                                         float pitch);
+
+// Apply a pointer orbit step to the current mesh preview orientation. Angles are radians.
+// Use the same inverted flag throughout a drag, determined from the camera's initial up vector.
+extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_RotateMeshPreviewOrbit(ICamera *camera,
+                                                                            float yaw, float pitch,
+                                                                            bool inverted);
+extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_SetMeshPreviewFov(ICamera *camera,
+                                                                       float degrees);
+// Column-major transform from the mesh position attribute to preview world space.
+extern "C" RENDERDOC_API void RENDERDOC_CC
+RENDERDOC_GetMeshPreviewModelTransform(const MeshDisplay &config, GraphicsAPI api, float *transform);
+
+// Column-major transform for the native mesh preview, with Y up and Z in [0, 1].
+extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_GetMeshPreviewTransform(
+    const MeshDisplay &config, GraphicsAPI api, float outputAspect, float *transform);
+#endif
+
 //////////////////////////////////////////////////////////////////////////
 // Maths/format/misc related exports
 //////////////////////////////////////////////////////////////////////////
@@ -2019,10 +2571,10 @@ This function will block until a remote connection tells the server to shut down
 
 :param str listenhost: The name of the interface to listen on.
 :param int port: The port to listen on, or ``0`` to listen on the default port.
-:param KillCallback killReplay: A callback that returns a ``bool`` indicating if the server should
+:param Callable[[], bool] killReplay: A callback that returns a ``bool`` indicating if the server should
   be shut down or not.
   Callback function signature must match :func:`KillCallback`.
-:param PreviewWindowCallback previewWindow: A callback that returns information for a preview window
+:param Callable[[bool], WindowingData] previewWindow: A callback that returns information for a preview window
   when the server wants to display some preview of the ongoing replay.
   Callback function signature must match :func:`PreviewWindowCallback`.
 )");
@@ -2033,14 +2585,6 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_BecomeRemoteServer(
 //////////////////////////////////////////////////////////////////////////
 // Injection/execution capture functions.
 //////////////////////////////////////////////////////////////////////////
-
-DOCUMENT(R"(Retrieve the default and recommended set of capture options.
-
-:return: The default capture options.
-:rtype: CaptureOptions
-)");
-extern "C" RENDERDOC_API void RENDERDOC_CC
-RENDERDOC_GetDefaultCaptureOptions(CaptureOptions *defaultOpts);
 
 DOCUMENT(R"(Begin injecting speculatively into all new processes started on the system. Where
 supported by platform, configuration, and setup begin injecting speculatively into all new processes
@@ -2055,13 +2599,13 @@ This function must be called when the process is running with administrator/supe
 
 :param str pathmatch: A string to match against each new process's executable path to determine
   which corresponds to the program we actually want to capture.
-:param str logfile: Where to store any captures.
+:param str capturefile: Where to store any captures.
 :param CaptureOptions opts: The capture options to use when injecting into the program.
 :return: The result of the operation, if the result succeeded the hook is now active.
 :rtype: ResultDetails
 )");
 extern "C" RENDERDOC_API ResultDetails RENDERDOC_CC RENDERDOC_StartGlobalHook(
-    const rdcstr &pathmatch, const rdcstr &logfile, const CaptureOptions &opts);
+    const rdcstr &pathmatch, const rdcstr &capturefile, const CaptureOptions &opts);
 
 DOCUMENT(R"(Stop the global hook that was activated by :func:`StartGlobalHook`.
 
@@ -2129,7 +2673,7 @@ DOCUMENT(R"(When debugging RenderDoc it can be useful to capture itself by doing
 temporary name. This function checks to see if a given self-hosted DLL is available.
 
 :param str dllname: The name of the self-hosted capture module.
-:return: Whether the specified dll is loaded, ready for self-hosted capture.
+:return: Whether the specified DLL is loaded, ready for self-hosted capture.
 :rtype: bool
 )");
 extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_CanSelfHostedCapture(const rdcstr &dllname);
@@ -2247,7 +2791,7 @@ DOCUMENT(R"(Add a message to RenderDoc's logfile.
   if a debugger is attached, and fatal errors will kill the process after logging.
 :param str project: A short project tag, which should be uppercase and either 3 or 4 characters.
 :param str file: The file where this log message came from.
-:param int line: The line number in :paramref:`file` where this log message came from.
+:param int line: The line number in :paramref:`LogMessage.file` where this log message came from.
 :param str text: The text of the message.
 )");
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_LogMessage(LogType type, const rdcstr &project,
@@ -2272,7 +2816,7 @@ extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_IsReleaseBuild();
 
 DOCUMENT(R"(Retrieves the commit hash used to build.
 
-This will be in the form "0123456789abcdef0123456789abcdef01234567"
+This will be in the form ``0123456789abcdef0123456789abcdef01234567``
 
 :return: The commit hash.
 :rtype: str

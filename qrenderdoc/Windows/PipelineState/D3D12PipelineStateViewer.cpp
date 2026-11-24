@@ -520,6 +520,7 @@ void D3D12PipelineStateViewer::OnCaptureLoaded()
 
 void D3D12PipelineStateViewer::OnCaptureClosed()
 {
+  ++m_UpdateSerial;
   setOldMeshPipeFlow();
 
   clearState();
@@ -527,8 +528,15 @@ void D3D12PipelineStateViewer::OnCaptureClosed()
 
 void D3D12PipelineStateViewer::OnEventChanged(uint32_t eventId)
 {
-  m_Ctx.Replay().AsyncInvoke([this](IReplayController *r) {
-    rdcarray<DescriptorAccess> access = m_Ctx.CurPipelineState().GetDescriptorAccess();
+  const uint64_t serial = ++m_UpdateSerial;
+  // i18n-ignore: internal completion evidence for isolated replay profiling.
+  setProperty("replayRequestedSerial", qulonglong(serial));
+  // Snapshot GUI-owned publication before queuing work; a later EID/edit may publish meanwhile.
+  const rdcarray<DescriptorAccess> access = m_Ctx.CurPipelineState().GetDescriptorAccess();
+  QPointer<D3D12PipelineStateViewer> self(this);
+  m_Ctx.Replay().AsyncInvoke([self, eventId, serial, access](IReplayController *r) {
+    if(!self || r->GetCurrentEventID() != eventId)
+      return;
 
     ResourceId descriptorStore;
     rdcarray<DescriptorRange> ranges;
@@ -563,15 +571,22 @@ void D3D12PipelineStateViewer::OnEventChanged(uint32_t eventId)
       locations.append(r->GetDescriptorLocations(descriptorStore, ranges));
 
     // we only write to m_Locations etc on the GUI thread so we know there's no race here.
-    GUIInvoke::call(this, [this, access = std::move(access), locations = std::move(locations)]() {
-      m_Locations.clear();
+    GUIInvoke::call(qApp, [self, eventId, serial, access, locations = std::move(locations)]() {
+      if(!self || serial != self->m_UpdateSerial || !self->m_Ctx.IsCaptureLoaded() ||
+         self->m_Ctx.CurEvent() != eventId)
+        return;
+      self->m_Locations.clear();
 
       for(size_t i = 0; i < qMin(access.size(), locations.size()); i++)
       {
-        m_Locations[{access[i].descriptorStore, access[i].byteOffset}] = locations[i];
+        self->m_Locations[{access[i].descriptorStore, access[i].byteOffset}] = locations[i];
       }
 
-      setState();
+      self->setState();
+      // i18n-ignore: internal completion evidence, never a UI label.
+      self->setProperty("replayDisplayedEvent", eventId);
+      // i18n-ignore: internal completion evidence, never a UI label.
+      self->setProperty("replayDisplayedSerial", qulonglong(serial));
     });
   });
 }
@@ -620,6 +635,35 @@ ResourceId D3D12PipelineStateViewer::GetResource(RDTreeWidgetItem *item)
   }
 
   return ResourceId();
+}
+
+bool D3D12PipelineStateViewer::GetTextureHistoryDetails(RDTreeWidgetItem *item,
+                                                        Subresource &subresource,
+                                                        CompType &typeCast)
+{
+  subresource = Subresource();
+
+  ResourceId resource = GetResource(item);
+  TextureDescription *tex = m_Ctx.GetTexture(resource);
+  if(tex == NULL)
+    return false;
+
+  typeCast = tex->format.compType;
+
+  QVariant tag = item->tag();
+  if(tag.canConvert<D3D12ViewTag>())
+  {
+    const Descriptor &descriptor = tag.value<D3D12ViewTag>().descriptor;
+    if(descriptor.resource == resource)
+    {
+      subresource.mip = descriptor.firstMip;
+      subresource.slice = descriptor.firstSlice;
+      typeCast = descriptor.format.compType;
+    }
+  }
+
+  subresource.sample = tex->msSamp > 1 ? TextureDisplay::ResolveSamples : 0;
+  return true;
 }
 
 void D3D12PipelineStateViewer::on_showUnused_toggled(bool checked)
@@ -702,6 +746,24 @@ void D3D12PipelineStateViewer::setViewDetails(RDTreeWidgetItem *node, const D3D1
     else
       text += tr("The texture has %1 array slices, the view covers slices %2-%3.\n")
                   .arg(tex->arraysize)
+                  .arg(res.firstSlice)
+                  .arg(res.firstSlice + res.numSlices - 1);
+
+    viewdetails = true;
+  }
+
+  uint32_t effectiveDepth = qMax(1U, tex->depth >> res.firstMip);
+
+  if(effectiveDepth > 1 &&
+     ((effectiveDepth != res.numSlices && res.numSlices > 0) || res.firstSlice > 0))
+  {
+    if(res.numSlices == 1)
+      text += tr("The texture has %1 3D slices at first mip, the view covers slice %2.\n")
+                  .arg(effectiveDepth)
+                  .arg(res.firstSlice);
+    else
+      text += tr("The texture has %1 3D slices at first mip, the view covers slices %2-%3.\n")
+                  .arg(effectiveDepth)
                   .arg(res.firstSlice)
                   .arg(res.firstSlice + res.numSlices - 1);
 
@@ -2137,18 +2199,26 @@ void D3D12PipelineStateViewer::setState()
   ui->blends->beginUpdate();
   ui->blends->clear();
   {
+    bool independent = state.outputMerger.blendState.independentBlend;
     int i = 0;
     for(const ColorBlend &blend : state.outputMerger.blendState.blends)
     {
-      bool filledSlot = (blend.enabled || targets[i]);
+      bool filledSlot = true;
       bool usedSlot = (targets[i]);
+
+      if(!independent)
+        usedSlot = i == 0;
 
       if(showNode(usedSlot, filledSlot))
       {
         RDTreeWidgetItem *node = NULL;
 
+        QString slotName = QString::number(i);
+        if(!independent)
+          slotName = i == 0 ? tr("All") : lit("-");
+
         node = new RDTreeWidgetItem(
-            {i, blend.enabled ? tr("True") : tr("False"),
+            {slotName, blend.enabled ? tr("True") : tr("False"),
 
              ToQStr(blend.colorBlend.source), ToQStr(blend.colorBlend.destination),
              ToQStr(blend.colorBlend.operation),
@@ -2163,9 +2233,6 @@ void D3D12PipelineStateViewer::setState()
                  .arg((blend.writeMask & 0x2) == 0 ? lit("_") : lit("G"))
                  .arg((blend.writeMask & 0x4) == 0 ? lit("_") : lit("B"))
                  .arg((blend.writeMask & 0x8) == 0 ? lit("_") : lit("A"))});
-
-        if(!filledSlot)
-          setEmptyRow(node);
 
         if(!usedSlot)
           setInactiveRow(node);
@@ -2433,7 +2500,7 @@ void D3D12PipelineStateViewer::resource_itemActivated(RDTreeWidgetItem *item, in
 
     if(shaderRes)
     {
-      format = BufferFormatter::GetBufferFormatString(Packing::D3DUAV, stage->resourceId,
+      format = BufferFormatter::GetBufferFormatString(PackingRules::D3DUAV(), stage->resourceId,
                                                       *shaderRes, view.descriptor.format);
 
       if(view.descriptor.flags & DescriptorFlags::RawBuffer)
@@ -3139,6 +3206,28 @@ void D3D12PipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const D3D12Pipe
 
     QVariantList row = exportViewHTML(used.descriptor, false, shaderInput, QString());
 
+    QString regname;
+    if(shaderInput)
+    {
+      if(!spacesUsed)
+        regname = QFormatStr("%1").arg(shaderInput->fixedBindNumber);
+      else
+        regname = QFormatStr("space%1, %2")
+                      .arg(shaderInput->fixedBindSetOrSpace)
+                      .arg(shaderInput->fixedBindNumber);
+
+      if(!shaderInput->name.empty())
+        regname += lit(": ") + shaderInput->name;
+
+      if(shaderInput->bindArraySize > 1)
+        regname += QFormatStr("[%1]").arg(used.access.arrayElement);
+    }
+    else if(used.access.index == DescriptorAccess::NoShaderBinding)
+    {
+      regname = m_Locations[{used.access.descriptorStore, used.access.byteOffset}].logicalBindName;
+    }
+    row.push_front(regname);
+
     rowsRO.push_back(row);
   }
 
@@ -3153,6 +3242,28 @@ void D3D12PipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const D3D12Pipe
       shaderInput = &sh.reflection->readWriteResources[used.access.index];
 
     QVariantList row = exportViewHTML(used.descriptor, true, shaderInput, QString());
+
+    QString regname;
+    if(shaderInput)
+    {
+      if(!spacesUsed)
+        regname = QFormatStr("%1").arg(shaderInput->fixedBindNumber);
+      else
+        regname = QFormatStr("space%1, %2")
+                      .arg(shaderInput->fixedBindSetOrSpace)
+                      .arg(shaderInput->fixedBindNumber);
+
+      if(!shaderInput->name.empty())
+        regname += lit(": ") + shaderInput->name;
+
+      if(shaderInput->bindArraySize > 1)
+        regname += QFormatStr("[%1]").arg(used.access.arrayElement);
+    }
+    else if(used.access.index == DescriptorAccess::NoShaderBinding)
+    {
+      regname = m_Locations[{used.access.descriptorStore, used.access.byteOffset}].logicalBindName;
+    }
+    row.push_front(regname);
 
     rowsRW.push_back(row);
   }
@@ -3264,8 +3375,19 @@ void D3D12PipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const D3D12Pipe
     xml.writeEndElement();
 
     m_Common.exportHTMLTable(
+        xml, {tr("Base Shading Rate"), tr("Shading Rate Combiners"), tr("Shading Rate Image")},
+        {QFormatStr("%1x%2").arg(rs.state.baseShadingRate.first).arg(rs.state.baseShadingRate.second),
+         QFormatStr("%1, %2")
+             .arg(ToQStr(rs.state.shadingRateCombiners.first, GraphicsAPI::D3D12))
+             .arg(ToQStr(rs.state.shadingRateCombiners.second, GraphicsAPI::D3D12)),
+         m_Ctx.GetResourceName(rs.state.shadingRateImage)});
+
+    xml.writeStartElement(lit("p"));
+    xml.writeEndElement();
+
+    m_Common.exportHTMLTable(
         xml,
-        {tr("Line Rasteriztion"), tr("Forced Sample Count"), tr("Conservative Raster"),
+        {tr("Line Rasterization"), tr("Forced Sample Count"), tr("Conservative Raster"),
          tr("Sample Mask")},
         {ToQStr(rs.state.lineRasterMode), rs.state.forcedSampleCount,
          rs.state.conservativeRasterization != ConservativeRaster::Disabled ? tr("Yes") : tr("No"),
@@ -3334,12 +3456,10 @@ void D3D12PipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const D3D12Pipe
                               .arg(om.blendState.blendFactor[2], 0, 'f', 2)
                               .arg(om.blendState.blendFactor[3], 0, 'f', 2);
 
-    m_Common.exportHTMLTable(xml,
-                             {tr("Independent Blend Enable"), tr("Alpha to Coverage"),
-                              tr("Blend Factor"), tr("Multisampling Rate")},
-                             {om.blendState.independentBlend ? tr("Yes") : tr("No"),
-                              om.blendState.alphaToCoverage ? tr("Yes") : tr("No"), blendFactor,
-                              tr("%1x %2 qual").arg(om.multiSampleCount).arg(om.multiSampleQuality)});
+    m_Common.exportHTMLTable(
+        xml, {tr("Independent Blend Enable"), tr("Alpha to Coverage"), tr("Blend Factor")},
+        {om.blendState.independentBlend ? tr("Yes") : tr("No"),
+         om.blendState.alphaToCoverage ? tr("Yes") : tr("No"), blendFactor});
 
     xml.writeStartElement(lit("h3"));
     xml.writeCharacters(tr("Target Blends"));
@@ -3347,6 +3467,7 @@ void D3D12PipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const D3D12Pipe
 
     QList<QVariantList> rows;
 
+    bool independent = om.blendState.independentBlend;
     int i = 0;
     for(const ColorBlend &b : om.blendState.blends)
     {
@@ -3359,7 +3480,11 @@ void D3D12PipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const D3D12Pipe
                          .arg((b.writeMask & 0x4) == 0 ? lit("_") : lit("B"))
                          .arg((b.writeMask & 0x8) == 0 ? lit("_") : lit("A"));
 
-      rows.push_back({i, b.enabled ? tr("Yes") : tr("No"),
+      QString slotName = QString::number(i);
+      if(!independent)
+        slotName = i == 0 ? tr("All") : lit("-");
+
+      rows.push_back({slotName, b.enabled ? tr("Yes") : tr("No"),
                       b.logicOperationEnabled ? tr("Yes") : tr("No"), ToQStr(b.colorBlend.source),
                       ToQStr(b.colorBlend.destination), ToQStr(b.colorBlend.operation),
                       ToQStr(b.alphaBlend.source), ToQStr(b.alphaBlend.destination),
@@ -3476,7 +3601,7 @@ void D3D12PipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const D3D12Pipe
     m_Common.exportHTMLTable(xml,
                              {
                                  tr("Slot"),
-                                 tr("Name"),
+                                 tr("Resource"),
                                  tr("View Type"),
                                  tr("Resource Type"),
                                  tr("Width"),
@@ -3508,7 +3633,7 @@ void D3D12PipelineStateViewer::exportHTML(QXmlStreamWriter &xml, const D3D12Pipe
 
     m_Common.exportHTMLTable(xml,
                              {
-                                 tr("Name"),
+                                 tr("Resource"),
                                  tr("View Type"),
                                  tr("Resource Type"),
                                  tr("Width"),
@@ -3658,6 +3783,12 @@ void D3D12PipelineStateViewer::computeDebugSelector_beginDebug(
   if(!shaderDetails)
     return;
 
+  // The progress dialog can publish a newer event while this debug request is running.
+  // Retain the reflection used to start the request until the viewer has taken its own copy.
+  const ShaderReflection shaderSnapshot(*shaderDetails);
+  shaderDetails = &shaderSnapshot;
+  const ResourceId pipeline = m_Ctx.CurPipelineState().GetComputePipelineObject();
+
   struct threadSelect
   {
     rdcfixedarray<uint32_t, 3> g;
@@ -3709,7 +3840,7 @@ void D3D12PipelineStateViewer::computeDebugSelector_beginDebug(
 
   // viewer takes ownership of the trace
   IShaderViewer *s = m_Ctx.DebugShader(
-      shaderDetails, m_Ctx.CurPipelineState().GetComputePipelineObject(), trace, debugContext);
+      shaderDetails, pipeline, trace, debugContext);
 
   m_Ctx.AddDockWindow(s->Widget(), DockReference::AddTo, this);
 }

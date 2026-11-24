@@ -347,7 +347,7 @@ void BufferFormatSpecifier::on_savedList_itemChanged(RDTreeWidgetItem *item, int
     if(globalFormatList->hasFormat(name))
     {
       RDDialog::critical(this, tr("Name already in use"),
-                         tr("The definition name '%1' is already in used.\n"
+                         tr("The definition name '%1' is already in use.\n"
                             "To update this definition, select it and click update."));
       item->setText(0, tr("New..."));
       return;

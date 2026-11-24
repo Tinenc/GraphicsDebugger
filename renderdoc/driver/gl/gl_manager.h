@@ -41,6 +41,7 @@ struct GLResourceManagerConfiguration
 
 class GLResourceManager : public ResourceManager<GLResourceManagerConfiguration>
 {
+  friend class GLReplay;
 public:
   GLResourceManager(CaptureState &state, WrappedOpenGL *driver);
   ~GLResourceManager() {}
@@ -301,7 +302,8 @@ public:
   bool Serialise_InitialState(WriteSerialiser &ser, ResourceId id, GLResourceRecord *record,
                               const GLInitialContents *initial);
 
-  void ContextPrepare_InitialState(GLResource res);
+  void ContextPrepare_InitialState(GLResource res, GLInitialContents *checkpoint = NULL,
+                                  bool copyContents = true);
 
   void SetInternalResource(GLResource res);
 
@@ -312,7 +314,9 @@ private:
   bool Prepare_InitialState(GLResource res);
   uint64_t GetSize_InitialState(ResourceId resid, const GLInitialContents &initial);
 
-  void PrepareTextureInitialContents(ResourceId id, GLResource res);
+  void PrepareTextureInitialContents(ResourceId id, GLResource res,
+                                     GLInitialContents *checkpoint = NULL,
+                                     bool copyContents = true);
 
   void Create_InitialState(ResourceId id, GLResource live, bool hasData);
   void Apply_InitialState(GLResource live, GLInitialContents &initial);

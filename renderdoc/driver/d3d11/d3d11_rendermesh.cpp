@@ -47,7 +47,7 @@ static uint32_t VisModeToMeshDisplayFormat(const MeshDisplay &cfg)
 }
 
 void D3D11Replay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secondaryDraws,
-                             const MeshDisplay &cfg)
+                             const MeshDisplay &cfg, const MeshComponentHighlight &components)
 {
   if(cfg.position.vertexResourceId == ResourceId() ||
      WrappedID3D11Buffer::m_BufferList.find(cfg.position.vertexResourceId) ==
@@ -63,11 +63,7 @@ void D3D11Replay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secon
 
   D3D11RenderStateTracker tracker(m_pImmediateContext);
 
-  float nearPlane = cfg.cam ? ((Camera *)cfg.cam)->GetNear() : 0.1f;
-  float farPlane = cfg.cam ? ((Camera *)cfg.cam)->GetFar() : 100000.0f;
-
-  Matrix4f projMat =
-      Matrix4f::Perspective(90.0f, nearPlane, farPlane, m_OutputWidth / m_OutputHeight);
+  Matrix4f projMat = Camera::MeshProjection(cfg.cam, m_OutputWidth / m_OutputHeight);
 
   Matrix4f camMat = cfg.cam ? ((Camera *)cfg.cam)->GetMatrix() : Matrix4f::Identity();
 
@@ -393,6 +389,57 @@ void D3D11Replay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secon
     col = Vec4f(0.0f, 0.0f, 1.0f, 1.0f);
     GetDebugManager()->FillCBuffer(psCBuf, &col, sizeof(col));
     m_pImmediateContext->Draw(2, 4);
+  }
+
+  if(!components.vertices.empty())
+  {
+    D3D11_BUFFER_DESC desc = {};
+    if(m_MeshRender.ComponentHighlight)
+      m_MeshRender.ComponentHighlight->GetDesc(&desc);
+    if(desc.ByteWidth < components.vertices.byteSize())
+    {
+      SAFE_RELEASE(m_MeshRender.ComponentHighlight);
+      desc.ByteWidth = UINT(AlignUp(components.vertices.byteSize(), size_t(64 * 1024)));
+      desc.Usage = D3D11_USAGE_DYNAMIC;
+      desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+      desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+      m_pDevice->CreateBuffer(&desc, NULL, &m_MeshRender.ComponentHighlight);
+    }
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    ID3D11Buffer *vb = m_MeshRender.ComponentHighlight;
+    if(vb && SUCCEEDED(m_pImmediateContext->Map(vb, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+      memcpy(mapped.pData, components.vertices.data(), components.vertices.byteSize());
+      m_pImmediateContext->Unmap(vb, 0);
+      const bool points = components.topology == Topology::PointList;
+      const Topology topology = points ? Topology::TriangleList : components.topology;
+      MeshVertexCBuffer component = vertexData;
+      component.exploderScale = 0.0f;
+      component.ModelViewProj = components.DepthBiasedTransform(
+          projMat.Mul(camMat.Mul(cfg.position.unproject ? guessProjInv : axisMapMat)), cfg.cam);
+      component.homogenousInput = cfg.position.unproject;
+      col = Vec4f(1.0f, 0.36f, 0.035f, 1.0f);
+      if(points)
+      {
+        component.SpriteSize = Vec2f(-800.0f / m_OutputWidth, 800.0f / m_OutputHeight);
+        component.componentSelectedVertices = components.selectedVertices;
+        MeshPixelCBuffer pointColor = {Vec3f(col.x, col.y, col.z), MESHDISPLAY_POINT};
+        GetDebugManager()->FillCBuffer(psCBuf, &pointColor, sizeof(pointColor));
+        m_pImmediateContext->PSSetShader(m_MeshRender.MeshPS, NULL, 0);
+      }
+      else
+        GetDebugManager()->FillCBuffer(psCBuf, &col, sizeof(col));
+      GetDebugManager()->FillCBuffer(vsCBuf, &component, sizeof(component));
+      const UINT stride = sizeof(FloatVector), offset = 0;
+      m_pImmediateContext->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+      m_pImmediateContext->IASetInputLayout(m_MeshRender.GenericLayout);
+      m_pImmediateContext->IASetPrimitiveTopology(MakeD3DPrimitiveTopology(topology));
+      m_pImmediateContext->OMSetDepthStencilState(m_MeshRender.LessEqualDepthState, 0);
+      m_pImmediateContext->Draw(UINT(components.vertices.size()), 0);
+      if(points)
+        m_pImmediateContext->PSSetShader(m_General.FixedColPS, NULL, 0);
+      m_pImmediateContext->OMSetDepthStencilState(m_MeshRender.NoDepthState, 0);
+    }
   }
 
   if(cfg.highlightVert != ~0U)

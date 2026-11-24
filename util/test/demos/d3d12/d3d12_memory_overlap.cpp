@@ -140,11 +140,33 @@ float4 main() : SV_Target0
       bufs.push_back(buf);
     }
 
+    const uint32_t bigSparse = (uint32_t)bufs.size();
+
+    // create a sparse buffer that uses the full 64-bit range
+    {
+      ID3D12ResourcePtr buf;
+
+      resDesc.Width = 10ULL << 30;
+
+      dev->CreateReservedResource(&resDesc, D3D12_RESOURCE_STATE_COMMON, NULL,
+                                  __uuidof(ID3D12Resource), (void **)&buf);
+      sparsebufs.push_back(buf);
+      bufs.push_back(buf);
+    }
+
     // we don't test textures currently as we save those entirely :)...
 
     for(size_t i = 0; i < bufs.size(); i++)
     {
-      MakeSRV(bufs[i]).Format(DXGI_FORMAT_R32_UINT).CreateGPU(int(i));
+      if(i == bigSparse)
+      {
+        // D3D APIs don't support creating views through this API that target more than the first 32-bit
+        MakeSRV(bufs[i]).StructureStride(4).NumElements(1U << 29).CreateGPU(int(i));
+      }
+      else
+      {
+        MakeSRV(bufs[i]).StructureStride(4).CreateGPU(int(i));
+      }
     }
 
     // we chase around a few buffers to ensure their data is correct. Starting from buffer 0, offset
@@ -161,6 +183,9 @@ float4 main() : SV_Target0
 
         firstSparse + 10,
         7 * 1024 * 1024 + 512,
+
+        bigSparse,
+        (1U << 28),
 
         // success value
         999999,
@@ -184,6 +209,11 @@ float4 main() : SV_Target0
     start.X = (7 * 1024 * 1024) / 65536;
     heapRangeStart = (100 * 1024 * 1024 + 768 * 1024) / 65536;
     queue->UpdateTileMappings(sparsebufs[10], 1, &start, &size, sparseHeap, 1, NULL,
+                              &heapRangeStart, &rangeTileCount, D3D12_TILE_MAPPING_FLAG_NONE);
+
+    start.X = uint64_t(uint64_t(1U << 28) / 65536);
+    heapRangeStart = (108 * 1024 * 1024) / 65536;
+    queue->UpdateTileMappings(bufs[bigSparse], 1, &start, &size, sparseHeap, 1, NULL,
                               &heapRangeStart, &rangeTileCount, D3D12_TILE_MAPPING_FLAG_NONE);
 
     {

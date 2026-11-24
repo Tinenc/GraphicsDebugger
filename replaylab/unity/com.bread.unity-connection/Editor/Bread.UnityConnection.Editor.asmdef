@@ -1,0 +1,8 @@
+{
+  "name": "Bread.UnityConnection.Editor",
+  "references": ["MCPForUnity.Editor"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true,
+  "overrideReferences": true,
+  "precompiledReferences": ["Newtonsoft.Json.dll"]
+}

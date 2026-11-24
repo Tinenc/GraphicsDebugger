@@ -476,7 +476,7 @@ class Iter_Test(rdtest.TestCase):
                     rdtest.log.error(f"Fatal error detected: {fatal.Message()}")
                     break
 
-            action = action.next
+            action = action.nextAction
 
         self.texout.Shutdown()
 
@@ -501,6 +501,8 @@ class Iter_Test(rdtest.TestCase):
                 continue
 
             section_name = 'Iterating {}'.format(file.name)
+            if not self.validate_eventids(self.controller):
+                raise rdtest.TestFailureException("ERROR: capture doesn't have valid event IDs.")
 
             rdtest.log.begin_section(section_name)
             self.iter_test()

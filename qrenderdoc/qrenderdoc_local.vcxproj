@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Development|Win32">
@@ -28,10 +28,10 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{A14A6AE5-02B1-35FE-BE59-B3E7C273B40B}</ProjectGuid>
-    <RootNamespace>qTinecmaTool</RootNamespace>
+    <RootNamespace>qrenderdoc</RootNamespace>
     <Keyword>Qt4VSv1.0</Keyword>
-    <ProjectName>qTinecmaTool</ProjectName>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>qrenderdoc</ProjectName>
+    <WindowsTargetPlatformVersion>$(RenderDocLatestWin10SDKVersion)</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(SolutionDir)\util\WindowsSDKTarget.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -41,7 +41,7 @@
     <ATLMinimizesCRunTimeLibraryUsage>false</ATLMinimizesCRunTimeLibraryUsage>
     <CharacterSet>NotSet</CharacterSet>
     <ConfigurationType>Application</ConfigurationType>
-    <PrimaryOutput>qTinecmaTool</PrimaryOutput>
+    <PrimaryOutput>qrenderdoc</PrimaryOutput>
     <TargetName>qTinecmaTool</TargetName>
     <IgnoreImportLibrary>true</IgnoreImportLibrary>
     <SolutionRelativeIntDir>$(Platform)\$(Configuration)\obj\$(ProjectName)\</SolutionRelativeIntDir>
@@ -80,21 +80,6 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <Import Project="$(SolutionDir)\util\WindowsSDKFix.props" />
-  <PropertyGroup>
-    <!-- QtBaseDir would be used for everything, except in our local repository copy of Qt
-         we only have one include and split the bin/lib by platform. Since include doesn't
-         vary by platform and can be deduplicated on disk. -->
-    <QtBaseDir>$(ProjectDir)3rdparty\qt\$(Platform)</QtBaseDir>
-    <QtIncludeDir>$(ProjectDir)3rdparty\qt\include</QtIncludeDir>
-    <QtBaseDir Condition="Exists('$(RENDERDOC_QT_PREFIX64)\bin\moc.exe') AND '$(Platform)'=='x64'">$(RENDERDOC_QT_PREFIX64)</QtBaseDir>
-    <QtIncludeDir Condition="Exists('$(RENDERDOC_QT_PREFIX64)\bin\moc.exe') AND '$(Platform)'=='x64'">$(RENDERDOC_QT_PREFIX64)\include</QtIncludeDir>
-    <QtBaseDir Condition="Exists('$(RENDERDOC_QT_PREFIX32)\bin\moc.exe') AND '$(Platform)'=='Win32'">$(RENDERDOC_QT_PREFIX32)</QtBaseDir>
-    <QtIncludeDir Condition="Exists('$(RENDERDOC_QT_PREFIX32)\bin\moc.exe') AND '$(Platform)'=='Win32'">$(RENDERDOC_QT_PREFIX32)\include</QtIncludeDir>
-    <!-- bin and lib are relative to the base dir, wherever it is -->
-    <QtBinDir>$(QtBaseDir)\bin</QtBinDir>
-    <QtLibDir>$(QtBaseDir)\lib</QtLibDir>
-    <QtPluginsDir>$(QtBaseDir)\plugins</QtPluginsDir>
-  </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -107,7 +92,7 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <TreatWChar_tAsBuiltInType>true</TreatWChar_tAsBuiltInType>
-      <AdditionalIncludeDirectories>$(ProjectDir);3rdparty;$(IntDir)generated\;$(SolutionDir)\renderdoc\api\replay;$(PythonIncludeDir);3rdparty\pyside\include\PySide2;3rdparty\pyside\include\shiboken2;$(QtIncludeDir);$(QtIncludeDir)\QtWidgets;$(QtIncludeDir)\QtGui;$(QtIncludeDir)\QtCore;$(QtIncludeDir)\QtSvg;$(QtIncludeDir)\QtNetwork;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);3rdparty;$(IntDir)generated\;$(SolutionDir)\renderdoc\api\replay;$(PythonIncludeDir);$(PySide2Base)\include\PySide2;$(PySide2Base)\include\shiboken2;$(QtIncludeDir);$(QtIncludeDir)\QtWidgets;$(QtIncludeDir)\QtGui;$(QtIncludeDir)\QtCore;$(QtIncludeDir)\QtSvg;$(QtIncludeDir)\QtNetwork;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/Zc:strictStrings /Zc:throwingNew %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>_WINDOWS;UNICODE;WIN32;WIN64;RENDERDOC_PLATFORM_WIN32;SCINTILLA_QT=1;MAKING_LIBRARY=1;SCI_LEXER=1;QT_NO_CAST_FROM_ASCII;QT_NO_CAST_TO_ASCII;QT_WIDGETS_LIB;QT_GUI_LIB;QT_CORE_LIB;QT_SVG_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level4</WarningLevel>
@@ -120,8 +105,8 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>user32.lib;$(PythonImportLib);qtmain.lib;Qt5Widgets.lib;Qt5Gui.lib;Qt5Core.lib;Qt5Svg.lib;Qt5Network.lib;shell32.lib</AdditionalDependencies>
-      <AdditionalLibraryDirectories>3rdparty\pyside\$(Platform);$(QtLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>user32.lib;gdi32.lib;ole32.lib;windowscodecs.lib;$(PythonImportLib);qtmain.lib;Qt5Widgets.lib;Qt5Gui.lib;Qt5Core.lib;Qt5Svg.lib;Qt5Network.lib;shell32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(PySide2Base)\$(Platform);$(QtLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <DataExecutionPrevention>true</DataExecutionPrevention>
       <IgnoreImportLibrary>true</IgnoreImportLibrary>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -147,10 +132,10 @@
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>user32.lib;$(PythonImportLib);qtmaind.lib;Qt5Widgetsd.lib;Qt5Guid.lib;Qt5Cored.lib;Qt5Svgd.lib;Qt5Networkd.lib;shell32.lib</AdditionalDependencies>
+      <AdditionalDependencies>user32.lib;gdi32.lib;ole32.lib;windowscodecs.lib;$(PythonImportLib);qtmaind.lib;Qt5Widgetsd.lib;Qt5Guid.lib;Qt5Cored.lib;Qt5Svgd.lib;Qt5Networkd.lib;shell32.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="Exists('$(SolutionDir)\qrenderdoc\3rdparty\pyside\include\PySide2\pyside.h') AND '$(CustomPythonUsed)'=='0'">
+  <ItemDefinitionGroup Condition="Exists('$(PySide2Base)\include\PySide2\pyside.h') AND '$(PySide2Available)'!='0'">
     <ClCompile>
       <PreprocessorDefinitions>PYSIDE2_ENABLED=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
@@ -158,7 +143,7 @@
       <AdditionalDependencies>shiboken2.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="!Exists('$(SolutionDir)\qrenderdoc\3rdparty\pyside\include\PySide2\pyside.h') OR '$(CustomPythonUsed)'!='0'">
+  <ItemDefinitionGroup Condition="!Exists('$(PySide2Base)\include\PySide2\pyside.h') OR '$(PySide2Available)'=='0'">
     <ClCompile>
       <PreprocessorDefinitions>PYSIDE2_ENABLED=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
@@ -595,7 +580,8 @@
     </ClCompile>
     <ClCompile Include="Code\BufferFormatter.cpp" />
     <ClCompile Include="Code\Interface\Analytics.cpp" />
-    <ClCompile Include="Code\Interface\PersistantConfig.cpp" />
+    <ClCompile Include="Code\Interface\Helpers.cpp" />
+    <ClCompile Include="Code\Interface\PersistentConfig.cpp" />
     <ClCompile Include="Code\Interface\QRDInterface.cpp" />
     <ClCompile Include="Code\Interface\RemoteHost.cpp" />
     <ClCompile Include="Code\Interface\ShaderProcessingTool.cpp" />
@@ -604,10 +590,18 @@
     </ClCompile>
     <ClCompile Include="Code\qprocessinfo.cpp" />
     <ClCompile Include="Code\pyrenderdoc\PythonContext.cpp" />
+    <ClCompile Include="Code\pyrenderdoc\PythonInvokers.cpp">
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="Code\QRDUtils.cpp" />
     <ClCompile Include="Code\MiniQtHelper.cpp" />
     <ClCompile Include="Code\Resources.cpp" />
     <ClCompile Include="Code\RGPInterop.cpp" />
+    <ClCompile Include="Code\ReplayLab\ReplayLabIntegration.cpp" />
+    <ClCompile Include="Code\ReplayLab\ReplayLabCBufferAliases.cpp" />
+    <ClCompile Include="Code\CodeEditorService.cpp" />
+    <ClCompile Include="Widgets\ShaderCodeEditor.cpp" />
+    <ClCompile Include="Code\TranslationManager.cpp" />
     <ClCompile Include="Code\ScintillaSyntax.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_RDStyle.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_RDTweakedNativeStyle.cpp" />
@@ -624,6 +618,7 @@
     <ClCompile Include="$(IntDir)generated\moc_BufferFormatSpecifier.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_ComputeDebugSelector.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_FindReplace.cpp" />
+    <ClCompile Include="$(IntDir)generated\moc_ShaderCodeEditor.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_BufferViewer.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_CaptureDialog.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_CustomPaintWidget.cpp" />
@@ -664,6 +659,7 @@
     <ClCompile Include="$(IntDir)generated\moc_RDTableView.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_RDTableWidget.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_RDTreeView.cpp" />
+    <ClCompile Include="$(IntDir)generated\moc_RDToolTip.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_RDTreeWidget.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_ResourcePreview.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_ScintillaDocument.cpp">
@@ -682,6 +678,7 @@
     <ClCompile Include="$(IntDir)generated\moc_ShaderViewer.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_ShaderMessageViewer.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_PythonShell.cpp" />
+    <ClCompile Include="$(IntDir)generated\moc_ApiMonitorWindow.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_PixelHistoryView.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_StatisticsViewer.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_TimelineBar.cpp" />
@@ -726,6 +723,7 @@
     <ClCompile Include="Widgets\Extended\RDTableView.cpp" />
     <ClCompile Include="Widgets\Extended\RDTableWidget.cpp" />
     <ClCompile Include="Widgets\Extended\RDTreeView.cpp" />
+    <ClCompile Include="Widgets\Extended\RDToolTip.cpp" />
     <ClCompile Include="Widgets\Extended\RDTreeWidget.cpp" />
     <ClCompile Include="Widgets\PipelineFlowChart.cpp" />
     <ClCompile Include="Widgets\RangeHistogram.cpp" />
@@ -751,6 +749,7 @@
     <ClCompile Include="Windows\APIInspector.cpp" />
     <ClCompile Include="Windows\ResourceInspector.cpp" />
     <ClCompile Include="Windows\BufferViewer.cpp" />
+    <ClCompile Include="Windows\MeshUVView.cpp" />
     <ClCompile Include="Windows\DebugMessageView.cpp" />
     <ClCompile Include="Windows\LogView.cpp" />
     <ClCompile Include="Windows\CommentView.cpp" />
@@ -775,7 +774,12 @@
     <ClCompile Include="Windows\Dialogs\TipsDialog.cpp" />
     <ClCompile Include="Windows\Dialogs\ConfigEditor.cpp" />
     <ClCompile Include="Windows\Dialogs\VirtualFileDialog.cpp" />
-    <ClCompile Include="Windows\EventBrowser.cpp" />
+    <ClCompile Include="Windows\EventBrowser.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <ForcedIncludeFiles>Code\precompiled.h</ForcedIncludeFiles>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="Windows\BookmarksView.cpp" />
     <ClCompile Include="3rdparty\flowlayout\FlowLayout.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <ForcedIncludeFiles>
@@ -793,7 +797,29 @@
     <ClCompile Include="Windows\ShaderViewer.cpp" />
     <ClCompile Include="Windows\ShaderMessageViewer.cpp" />
     <ClCompile Include="Windows\PythonShell.cpp" />
+    <ClCompile Include="Windows\ApiMonitorWindow.cpp" />
+    <ClCompile Include="Windows\AI\AIConfiguration.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <ForcedIncludeFiles />
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIAssistant.cpp">
+      <!-- Keep translated UTF-8 source independent of the system-codepage PCH. -->
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <ForcedIncludeFiles>Code\precompiled.h</ForcedIncludeFiles>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="Windows\AI\AIFileThumbnail.cpp" />
+    <ClCompile Include="Windows\AI\AITextureAnnotation.cpp" />
+    <ClCompile Include="Windows\AI\AIVisualReply.cpp" />
+    <ClCompile Include="Windows\AI\AIAgentMonitorWindow.cpp" />
+    <ClCompile Include="Windows\AI\AIAgentTraceStore.cpp" />
+    <ClCompile Include="Windows\AI\AIConversationListView.cpp" />
+    <ClCompile Include="Windows\AI\AIConversationStore.cpp" />
+    <ClCompile Include="Windows\AI\AIConversationView.cpp" />
+    <ClCompile Include="Windows\AI\AIPendingChatView.cpp" />
     <ClCompile Include="Windows\PixelHistoryView.cpp" />
+    <ClCompile Include="Windows\RenderTargetHistoryView.cpp" />
     <ClCompile Include="Windows\PerformanceCounterViewer.cpp" />
     <ClCompile Include="Windows\StatisticsViewer.cpp" />
     <ClCompile Include="Windows\TimelineBar.cpp" />
@@ -949,7 +975,8 @@
     </CustomBuild>
     <ClInclude Include="3rdparty\flowlayout\FlowLayout.h" />
     <ClInclude Include="Code\Interface\Analytics.h" />
-    <ClInclude Include="Code\Interface\PersistantConfig.h" />
+    <ClInclude Include="Code\Interface\Helpers.h" />
+    <ClInclude Include="Code\Interface\PersistentConfig.h" />
     <ClInclude Include="Code\Interface\QRDInterface.h" />
     <ClInclude Include="Code\Interface\RemoteHost.h" />
     <ClInclude Include="Code\Interface\Extensions.h" />
@@ -995,6 +1022,23 @@
     <ClInclude Include="$(IntDir)generated\ui_ShaderViewer.h" />
     <ClInclude Include="$(IntDir)generated\ui_ShaderMessageViewer.h" />
     <ClInclude Include="$(IntDir)generated\ui_PythonShell.h" />
+    <ClInclude Include="$(IntDir)generated\ui_ApiMonitorWindow.h" />
+    <ClInclude Include="Windows\AI\AIConfiguration.h" />
+    <ClInclude Include="Windows\AI\AIAssistant.h" />
+    <ClInclude Include="Windows\AI\AIFileThumbnail.h" />
+    <ClInclude Include="Windows\AI\AITextureAnnotation.h" />
+    <ClInclude Include="Windows\AI\AIVisualReply.h" />
+    <ClInclude Include="Windows\AI\AIVisualFlowLayout.h" />
+    <ClInclude Include="Windows\AI\AICodeFormatting.h" />
+    <ClInclude Include="Windows\AI\AIAgentMonitorWindow.h" />
+    <ClInclude Include="Windows\AI\AIAgentTraceStore.h" />
+    <ClInclude Include="Windows\AI\AIConversationListView.h" />
+    <ClInclude Include="Windows\AI\AIConversationStore.h" />
+    <ClInclude Include="Windows\AI\AIConversationView.h" />
+    <ClInclude Include="Windows\AI\AIGuiHeartbeat.h" />
+    <ClInclude Include="Windows\AI\AIPendingChatView.h" />
+    <ClInclude Include="Windows\BookmarksView.h" />
+    <ClInclude Include="Windows\RenderTargetHistoryView.h" />
     <ClInclude Include="$(IntDir)generated\ui_PixelHistoryView.h" />
     <ClInclude Include="$(IntDir)generated\ui_PerformanceCounterViewer.h" />
     <ClInclude Include="$(IntDir)generated\ui_StatisticsViewer.h" />
@@ -1037,6 +1081,10 @@
       <Outputs>$(IntDir)generated\moc_%(Filename).cpp</Outputs>
     </CustomBuild>
     <ClInclude Include="Code\ReplayManager.h" />
+    <ClInclude Include="Code\ReplayLab\ReplayLabIntegration.h" />
+    <ClInclude Include="Code\ReplayLab\ReplayLabCBufferAliases.h" />
+    <ClInclude Include="Code\CodeEditorService.h" />
+    <ClInclude Include="Code\TranslationManager.h" />
     <ClInclude Include="Code\ScintillaSyntax.h" />
     <CustomBuild Include="Widgets\BufferFormatSpecifier.h">
       <AdditionalInputs>%(Fullpath);$(QtBinDir)\moc.exe;%(AdditionalInputs)</AdditionalInputs>
@@ -1051,6 +1099,12 @@
       <Outputs>$(IntDir)generated\moc_%(Filename).cpp</Outputs>
     </CustomBuild>
     <CustomBuild Include="Widgets\FindReplace.h">
+      <AdditionalInputs>%(Fullpath);$(QtBinDir)\moc.exe;%(AdditionalInputs)</AdditionalInputs>
+      <Command>"$(QtBinDir)\moc.exe" -DUNICODE -DWIN32 -DWIN64 -D_WIN32 -D_WIN64 -DRENDERDOC_PLATFORM_WIN32 -DSCINTILLA_QT=1 -DSCI_LEXER=1 -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB -D_MSC_VER=1900 -I"$(ProjectDir)." -I"$(SolutionDir)\renderdoc\api\replay" -I"$(QtIncludeDir)" -I"$(QtIncludeDir)\QtWidgets" -I"$(QtIncludeDir)\QtGui" -I"$(QtIncludeDir)\QtCore" "%(Fullpath)" -o "$(IntDir)generated\moc_%(Filename).cpp"</Command>
+      <Message>MOC %(Filename).h</Message>
+      <Outputs>$(IntDir)generated\moc_%(Filename).cpp</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="Widgets\ShaderCodeEditor.h">
       <AdditionalInputs>%(Fullpath);$(QtBinDir)\moc.exe;%(AdditionalInputs)</AdditionalInputs>
       <Command>"$(QtBinDir)\moc.exe" -DUNICODE -DWIN32 -DWIN64 -D_WIN32 -D_WIN64 -DRENDERDOC_PLATFORM_WIN32 -DSCINTILLA_QT=1 -DSCI_LEXER=1 -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB -D_MSC_VER=1900 -I"$(ProjectDir)." -I"$(SolutionDir)\renderdoc\api\replay" -I"$(QtIncludeDir)" -I"$(QtIncludeDir)\QtWidgets" -I"$(QtIncludeDir)\QtGui" -I"$(QtIncludeDir)\QtCore" "%(Fullpath)" -o "$(IntDir)generated\moc_%(Filename).cpp"</Command>
       <Message>MOC %(Filename).h</Message>
@@ -1135,6 +1189,12 @@
       <Outputs>$(IntDir)generated\moc_%(Filename).cpp</Outputs>
     </CustomBuild>
     <CustomBuild Include="Widgets\Extended\RDTreeView.h">
+      <AdditionalInputs>%(Fullpath);$(QtBinDir)\moc.exe;%(AdditionalInputs)</AdditionalInputs>
+      <Command>"$(QtBinDir)\moc.exe" -DUNICODE -DWIN32 -DWIN64 -D_WIN32 -D_WIN64 -DRENDERDOC_PLATFORM_WIN32 -DSCINTILLA_QT=1 -DSCI_LEXER=1 -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB -D_MSC_VER=1900 -I"$(ProjectDir)." -I"$(SolutionDir)\renderdoc\api\replay" -I"$(QtIncludeDir)" -I"$(QtIncludeDir)\QtWidgets" -I"$(QtIncludeDir)\QtGui" -I"$(QtIncludeDir)\QtCore" "%(Fullpath)" -o "$(IntDir)generated\moc_%(Filename).cpp"</Command>
+      <Message>MOC %(Filename).h</Message>
+      <Outputs>$(IntDir)generated\moc_%(Filename).cpp</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="Widgets\Extended\RDToolTip.h">
       <AdditionalInputs>%(Fullpath);$(QtBinDir)\moc.exe;%(AdditionalInputs)</AdditionalInputs>
       <Command>"$(QtBinDir)\moc.exe" -DUNICODE -DWIN32 -DWIN64 -D_WIN32 -D_WIN64 -DRENDERDOC_PLATFORM_WIN32 -DSCINTILLA_QT=1 -DSCI_LEXER=1 -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB -D_MSC_VER=1900 -I"$(ProjectDir)." -I"$(SolutionDir)\renderdoc\api\replay" -I"$(QtIncludeDir)" -I"$(QtIncludeDir)\QtWidgets" -I"$(QtIncludeDir)\QtGui" -I"$(QtIncludeDir)\QtCore" "%(Fullpath)" -o "$(IntDir)generated\moc_%(Filename).cpp"</Command>
       <Message>MOC %(Filename).h</Message>
@@ -1423,6 +1483,12 @@
       <Outputs>$(IntDir)generated\moc_%(Filename).cpp</Outputs>
     </CustomBuild>
     <CustomBuild Include="Windows\PythonShell.h">
+      <AdditionalInputs>%(Fullpath);$(QtBinDir)\moc.exe;%(AdditionalInputs)</AdditionalInputs>
+      <Command>"$(QtBinDir)\moc.exe" -DUNICODE -DWIN32 -DWIN64 -D_WIN32 -D_WIN64 -DRENDERDOC_PLATFORM_WIN32 -DSCINTILLA_QT=1 -DSCI_LEXER=1 -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB -D_MSC_VER=1900 -I"$(ProjectDir)." -I"$(SolutionDir)\renderdoc\api\replay" -I"$(QtIncludeDir)" -I"$(QtIncludeDir)\QtWidgets" -I"$(QtIncludeDir)\QtGui" -I"$(QtIncludeDir)\QtCore" "%(Fullpath)" -o "$(IntDir)generated\moc_%(Filename).cpp"</Command>
+      <Message>MOC %(Filename).h</Message>
+      <Outputs>$(IntDir)generated\moc_%(Filename).cpp</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="Windows\ApiMonitorWindow.h">
       <AdditionalInputs>%(Fullpath);$(QtBinDir)\moc.exe;%(AdditionalInputs)</AdditionalInputs>
       <Command>"$(QtBinDir)\moc.exe" -DUNICODE -DWIN32 -DWIN64 -D_WIN32 -D_WIN64 -DRENDERDOC_PLATFORM_WIN32 -DSCINTILLA_QT=1 -DSCI_LEXER=1 -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB -D_MSC_VER=1900 -I"$(ProjectDir)." -I"$(SolutionDir)\renderdoc\api\replay" -I"$(QtIncludeDir)" -I"$(QtIncludeDir)\QtWidgets" -I"$(QtIncludeDir)\QtGui" -I"$(QtIncludeDir)\QtCore" "%(Fullpath)" -o "$(IntDir)generated\moc_%(Filename).cpp"</Command>
       <Message>MOC %(Filename).h</Message>
@@ -1741,6 +1807,12 @@
       <Message>UIC %(Filename).ui</Message>
       <Outputs>$(IntDir)generated\ui_%(Filename).h</Outputs>
     </CustomBuild>
+    <CustomBuild Include="Windows\ApiMonitorWindow.ui">
+      <AdditionalInputs>%(Fullpath);$(QtBinDir)\uic.exe;%(AdditionalInputs)</AdditionalInputs>
+      <Command>"$(QtBinDir)\uic.exe" "%(Fullpath)" -o "$(IntDir)generated\ui_%(Filename).h"</Command>
+      <Message>UIC %(Filename).ui</Message>
+      <Outputs>$(IntDir)generated\ui_%(Filename).h</Outputs>
+    </CustomBuild>
     <CustomBuild Include="Windows\PerformanceCounterViewer.ui">
       <AdditionalInputs>%(Fullpath);$(QtBinDir)\uic.exe;%(AdditionalInputs)</AdditionalInputs>
       <Command>"$(QtBinDir)\uic.exe" "%(Fullpath)" -o "$(IntDir)generated\ui_%(Filename).h"</Command>
@@ -1767,8 +1839,15 @@
     <None Include="Code\pyrenderdoc\pyconversion.h" />
     <None Include="Code\pyrenderdoc\pyconversion.i" />
     <None Include="Code\pyrenderdoc\cosmetics.i" />
+    <None Include="Code\pyrenderdoc\parse_reflection.py" />
+    <None Include="Translations\qrenderdoc_zh_CN.ts" />
+    <None Include="Translations\qrenderdoc_zh_CN.qm" />
+    <None Include="Translations\qt_zh_CN.qm" />
+    <None Include="..\replaylab\renderdoc_mcp_bridge\**\*.py"
+          Exclude="..\replaylab\renderdoc_mcp_bridge\**\__pycache__\**" />
+    <None Include="..\replaylab\renderdoc_mcp_bridge\integration.json" />
     <CustomBuild Include="Resources\resources.qrc">
-      <AdditionalInputs>Resources\resources.qrc;$(QtBinDir)\rcc.exe;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs>Resources\resources.qrc;Resources\ApplyBreadUpdate.ps1;Code\pyrenderdoc\parse_reflection.py;Translations\qrenderdoc_zh_CN.qm;Translations\qt_zh_CN.qm;$(QtBinDir)\rcc.exe;%(AdditionalInputs)</AdditionalInputs>
       <Command>"$(QtBinDir)\rcc.exe" -name resources Resources\resources.qrc -o "$(IntDir)generated\qrc_resources.cpp"</Command>
       <Message>RCC resources.qrc</Message>
       <Outputs>$(IntDir)generated\qrc_resources.cpp</Outputs>
@@ -1810,6 +1889,11 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
+    <Content Include="$(PythonDLLsDir)\libffi-7.dll" Condition="Exists('$(PythonDLLsDir)\libffi-7.dll')">
+      <Link>libffi-7.dll</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
     <Content Include="$(PythonDLLsDir)\select.pyd" Condition="Exists('$(PythonDLLsDir)\select.pyd')">
       <Link>select.pyd</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
@@ -1840,47 +1924,67 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
+    <Content Include="$(PythonDLLsDir)\pyexpat.pyd" Condition="Exists('$(PythonDLLsDir)\pyexpat.pyd')">
+      <Link>pyexpat.pyd</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="$(PythonDLLsDir)\_socket.pyd" Condition="Exists('$(PythonDLLsDir)\_socket.pyd')">
+      <Link>_socket.pyd</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="$(PythonDLLsDir)\_queue.pyd" Condition="Exists('$(PythonDLLsDir)\_queue.pyd')">
+      <Link>_queue.pyd</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
     <Content Include="$(PythonDLLsDir)\unicodedata.pyd" Condition="Exists('$(PythonDLLsDir)\unicodedata.pyd')">
       <Link>unicodedata.pyd</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
-    <Content Include="3rdparty\pyside\$(Platform)\shiboken2.dll" Condition="Exists('$(ProjectDir)3rdparty\pyside\$(Platform)\shiboken2.dll')">
+    <Content Include="$(PySide2Base)\$(Platform)\shiboken2.dll" Condition="Exists('$(PySide2Base)\$(Platform)\shiboken2.dll')">
       <Link>shiboken2.dll</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
-    <Content Include="3rdparty\pyside\$(Platform)\PySide2\pyside2.dll" Condition="Exists('$(ProjectDir)3rdparty\pyside\$(Platform)\PySide2\pyside2.dll')">
+    <Content Include="$(PySide2Base)\$(Platform)\shiboken2\shiboken2.pyd" Condition="Exists('$(PySide2Base)\$(Platform)\shiboken2\shiboken2.pyd')">
+      <Link>shiboken2\shiboken2.pyd</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="$(PySide2Base)\$(Platform)\shiboken2\__init__.py" Condition="Exists('$(PySide2Base)\$(Platform)\shiboken2\__init__.py')">
+      <Link>shiboken2\__init__.py</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="$(PySide2Base)\$(Platform)\PySide2\pyside2.dll" Condition="Exists('$(PySide2Base)\$(Platform)\PySide2\pyside2.dll')">
       <Link>PySide2\pyside2.dll</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
-    <Content Include="3rdparty\pyside\$(Platform)\PySide2\Qt5Qml.dll" Condition="Exists('$(ProjectDir)3rdparty\pyside\$(Platform)\PySide2\Qt5Qml.dll')">
-      <Link>PySide2\Qt5Qml.dll</Link>
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-      <Visible>false</Visible>
-    </Content>
-    <Content Include="3rdparty\pyside\$(Platform)\PySide2\__init__.py" Condition="Exists('$(ProjectDir)3rdparty\pyside\$(Platform)\PySide2\__init__.py')">
+    <Content Include="$(PySide2Base)\$(Platform)\PySide2\__init__.py" Condition="Exists('$(PySide2Base)\$(Platform)\PySide2\__init__.py')">
       <Link>PySide2\__init__.py</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
-    <Content Include="3rdparty\pyside\$(Platform)\PySide2\_utils.py" Condition="Exists('$(ProjectDir)3rdparty\pyside\$(Platform)\PySide2\_utils.py')">
+    <Content Include="$(PySide2Base)\$(Platform)\PySide2\_utils.py" Condition="Exists('$(PySide2Base)\$(Platform)\PySide2\_utils.py')">
       <Link>PySide2\_utils.py</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
-    <Content Include="3rdparty\pyside\$(Platform)\PySide2\QtCore.pyd" Condition="Exists('$(ProjectDir)3rdparty\pyside\$(Platform)\PySide2\QtCore.pyd')">
+    <Content Include="$(PySide2Base)\$(Platform)\PySide2\QtCore.pyd" Condition="Exists('$(PySide2Base)\$(Platform)\PySide2\QtCore.pyd')">
       <Link>PySide2\QtCore.pyd</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
-    <Content Include="3rdparty\pyside\$(Platform)\PySide2\QtGui.pyd" Condition="Exists('$(ProjectDir)3rdparty\pyside\$(Platform)\PySide2\QtGui.pyd')">
+    <Content Include="$(PySide2Base)\$(Platform)\PySide2\QtGui.pyd" Condition="Exists('$(PySide2Base)\$(Platform)\PySide2\QtGui.pyd')">
       <Link>PySide2\QtGui.pyd</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
-    <Content Include="3rdparty\pyside\$(Platform)\PySide2\QtWidgets.pyd" Condition="Exists('$(ProjectDir)3rdparty\pyside\$(Platform)\PySide2\QtWidgets.pyd')">
+    <Content Include="$(PySide2Base)\$(Platform)\PySide2\QtWidgets.pyd" Condition="Exists('$(PySide2Base)\$(Platform)\PySide2\QtWidgets.pyd')">
       <Link>PySide2\QtWidgets.pyd</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
@@ -2148,8 +2252,111 @@
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="python36.natvis" />
+    <Natvis Include="python38.natvis" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="DeployReplayLabIntegration" AfterTargets="Build">
+    <PropertyGroup>
+      <ReplayLabIntegrationSourceDir>$(SolutionDir)replaylab\renderdoc_mcp_bridge</ReplayLabIntegrationSourceDir>
+      <ReplayLabIntegrationOutputDir>$(OutDir)integrations\replaylab\python\renderdoc_mcp_bridge\</ReplayLabIntegrationOutputDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <ReplayLabIntegrationSource Include="$(ReplayLabIntegrationSourceDir)\**\*.py;$(ReplayLabIntegrationSourceDir)\integration.json"
+                                  Exclude="$(ReplayLabIntegrationSourceDir)\**\__pycache__\**;$(ReplayLabIntegrationSourceDir)\extension.json" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(ReplayLabIntegrationSourceDir)\integration.json')"
+           Text="ReplayLab integration metadata is missing: $(ReplayLabIntegrationSourceDir)\integration.json" />
+    <RemoveDir Directories="$(ReplayLabIntegrationOutputDir);$(OutDir)extensions\replaylab_bridge" />
+    <MakeDir Directories="@(ReplayLabIntegrationSource->'$(ReplayLabIntegrationOutputDir)%(RecursiveDir)')" />
+    <Copy SourceFiles="@(ReplayLabIntegrationSource)"
+          DestinationFiles="@(ReplayLabIntegrationSource->'$(ReplayLabIntegrationOutputDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+  <!-- The semantic editor provider is independent of the frozen AI runtime. Keep it present
+       even during SkipReplayLabRuntime native builds; deployment verifies before rewriting
+       and consumes the pinned local archive only (no build-time network download). -->
+  <Target Name="DeployShaderLanguageServer" AfterTargets="Build" Condition="'$(Platform)' == 'x64'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(SolutionDir)util\shader_language_server\Deploy-Provider.ps1&quot; -ApplicationDirectory &quot;$(OutDir).&quot;" />
+  </Target>
+  <!-- ReplayLab ships out-of-process runtime sidecars (agent / MCP / internal host) that are
+       PyInstaller-frozen from replaylab\src and replaylab\mcp_host. Their freeze is decoupled from
+       the C++ compile, so before this wiring a Python-only change silently shipped stale sidecars.
+       The freeze below is incremental (runs only when the Python source or freeze script changed)
+       and the whole runtime step is skipped when SkipReplayLabRuntime=true (fast C++-only iteration)
+       or when the build venv is absent (a contributor without the Python toolchain). -->
+  <PropertyGroup>
+    <ReplayLabRuntimeManifest>$(SolutionDir)replaylab\output\replaylab\replaylab-runtime-manifest.json</ReplayLabRuntimeManifest>
+    <ReplayLabBuildVenvPython>$(SolutionDir)replaylab\.venv\Scripts\python.exe</ReplayLabBuildVenvPython>
+    <ReplayLabRuntimeEnabled Condition="'$(SkipReplayLabRuntime)' != 'true' and Exists('$(ReplayLabBuildVenvPython)')">true</ReplayLabRuntimeEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <ReplayLabRuntimeSource Include="$(SolutionDir)replaylab\src\**\*.py;$(SolutionDir)replaylab\mcp_host\src\**\*.py;$(SolutionDir)replaylab\unity\**\*;$(SolutionDir)replaylab\pyproject.toml;$(SolutionDir)replaylab\mcp_host\pyproject.toml;$(SolutionDir)replaylab\packaging\*_entry.py;$(SolutionDir)replaylab\packaging\probe_frozen_mcp_route.py;$(SolutionDir)replaylab\packaging\Build-ReplayLabRuntime.ps1;$(SolutionDir).agents\skills\renderdoc-explain-event\**\*;$(SolutionDir).agents\skills\renderdoc-shader-workbench\**\*;$(SolutionDir).agents\skills\renderdoc-resource-export\**\*;$(SolutionDir).agents\skills\renderdoc-unpacked-asset-intelligence\**\*;$(SolutionDir).agents\skills\replaylab-core\**\*"
+                            Exclude="$(SolutionDir)replaylab\**\__pycache__\**" />
+  </ItemGroup>
+  <!-- Re-freeze the sidecars only when their source changed. Safe on every build: it writes to
+       replaylab\output\replaylab and never replaces a running sidecar in the application dir. -->
+  <Target Name="BuildReplayLabRuntime"
+          AfterTargets="Build"
+          Condition="'$(ReplayLabRuntimeEnabled)' == 'true'"
+          Inputs="@(ReplayLabRuntimeSource)"
+          Outputs="$(ReplayLabRuntimeManifest)">
+    <Message Importance="high" Text="ReplayLab: runtime source changed -- freezing agent/MCP/internal sidecars (PyInstaller)..." />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(SolutionDir)replaylab\packaging\Build-ReplayLabRuntime.ps1&quot;" />
+  </Target>
+  <!-- Deploy the frozen sidecars into the application directory. A live analysis session can keep a
+       sidecar exe locked; if so this degrades to a warning (the C++ build still succeeds) and the
+       runtime can be re-deployed with /t:DeployReplayLabRuntime once sessions end. Invoked
+       automatically after Build, and available explicitly for release packaging. -->
+  <Target Name="DeployReplayLabRuntime"
+          AfterTargets="Build"
+          DependsOnTargets="Build;BuildReplayLabRuntime"
+          Condition="'$(ReplayLabRuntimeEnabled)' == 'true'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(SolutionDir)replaylab\packaging\Deploy-ReplayLabRuntime.ps1&quot; -ApplicationDirectory &quot;$(OutDir).&quot;"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="ReplayLabRuntimeDeployExit" />
+    </Exec>
+    <Warning Condition="'$(ReplayLabRuntimeDeployExit)' != '0'"
+             Text="ReplayLab runtime was frozen but NOT deployed (a sidecar exe is likely locked by a live session). Close ReplayLab sessions, then run: msbuild qrenderdoc\qrenderdoc_local.vcxproj /t:DeployReplayLabRuntime" />
+    <Message Condition="'$(ReplayLabRuntimeDeployExit)' == '0'" Importance="high"
+             Text="ReplayLab: runtime sidecars deployed to $(OutDir)replaylab." />
+  </Target>
+  <!-- The four asset unpackers (uex, AssetStudioModCLI, umodel; UnityPy is frozen inside
+       the AgentHost) are part of the product, not something to remember to copy: they live
+       in replaylab\third_party\unpackers and are mirrored into the application on every
+       build, exactly like the frozen sidecars above. Anything that packages the build
+       output (the MSI, the zip, a copied folder) therefore carries them with no extra
+       step. The bundle itself is fetched once with
+       replaylab\third_party\unpackers\Fetch-Unpackers.cmd (downloads do not belong in a
+       build); until then this only warns. -->
+  <PropertyGroup>
+    <BreadUnpackerBundleDir>$(SolutionDir)replaylab\third_party\unpackers</BreadUnpackerBundleDir>
+    <BreadUnpackerStamp>$(OutDir)replaylab\tools\unpackers\deployed.json</BreadUnpackerStamp>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The kinds by name, not a wildcard over the bundle: _src holds a full source
+         checkout of uex and globbing it would walk thousands of files on every build.
+         A kind added later changes manifest.json, which is an input here too. -->
+    <BreadUnpackerSource Include="$(BreadUnpackerBundleDir)\manifest.json;$(BreadUnpackerBundleDir)\uex\**\*;$(BreadUnpackerBundleDir)\assetstudio\**\*;$(BreadUnpackerBundleDir)\umodel\**\*"
+                         Exclude="$(BreadUnpackerBundleDir)\*\src\**;$(BreadUnpackerBundleDir)\*\obj\**;$(BreadUnpackerBundleDir)\*\bin\**;$(BreadUnpackerBundleDir)\**\*.pdb" />
+  </ItemGroup>
+  <Target Name="DeployBundledUnpackers"
+          AfterTargets="Build"
+          Condition="'$(SkipReplayLabRuntime)' != 'true'"
+          DependsOnTargets="DeployReplayLabRuntime"
+          Inputs="@(BreadUnpackerSource)"
+          Outputs="$(BreadUnpackerStamp)">
+    <Warning Condition="'@(BreadUnpackerSource)' == ''"
+             Text="No bundled unpackers to deploy. Run replaylab\third_party\unpackers\Fetch-Unpackers.cmd once; the build mirrors them from then on." />
+    <Exec Condition="'@(BreadUnpackerSource)' != ''"
+          Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(SolutionDir)replaylab\packaging\Deploy-BundledTools.ps1&quot; -ApplicationDirectory &quot;$(OutDir).&quot;"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="BreadUnpackerDeployExit" />
+    </Exec>
+    <Warning Condition="'@(BreadUnpackerSource)' != '' and '$(BreadUnpackerDeployExit)' != '0'"
+             Text="Bundled unpackers were NOT deployed (a tool exe is likely locked by a running session). Close it, then run: msbuild qrenderdoc\qrenderdoc_local.vcxproj /t:DeployBundledUnpackers" />
+    <Message Condition="'$(BreadUnpackerDeployExit)' == '0'" Importance="high"
+             Text="ReplayLab: bundled unpackers deployed to $(OutDir)replaylab\tools\unpackers." />
+  </Target>
   <ImportGroup Label="ExtensionTargets" />
   <ItemGroup>
     <ProjectTools Include="python_sheet" />
@@ -2158,4 +2365,11 @@
     </PropertyPageSchema>
   </ItemGroup>
   <Import Project="$(SolutionDir)\qrenderdoc\Code\pyrenderdoc\python.props" />
+  <ItemGroup>
+    <ProjectTools Include="custom_qt_sheet" />
+    <PropertyPageSchema Include="custom_qt_sheet.xml">
+      <Context>Project</Context>
+    </PropertyPageSchema>
+  </ItemGroup>
+  <Import Project="custom_qt.props" />
 </Project>

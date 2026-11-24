@@ -1,0 +1,44 @@
+{
+  "status": "built-and-validated",
+  "version": "1.46.141",
+  "branch": "DF研究",
+  "applicationDirectory": "C:\\Program Files\\GraphicsDebugger-DF研究\\x64\\BreadDevelopment",
+  "files": [
+    {
+      "path": "qTinecmaTool.exe",
+      "bytes": 43441664,
+      "sha256": "61ca749321fcbc4ec25ee4ebc92b745e352d0c8e90d50ed351c33c92f8859902"
+    },
+    {
+      "path": "TinecmaTool.dll",
+      "bytes": 66044416,
+      "sha256": "60b1e983569c0f273f15e1834c6781d63882a1c47a42274f510332976f9220d7"
+    },
+    {
+      "path": "TinecmaToolcmd.exe",
+      "bytes": 1444352,
+      "sha256": "f4925f2d24180b1cc947a34349939a4016da06cfbba979556425e2c160618281"
+    },
+    {
+      "path": "replaylab/replaylab-ai.exe",
+      "bytes": 116555911,
+      "sha256": "63eaf327b882717b3cad2e7eba0bba6f671a3b6f2daaa1e5b017c2c19423ac42"
+    },
+    {
+      "path": "replaylab/BreadMCP.exe",
+      "bytes": 56009290,
+      "sha256": "5da3cbc49b542cf694d79bb90cdb8b70da634d0922f9a75b1d3e7a209f3bc6d2"
+    },
+    {
+      "path": "replaylab/ReplayLabInternal.exe",
+      "bytes": 55462049,
+      "sha256": "d86f8d42b0f09143d5f4c235b164d48cdc450fdde57dd572687c8e0d00cc6c7d"
+    },
+    {
+      "path": "replaylab/ReplayLabShaderTools.exe",
+      "bytes": 8685277,
+      "sha256": "02f3d94cced0c0557d69cd6149cc8ca6c6aaff6719737bbbb1d308711256cb45"
+    }
+  ],
+  "sharedExtensionSha256": "c82637e0bea259211546ae7f9b61db70c1fe576861c0124508ab20554a614c3f"
+}

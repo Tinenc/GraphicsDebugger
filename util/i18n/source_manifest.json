@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "root": "qrenderdoc",
+  "extensions": [".cpp", ".cc", ".cxx", ".h", ".hpp", ".ui"],
+  "excluded_prefixes": ["qrenderdoc/3rdparty/"],
+  "included_prefixes": [
+    "qrenderdoc/3rdparty/toolwindowmanager/",
+    "qrenderdoc/3rdparty/flowlayout/"
+  ]
+}

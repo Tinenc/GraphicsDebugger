@@ -1276,11 +1276,14 @@ public:
     return true;
   }
 
-  virtual bool QueueCalculateMathOp(rdcspv::GLSLstd450 op,
+  virtual bool QueueCalculateMathOp(rdcspv::Op opcode, rdcspv::GLSLstd450 glslop,
                                     const rdcarray<ShaderVariable> &params) override
   {
     CHECK_DEVICE_THREAD();
     RDCASSERT(params.size() <= 3, params.size());
+
+    // only support GLSL std450 ops
+    RDCASSERT(opcode == rdcspv::Op::ExtInst && glslop != rdcspv::GLSLstd450::Invalid, opcode, glslop);
 
     RDCASSERTEQUAL(params[0].type, VarType::Float);
 
@@ -1363,7 +1366,7 @@ public:
     }
 
     // push the operation afterwards
-    GL.glUniform1i(GL.glGetUniformLocation(mathProg, "op"), (int32_t)op);
+    GL.glUniform1i(GL.glGetUniformLocation(mathProg, "op"), (int32_t)glslop);
 
     GL.glDispatchCompute(1, 1, 1);
 
@@ -1927,13 +1930,25 @@ static bool DeclareSignatureElement(const ShaderReflection *refl, size_t i, rdcs
   if(name.beginsWith("gl_"))
     name.insert(0, '_');
 
-  char prefix = (sig.varType == VarType::Float)  ? ' '
-                : (sig.varType == VarType::UInt) ? 'u'
-                : (sig.varType == VarType::SInt) ? 'i'
-                                                 : 'x';
+  VarType varType = sig.varType;
+
+  // bool in/out variables are not allowed in GLSL but these two builtins may come back as bool from
+  // SPIR-V reflection (GL reflection will type them as ints). Ensure this matches the uint-coerced
+  // value in CreateInputFetcher()
+  if(varType == VarType::Bool)
+  {
+    RDCASSERT(sig.systemValue == ShaderBuiltin::IsFrontFace ||
+              sig.systemValue == ShaderBuiltin::IsHelper);
+    varType = VarType::UInt;
+  }
+
+  char prefix = (varType == VarType::Float)  ? ' '
+                : (varType == VarType::UInt) ? 'u'
+                : (varType == VarType::SInt) ? 'i'
+                                             : 'x';
   if(sig.compCount == 1)
   {
-    sigDecl += ToStr(sig.varType);
+    sigDecl += ToStr(varType);
   }
   else
   {
@@ -2448,10 +2463,12 @@ struct ResultData
   uvec4 helperBallot;
 
   uint numSubgroups;
-  // split out because we use std140 packing which won't pack {uint, uvec3}
+  uint shadRate; // unused, matches declaration & vulkan
   uint pad1;
   uint pad2;
-  uint pad3;
+
+  // padding so overall struct size is 8-byte aligned for if LaneData contains 8-byte data
+  uvec4 paddingForDoubles;
 
   LaneData laneData[NUMLANES];
 };
@@ -2464,6 +2481,9 @@ layout(std140) buffer Output
   uint hit_count;
   uint total_count;
   uvec2 pad;
+
+  // extra padding so the offset of ResultData is 8-byte aligned in case we have user 8-byte inputs
+  uvec4 paddingForDoubles;
   
   ResultData hits[];
 } outbuffer;
@@ -2869,6 +2889,7 @@ uint32_t GetStorageBufferBinding(WrappedOpenGL *driver,
 ShaderDebugTrace *GLReplay::DebugVertex(uint32_t eventId, uint32_t vertid, uint32_t instid,
                                         uint32_t idx, uint32_t view)
 {
+  TextureAnalysisScope textureAnalysis(*this);
   MakeCurrentReplayContext(&m_ReplayCtx);
 
   GLRenderState rs;
@@ -3118,7 +3139,7 @@ ShaderDebugTrace *GLReplay::DebugVertex(uint32_t eventId, uint32_t vertid, uint3
   (void)hit_count;
   // RDCASSERTMSG("Should only get one hit for vertex shaders", hit_count == 1, hit_count);
 
-  base += sizeof(Vec4f);
+  base += offsetof(rdcspv::ResultBaseBuffer, hits);
 
   rdcspv::ResultDataBase *winner = (rdcspv::ResultDataBase *)base;
 
@@ -3225,6 +3246,7 @@ ShaderDebugTrace *GLReplay::DebugVertex(uint32_t eventId, uint32_t vertid, uint3
 ShaderDebugTrace *GLReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t y,
                                        const DebugPixelInputs &inputs)
 {
+  TextureAnalysisScope textureAnalysis(*this);
   uint32_t sample = inputs.sample;
   uint32_t primitive = inputs.primitive;
   uint32_t view = inputs.view;
@@ -3532,7 +3554,7 @@ ShaderDebugTrace *GLReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t y,
     hit_count = maxHits;
   }
 
-  base += sizeof(Vec4f);
+  base += offsetof(rdcspv::ResultBaseBuffer, hits);
 
   rdcspv::ResultDataBase *winner = NULL;
 
@@ -3790,6 +3812,7 @@ ShaderDebugTrace *GLReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t y,
 ShaderDebugTrace *GLReplay::DebugThread(uint32_t eventId, const rdcfixedarray<uint32_t, 3> &groupid,
                                         const rdcfixedarray<uint32_t, 3> &threadid)
 {
+  TextureAnalysisScope textureAnalysis(*this);
   rdcstr regionName =
       StringFormat::Fmt("Debug Thread @ %u of (%u,%u,%u) (%u,%u,%u)", eventId, groupid[0],
                         groupid[1], groupid[2], threadid[0], threadid[1], threadid[2]);
@@ -3992,7 +4015,7 @@ ShaderDebugTrace *GLReplay::DebugThread(uint32_t eventId, const rdcfixedarray<ui
       hit_count = maxHits;
     }
 
-    base += sizeof(Vec4f);
+    base += offsetof(rdcspv::ResultBaseBuffer, hits);
 
     rdcspv::ResultDataBase *winner = (rdcspv::ResultDataBase *)base;
 
@@ -4269,6 +4292,7 @@ ShaderDebugTrace *GLReplay::DebugMeshThread(uint32_t eventId,
 
 rdcarray<ShaderDebugState> GLReplay::ContinueDebug(ShaderDebugger *debugger)
 {
+  TextureAnalysisScope textureAnalysis(*this);
   rdcspv::Debugger *spvDebugger = (rdcspv::Debugger *)debugger;
 
   if(!spvDebugger)

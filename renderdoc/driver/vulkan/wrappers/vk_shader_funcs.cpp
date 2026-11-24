@@ -295,18 +295,8 @@ bool WrappedVulkan::Serialise_vkCreatePipelineLayout(SerialiserType &ser, VkDevi
     {
       ResourceId live;
 
-      if(GetResourceManager()->HasWrapper(ToTypedHandle(layout)))
-      {
-        live = GetResourceManager()->GetNonDispWrapper(layout)->id;
+      GetResourceManager()->OverrideWrapper(ToTypedHandle(layout));
 
-        // destroy this instance of the duplicate, as we must have matching create/destroy
-        // calls and there won't be a wrapped resource hanging around to destroy this one.
-        ObjDisp(device)->DestroyPipelineLayout(Unwrap(device), layout, NULL);
-
-        // whenever the new ID is requested, return the old ID, via replacements.
-        GetResourceManager()->ReplaceResource(PipelineLayout, live);
-      }
-      else
       {
         live = GetResourceManager()->WrapResource(PipelineLayout, Unwrap(device), layout);
 
@@ -420,18 +410,8 @@ bool WrappedVulkan::Serialise_vkCreateShaderModule(SerialiserType &ser, VkDevice
     {
       ResourceId live;
 
-      if(GetResourceManager()->HasWrapper(ToTypedHandle(sh)))
-      {
-        live = GetResourceManager()->GetNonDispWrapper(sh)->id;
+      GetResourceManager()->OverrideWrapper(ToTypedHandle(sh));
 
-        // destroy this instance of the duplicate, as we must have matching create/destroy
-        // calls and there won't be a wrapped resource hanging around to destroy this one.
-        ObjDisp(device)->DestroyShaderModule(Unwrap(device), sh, NULL);
-
-        // whenever the new ID is requested, return the old ID, via replacements.
-        GetResourceManager()->ReplaceResource(ShaderModule, live);
-      }
-      else
       {
         live = GetResourceManager()->WrapResource(ShaderModule, Unwrap(device), sh);
 
@@ -520,18 +500,9 @@ bool WrappedVulkan::Serialise_vkCreateShadersEXT(SerialiserType &ser, VkDevice d
     else
     {
       ResourceId live;
-      if(GetResourceManager()->HasWrapper(ToTypedHandle(sh)))
-      {
-        live = GetResourceManager()->GetNonDispWrapper(sh)->id;
 
-        // destroy this instance of the duplicate, as we must have matching create/destroy
-        // calls and there won't be a wrapped resource hanging around to destroy this one.
-        ObjDisp(device)->DestroyShaderEXT(Unwrap(device), sh, NULL);
+      GetResourceManager()->OverrideWrapper(ToTypedHandle(sh));
 
-        // whenever the new ID is requested, return the old ID, via replacements.
-        GetResourceManager()->ReplaceResource(Shader, live);
-      }
-      else
       {
         live = GetResourceManager()->WrapResource(Shader, Unwrap(device), sh);
 
@@ -682,7 +653,7 @@ VkResult WrappedVulkan::vkCreatePipelineCache(VkDevice device,
       {
         CACHE_THREAD_SERIALISER();
 
-        SCOPED_SERIALISE_CHUNK(VulkanChunk::vkCreatePipelineCache);
+        SCOPED_SERIALISE_CHUNK(VulkanChunk::vkCreatePipelineCache, LARGE_CHUNK_SIZE);
         Serialise_vkCreatePipelineCache(ser, device, &createInfo, NULL, pPipelineCache);
 
         chunk = scope.Get();

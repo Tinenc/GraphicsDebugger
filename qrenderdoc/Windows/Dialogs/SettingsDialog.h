@@ -47,6 +47,7 @@ public:
   ~SettingsDialog();
 
   void focusItem(QString item);
+  void focusPage(QString page);
 
 private slots:
   // automatic slots
@@ -61,6 +62,7 @@ private slots:
   void on_Font_GlobalScale_currentIndexChanged(int index);
   void Font_GlobalScale_returnPressed();
   void on_UIStyle_currentIndexChanged(int index);
+  void on_UILanguage_currentIndexChanged(int index);
   void on_tempDirectory_textEdited(const QString &temp);
   void on_saveDirectory_textEdited(const QString &save);
   void on_browseSaveCaptureDirectory_clicked();
@@ -69,6 +71,8 @@ private slots:
   void on_CheckUpdate_AllowChecks_toggled(bool checked);
   void on_Font_PreferMonospaced_toggled(bool checked);
   void on_AlwaysReplayLocally_toggled(bool checked);
+  void on_CaptureDialog_ShowMonitorScript_toggled(bool checked);
+  void on_CaptureDialog_ShowCustomInjectDLL_toggled(bool checked);
   void on_analyticsAutoSubmit_toggled(bool checked);
   void on_analyticsManualCheck_toggled(bool checked);
   void on_analyticsOptOut_toggled(bool checked);
@@ -81,6 +85,16 @@ private slots:
   void on_ExternalTool_RadeonGPUProfiler_textEdited(const QString &rgp);
   void on_browseRGPPath_clicked();
 
+  // python
+  void on_Python_StubPaths_clicked();
+  void on_Python_DebugPyDirBrowse_clicked();
+  void on_Python_DebugPyDir_textEdited(const QString &dir);
+  void on_Python_VSCodePathBrowse_clicked();
+  void on_Python_VSCodePath_textEdited(const QString &dir);
+  void on_Python_DebugEnabled_toggled(bool checked);
+  void on_Python_LaunchVSCode_toggled(bool checked);
+  void on_Python_PromptReloadUnchanged_toggled(bool checked);
+
   // texture viewer
   void on_TextureViewer_PerTexSettings_toggled(bool checked);
   void on_TextureViewer_ResetRange_toggled(bool checked);
@@ -89,6 +103,7 @@ private slots:
 
   // shader viewer
   void on_ShaderViewer_FriendlyNaming_toggled(bool checked);
+  void on_ShaderEditor_LanguageServer_editingFinished();
 
   void on_addShaderTool_clicked();
   void on_editShaderTool_clicked();
@@ -126,6 +141,7 @@ private:
 
   void addProcessor(const ShaderProcessingTool &disasm);
   bool editTool(int existing, ShaderProcessingTool &disasm);
+  void updateCaptureDialogOptionalSettings();
 
   ReplayOptionsSelector *m_ReplayOptions;
 

@@ -1,0 +1,1173 @@
+{
+  "ping": {
+    "status": "ok",
+    "server": "replaylab",
+    "extensionVersion": "1.13.121",
+    "integrationVersion": "1.13.121",
+    "protocolVersion": 2,
+    "ipc_dir": "C:\\Users\\Administrator\\AppData\\Local\\ReplayLab\\ipc-v2\\instances\\70340-ec738b05ec0c4b30b07f211158ac5a93",
+    "capabilities": [
+      "request-mailbox-v2",
+      "capture-symbol-catalog-v1",
+      "async-shader-catalog-export-v1",
+      "unique-shader-resource-inventory-v2",
+      "capture-bound-symbol-aliases-v1",
+      "shader-search-v1",
+      "resource-usage-v1",
+      "pixel-object-inspector-v1",
+      "d3d11-event-shader-override-v1",
+      "d3d11-event-cbuffer-override-v1",
+      "d3d11-event-cbuffer-clear-all-v1",
+      "current-renderdoc-context-v1",
+      "resource-export-capture-v1"
+    ],
+    "schemas": {
+      "captureSymbols": "renderdoc-ultra-capture-symbols/v1",
+      "shaderCatalogExportJob": "replaylab-shader-catalog-export-job/v1",
+      "projectShaderResourceIndex": "replaylab-project-shader-resource-index/v2",
+      "rdcProjectIndex": "replaylab-rdc-project-reuse-index/v3",
+      "symbolAliases": "renderdoc-ultra-aliases/v1",
+      "eventCBufferSnapshot": "renderdoc-ultra-event-cbuffer-snapshot/v1",
+      "eventCBufferOverride": "renderdoc-ultra-event-cbuffer-override/v1",
+      "eventCBufferClearAll": "renderdoc-ultra-event-cbuffer-clear-all/v1",
+      "currentContext": "renderdoc-ultra-current-context/v1",
+      "resourceExportInspect": "replaylab-resource-export-inspect/v1",
+      "resourceExportCapture": "replaylab-resource-export-capture/v1",
+      "resourceExportBundle": "replaylab-resource-export-bundle/v1"
+    }
+  },
+  "open_capture": {
+    "opened": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\triangle_capture.rdc",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "alreadyOpen": true
+  },
+  "get_capture_status": {
+    "loaded": true,
+    "api": "GraphicsAPI.D3D11",
+    "renderer": "GraphicsAPI.D3D11",
+    "frameNumber": 4294967295,
+    "capturePath": "c:\\program files\\graphicsdebugger-df研究\\replaylab\\output\\df-verification-20261116\\triangle_capture.rdc",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "restoreValidationPolicySha256": "72f846128ae4de34df8ed950b88cd62487e852c12104c5888f36fc49de9962e5",
+    "restoreValidationCompatiblePolicySha256s": [
+      "bd70877a13f227040e7708ae26d7aeefc903132fee76be52ab51d62afb84e963"
+    ],
+    "captureId": "",
+    "knownCatalogCaptureIds": [],
+    "knownCatalogIdentityPairs": [],
+    "knownCatalogStablePairs": [],
+    "draws": "<Swig Object of type 'DrawcallStats *' at 0x0000024F761AE6B0>",
+    "dispatches": "<Swig Object of type 'DispatchStats *' at 0x0000024F765192B0>",
+    "stats_note": "Stats not available in this RenderDoc version"
+  },
+  "get_draw_calls": {
+    "count": 3,
+    "includeChildren": true,
+    "onlyActions": false,
+    "markerFilter": "",
+    "actions": [
+      {
+        "eventId": 2,
+        "name": "Action 1",
+        "flags": 1048577,
+        "numIndices": 0,
+        "numInstances": 0,
+        "depth": 0,
+        "markerPath": [],
+        "outputs": [
+          48
+        ]
+      },
+      {
+        "eventId": 11,
+        "name": "Action 2",
+        "flags": 65538,
+        "numIndices": 3,
+        "numInstances": 0,
+        "depth": 0,
+        "markerPath": [],
+        "outputs": [
+          48
+        ]
+      },
+      {
+        "eventId": 13,
+        "name": "End of Capture",
+        "flags": 256,
+        "numIndices": 0,
+        "numInstances": 0,
+        "depth": 0,
+        "markerPath": [],
+        "outputs": [
+          48
+        ]
+      }
+    ]
+  },
+  "get_pipeline_state": {
+    "shaders": {
+      "vertex": {
+        "shaderId": 42,
+        "entryPointSelection": {
+          "status": "selected",
+          "source": "unique-bound-resource-entry",
+          "resourceId": 42,
+          "stage": "vertex",
+          "pipelineReportedEntryPoint": "main",
+          "selectedEntryPoint": "VS",
+          "candidateCount": 1,
+          "stageCompatibleCandidateCount": 1,
+          "entryPoints": [
+            {
+              "name": "VS",
+              "stage": "vertex"
+            }
+          ],
+          "errorId": null,
+          "error": null
+        },
+        "entryPoint": "VS",
+        "textureCount": 0,
+        "cbufferCount": 0,
+        "samplerCount": 0
+      },
+      "fragment": {
+        "shaderId": 43,
+        "entryPointSelection": {
+          "status": "selected",
+          "source": "unique-bound-resource-entry",
+          "resourceId": 43,
+          "stage": "fragment",
+          "pipelineReportedEntryPoint": "main",
+          "selectedEntryPoint": "PS",
+          "candidateCount": 1,
+          "stageCompatibleCandidateCount": 1,
+          "entryPoints": [
+            {
+              "name": "PS",
+              "stage": "fragment"
+            }
+          ],
+          "errorId": null,
+          "error": null
+        },
+        "entryPoint": "PS",
+        "textureCount": 0,
+        "cbufferCount": 1,
+        "samplerCount": 0
+      }
+    },
+    "renderTargets": [
+      48
+    ],
+    "depthTarget": null
+  },
+  "baseline": {
+    "schema": "replaylab-event-texture-evidence/v1",
+    "schemaVersion": 1,
+    "requestId": "2dabcba7d7c2481b92b1291fb8884a0a",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "eventId": 11,
+    "restoration": {
+      "originalEventId": 11,
+      "restored": true
+    },
+    "exactEventBinding": true,
+    "replayMutation": false,
+    "budgets": {
+      "maxTextureByteSize": 268435456,
+      "maxSubresourcePixels": 16777216,
+      "maxPngByteSize": 134217728
+    },
+    "artifact": {
+      "status": "saved",
+      "skipReason": null,
+      "attachment": {
+        "kind": "rtv",
+        "index": 0,
+        "stage": "fragment",
+        "resourceId": 48,
+        "mip": 0,
+        "slice": 0,
+        "sample": 0,
+        "viewWidth": 256,
+        "viewHeight": 256,
+        "format": "R8G8B8A8_UNORM",
+        "componentCount": 4,
+        "textureByteSize": 262144,
+        "sampleCount": 1,
+        "presentedBackbuffer": false,
+        "descriptor": {
+          "firstMip": 0,
+          "numMips": 1,
+          "firstSlice": 0,
+          "numSlices": 1
+        },
+        "nativeDescriptor": {
+          "firstMip": 0,
+          "numMips": 1,
+          "firstSlice": 0,
+          "numSlices": 1
+        },
+        "textureDimension": 2,
+        "resourceDepth": 1,
+        "mipDepth": 1,
+        "sliceKind": "array",
+        "viewSliceFirst": 0,
+        "viewSliceCount": 1,
+        "sliceRangeBasis": "native-view-range"
+      },
+      "display": {
+        "channel": "rgba",
+        "flipY": false,
+        "channelExtract": -1,
+        "rangeMode": "native",
+        "blackPoint": 0.0,
+        "whitePoint": 1.0,
+        "subresourceMin": null,
+        "subresourceMax": null,
+        "valueDecode": "native",
+        "depthInterpretation": null,
+        "alphaMode": "opaque-rgb"
+      },
+      "output": {
+        "path": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\eid-11-2dabcba7d7c2481b92b1291fb8884a0a\\eid-11-rtv0-m0-s0-sample0-rgba.png",
+        "mimeType": "image/png",
+        "byteSize": 2500,
+        "sha256": "4bb065d02e91dc6be86caab222d6bace48a9f9ea464ca6ffe22e35b3eacb8f54",
+        "noOverwrite": true,
+        "reduction": {
+          "original": {
+            "width": 256,
+            "height": 256
+          },
+          "crop": null,
+          "scaledTo": {
+            "width": 256,
+            "height": 256
+          },
+          "opaqueRgbProcessed": true
+        }
+      }
+    }
+  },
+  "export_shader_catalog": {
+    "schema": "renderdoc-ultra-capture-symbols/v1",
+    "schemaVersion": 1,
+    "captureId": "b6c40e1f9fb7dd12c28f717fa825adb59fc626c224c0562d5bd11b7cf691c77e",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "catalogPath": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\catalog\\shader_catalog.v1.json",
+    "blobDirectory": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\catalog\\blobs",
+    "counts": {
+      "events": 1,
+      "shaderUses": 2,
+      "uniqueShaders": 2,
+      "uniqueBlobs": 2,
+      "errors": 0
+    },
+    "identityEvidenceSha256": "649ad37f16755e876b3f3ad7b62bece7f56ccf9c51edf4c075fcca6095403407",
+    "stableCaptureId": "8f55a2669ef09ce89a50c23c3101096b37c92f745ceb865099bfe190475397e1",
+    "stableIdentityEvidenceSha256": "33d9c59c3908e3f69e8bdc54b48292ffe2da401a3e43b5cfc962011b707cc30d"
+  },
+  "catalogStatus": {
+    "loaded": true,
+    "api": "GraphicsAPI.D3D11",
+    "renderer": "GraphicsAPI.D3D11",
+    "frameNumber": 4294967295,
+    "capturePath": "c:\\program files\\graphicsdebugger-df研究\\replaylab\\output\\df-verification-20261116\\triangle_capture.rdc",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "restoreValidationPolicySha256": "72f846128ae4de34df8ed950b88cd62487e852c12104c5888f36fc49de9962e5",
+    "restoreValidationCompatiblePolicySha256s": [
+      "bd70877a13f227040e7708ae26d7aeefc903132fee76be52ab51d62afb84e963"
+    ],
+    "captureId": "b6c40e1f9fb7dd12c28f717fa825adb59fc626c224c0562d5bd11b7cf691c77e",
+    "knownCatalogCaptureIds": [
+      "b6c40e1f9fb7dd12c28f717fa825adb59fc626c224c0562d5bd11b7cf691c77e"
+    ],
+    "knownCatalogIdentityPairs": [
+      {
+        "captureId": "b6c40e1f9fb7dd12c28f717fa825adb59fc626c224c0562d5bd11b7cf691c77e",
+        "identityEvidenceSha256": "649ad37f16755e876b3f3ad7b62bece7f56ccf9c51edf4c075fcca6095403407"
+      }
+    ],
+    "knownCatalogStablePairs": [
+      {
+        "stableCaptureId": "8f55a2669ef09ce89a50c23c3101096b37c92f745ceb865099bfe190475397e1",
+        "stableIdentityEvidenceSha256": "33d9c59c3908e3f69e8bdc54b48292ffe2da401a3e43b5cfc962011b707cc30d"
+      }
+    ],
+    "draws": "<Swig Object of type 'DrawcallStats *' at 0x0000024F761AEE30>",
+    "dispatches": "<Swig Object of type 'DispatchStats *' at 0x0000024F761AE1B0>",
+    "stats_note": "Stats not available in this RenderDoc version"
+  },
+  "snapshot_event_cbuffer": {
+    "schema": "renderdoc-ultra-event-cbuffer-snapshot/v1",
+    "schemaVersion": 1,
+    "snapshotId": "a979adfbd5b24a1383b346b1fc431956",
+    "captureId": "b6c40e1f9fb7dd12c28f717fa825adb59fc626c224c0562d5bd11b7cf691c77e",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "api": "d3d11",
+    "eventId": 11,
+    "stage": "fragment",
+    "blockIndex": 0,
+    "constantBlockPath": "TestColor",
+    "constantBlockName": "TestColor",
+    "constantBlockDisplayName": "TestColor",
+    "slot": 0,
+    "registerSpace": 0,
+    "shaderResourceId": 43,
+    "bufferResourceId": 47,
+    "byteOffset": 0,
+    "byteSize": 65536,
+    "validByteSize": 16,
+    "rawBase64": "AACAP83MTD/NzMw+AACAPw==",
+    "rawSha256": "4f00cfa875b40f123ebc4a904644f00c0e24b81be1943652f9c2cafa7a5ed17b",
+    "layoutSha256": "6df633025eaeebc0768143fcc7ef635d1f4d3d9f8f510d10213719a292805e1e",
+    "fields": [
+      {
+        "arrayIndex": 0,
+        "baseType": "Float",
+        "byteOffset": 0,
+        "byteSize": 16,
+        "components": 4,
+        "path": "Tint",
+        "leafId": "4058246c261701c2b4af150f589b8d7b",
+        "displayName": "Tint",
+        "editable": true,
+        "reason": ""
+      }
+    ]
+  },
+  "apply_event_cbuffer_override": {
+    "schema": "renderdoc-ultra-event-cbuffer-override/v1",
+    "schemaVersion": 1,
+    "snapshotId": "a979adfbd5b24a1383b346b1fc431956",
+    "overrideId": "552f8e71e9284f4eaa7a88152cf0e57c",
+    "captureId": "b6c40e1f9fb7dd12c28f717fa825adb59fc626c224c0562d5bd11b7cf691c77e",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "api": "d3d11",
+    "eventId": 11,
+    "stage": "fragment",
+    "blockIndex": 0,
+    "slot": 0,
+    "registerSpace": 0,
+    "revision": 1,
+    "currentRawSha256": "a654bab014e026342bc9fc87645ec2c0999483df6aa519e208f001473f9cbdf4",
+    "layoutSha256": "6df633025eaeebc0768143fcc7ef635d1f4d3d9f8f510d10213719a292805e1e",
+    "configured": true,
+    "appliedToCurrentEvent": true
+  },
+  "afterCBufferPipeline": {
+    "shaders": {
+      "vertex": {
+        "shaderId": 42,
+        "entryPointSelection": {
+          "status": "selected",
+          "source": "unique-bound-resource-entry",
+          "resourceId": 42,
+          "stage": "vertex",
+          "pipelineReportedEntryPoint": "main",
+          "selectedEntryPoint": "VS",
+          "candidateCount": 1,
+          "stageCompatibleCandidateCount": 1,
+          "entryPoints": [
+            {
+              "name": "VS",
+              "stage": "vertex"
+            }
+          ],
+          "errorId": null,
+          "error": null
+        },
+        "entryPoint": "VS",
+        "textureCount": 0,
+        "cbufferCount": 0,
+        "samplerCount": 0
+      },
+      "fragment": {
+        "shaderId": 43,
+        "entryPointSelection": {
+          "status": "selected",
+          "source": "unique-bound-resource-entry",
+          "resourceId": 43,
+          "stage": "fragment",
+          "pipelineReportedEntryPoint": "main",
+          "selectedEntryPoint": "PS",
+          "candidateCount": 1,
+          "stageCompatibleCandidateCount": 1,
+          "entryPoints": [
+            {
+              "name": "PS",
+              "stage": "fragment"
+            }
+          ],
+          "errorId": null,
+          "error": null
+        },
+        "entryPoint": "PS",
+        "textureCount": 0,
+        "cbufferCount": 1,
+        "samplerCount": 0
+      }
+    },
+    "renderTargets": [
+      48
+    ],
+    "depthTarget": null
+  },
+  "cbuffer-edited": {
+    "schema": "replaylab-event-texture-evidence/v1",
+    "schemaVersion": 1,
+    "requestId": "a2828957f5d34437b21b61fb9d80afa5",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "eventId": 11,
+    "restoration": {
+      "originalEventId": 11,
+      "restored": true
+    },
+    "exactEventBinding": true,
+    "replayMutation": false,
+    "budgets": {
+      "maxTextureByteSize": 268435456,
+      "maxSubresourcePixels": 16777216,
+      "maxPngByteSize": 134217728
+    },
+    "artifact": {
+      "status": "saved",
+      "skipReason": null,
+      "attachment": {
+        "kind": "rtv",
+        "index": 0,
+        "stage": "fragment",
+        "resourceId": 48,
+        "mip": 0,
+        "slice": 0,
+        "sample": 0,
+        "viewWidth": 256,
+        "viewHeight": 256,
+        "format": "R8G8B8A8_UNORM",
+        "componentCount": 4,
+        "textureByteSize": 262144,
+        "sampleCount": 1,
+        "presentedBackbuffer": false,
+        "descriptor": {
+          "firstMip": 0,
+          "numMips": 1,
+          "firstSlice": 0,
+          "numSlices": 1
+        },
+        "nativeDescriptor": {
+          "firstMip": 0,
+          "numMips": 1,
+          "firstSlice": 0,
+          "numSlices": 1
+        },
+        "textureDimension": 2,
+        "resourceDepth": 1,
+        "mipDepth": 1,
+        "sliceKind": "array",
+        "viewSliceFirst": 0,
+        "viewSliceCount": 1,
+        "sliceRangeBasis": "native-view-range"
+      },
+      "display": {
+        "channel": "rgba",
+        "flipY": false,
+        "channelExtract": -1,
+        "rangeMode": "native",
+        "blackPoint": 0.0,
+        "whitePoint": 1.0,
+        "subresourceMin": null,
+        "subresourceMax": null,
+        "valueDecode": "native",
+        "depthInterpretation": null,
+        "alphaMode": "opaque-rgb"
+      },
+      "output": {
+        "path": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\eid-11-a2828957f5d34437b21b61fb9d80afa5\\eid-11-rtv0-m0-s0-sample0-rgba.png",
+        "mimeType": "image/png",
+        "byteSize": 2238,
+        "sha256": "777fa6dd6f2ef9a911dbbcd0da0a5c9d15bd4ec5af78978101b36cbe6eea8e96",
+        "noOverwrite": true,
+        "reduction": {
+          "original": {
+            "width": 256,
+            "height": 256
+          },
+          "crop": null,
+          "scaledTo": {
+            "width": 256,
+            "height": 256
+          },
+          "opaqueRgbProcessed": true
+        }
+      }
+    }
+  },
+  "rollback_event_cbuffer_override": {
+    "schema": "renderdoc-ultra-event-cbuffer-override/v1",
+    "schemaVersion": 1,
+    "snapshotId": "a979adfbd5b24a1383b346b1fc431956",
+    "overrideId": "552f8e71e9284f4eaa7a88152cf0e57c",
+    "captureId": "b6c40e1f9fb7dd12c28f717fa825adb59fc626c224c0562d5bd11b7cf691c77e",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "api": "d3d11",
+    "eventId": 11,
+    "stage": "fragment",
+    "blockIndex": 0,
+    "slot": 0,
+    "registerSpace": 0,
+    "revision": 1,
+    "currentRawSha256": "a654bab014e026342bc9fc87645ec2c0999483df6aa519e208f001473f9cbdf4",
+    "cleared": true,
+    "alreadyReleased": false,
+    "snapshotReleased": true,
+    "configured": false
+  },
+  "restoredPipeline": {
+    "shaders": {
+      "vertex": {
+        "shaderId": 42,
+        "entryPointSelection": {
+          "status": "selected",
+          "source": "unique-bound-resource-entry",
+          "resourceId": 42,
+          "stage": "vertex",
+          "pipelineReportedEntryPoint": "main",
+          "selectedEntryPoint": "VS",
+          "candidateCount": 1,
+          "stageCompatibleCandidateCount": 1,
+          "entryPoints": [
+            {
+              "name": "VS",
+              "stage": "vertex"
+            }
+          ],
+          "errorId": null,
+          "error": null
+        },
+        "entryPoint": "VS",
+        "textureCount": 0,
+        "cbufferCount": 0,
+        "samplerCount": 0
+      },
+      "fragment": {
+        "shaderId": 43,
+        "entryPointSelection": {
+          "status": "selected",
+          "source": "unique-bound-resource-entry",
+          "resourceId": 43,
+          "stage": "fragment",
+          "pipelineReportedEntryPoint": "main",
+          "selectedEntryPoint": "PS",
+          "candidateCount": 1,
+          "stageCompatibleCandidateCount": 1,
+          "entryPoints": [
+            {
+              "name": "PS",
+              "stage": "fragment"
+            }
+          ],
+          "errorId": null,
+          "error": null
+        },
+        "entryPoint": "PS",
+        "textureCount": 0,
+        "cbufferCount": 1,
+        "samplerCount": 0
+      }
+    },
+    "renderTargets": [
+      48
+    ],
+    "depthTarget": null
+  },
+  "restored": {
+    "schema": "replaylab-event-texture-evidence/v1",
+    "schemaVersion": 1,
+    "requestId": "d0e1ca54bb864e77a4bcbf04c14b3f1c",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "eventId": 11,
+    "restoration": {
+      "originalEventId": 11,
+      "restored": true
+    },
+    "exactEventBinding": true,
+    "replayMutation": false,
+    "budgets": {
+      "maxTextureByteSize": 268435456,
+      "maxSubresourcePixels": 16777216,
+      "maxPngByteSize": 134217728
+    },
+    "artifact": {
+      "status": "saved",
+      "skipReason": null,
+      "attachment": {
+        "kind": "rtv",
+        "index": 0,
+        "stage": "fragment",
+        "resourceId": 48,
+        "mip": 0,
+        "slice": 0,
+        "sample": 0,
+        "viewWidth": 256,
+        "viewHeight": 256,
+        "format": "R8G8B8A8_UNORM",
+        "componentCount": 4,
+        "textureByteSize": 262144,
+        "sampleCount": 1,
+        "presentedBackbuffer": false,
+        "descriptor": {
+          "firstMip": 0,
+          "numMips": 1,
+          "firstSlice": 0,
+          "numSlices": 1
+        },
+        "nativeDescriptor": {
+          "firstMip": 0,
+          "numMips": 1,
+          "firstSlice": 0,
+          "numSlices": 1
+        },
+        "textureDimension": 2,
+        "resourceDepth": 1,
+        "mipDepth": 1,
+        "sliceKind": "array",
+        "viewSliceFirst": 0,
+        "viewSliceCount": 1,
+        "sliceRangeBasis": "native-view-range"
+      },
+      "display": {
+        "channel": "rgba",
+        "flipY": false,
+        "channelExtract": -1,
+        "rangeMode": "native",
+        "blackPoint": 0.0,
+        "whitePoint": 1.0,
+        "subresourceMin": null,
+        "subresourceMax": null,
+        "valueDecode": "native",
+        "depthInterpretation": null,
+        "alphaMode": "opaque-rgb"
+      },
+      "output": {
+        "path": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\eid-11-d0e1ca54bb864e77a4bcbf04c14b3f1c\\eid-11-rtv0-m0-s0-sample0-rgba.png",
+        "mimeType": "image/png",
+        "byteSize": 2500,
+        "sha256": "4bb065d02e91dc6be86caab222d6bace48a9f9ea464ca6ffe22e35b3eacb8f54",
+        "noOverwrite": true,
+        "reduction": {
+          "original": {
+            "width": 256,
+            "height": 256
+          },
+          "crop": null,
+          "scaledTo": {
+            "width": 256,
+            "height": 256
+          },
+          "opaqueRgbProcessed": true
+        }
+      }
+    }
+  },
+  "get_current_frame_flow_inputs": {
+    "schema": "replaylab-current-frame-flow-inputs/v1",
+    "schemaVersion": 1,
+    "captureId": "",
+    "captureSessionId": "2d741880ccc64dbda36366cfead44069",
+    "actions": [
+      {
+        "eventId": 2,
+        "name": "Action 1",
+        "flags": 1048577,
+        "numIndices": 0,
+        "numVertices": 0,
+        "numInstances": 0,
+        "depth": 0,
+        "markerPath": [],
+        "markerEventPath": [],
+        "parentEventId": 0,
+        "executionIndex": 0,
+        "workload": {
+          "indexCount": 0,
+          "vertexCount": 0,
+          "instanceCount": 1,
+          "indexOffset": 0,
+          "vertexOffset": 0,
+          "instanceOffset": 0,
+          "baseVertex": 0,
+          "drawIndex": 0,
+          "groupCountX": 0,
+          "groupCountY": 0,
+          "groupCountZ": 0,
+          "threadCountX": 0,
+          "threadCountY": 0,
+          "threadCountZ": 0,
+          "dispatchBase": [
+            0,
+            0,
+            0
+          ]
+        },
+        "outputs": [
+          {
+            "resourceId": 48,
+            "name": "BreadVerificationColor",
+            "format": "R8G8B8A8_UNORM",
+            "sampleCount": 1
+          }
+        ],
+        "copyDestination": {
+          "resourceId": 48,
+          "name": "BreadVerificationColor",
+          "format": "R8G8B8A8_UNORM",
+          "sampleCount": 1,
+          "subresource": {
+            "mip": 0,
+            "slice": 0,
+            "sample": 0
+          }
+        }
+      },
+      {
+        "eventId": 11,
+        "name": "Action 2",
+        "flags": 65538,
+        "numIndices": 3,
+        "numVertices": 3,
+        "numInstances": 0,
+        "depth": 0,
+        "markerPath": [],
+        "markerEventPath": [],
+        "parentEventId": 0,
+        "executionIndex": 1,
+        "workload": {
+          "indexCount": 3,
+          "vertexCount": 3,
+          "instanceCount": 1,
+          "indexOffset": 0,
+          "vertexOffset": 0,
+          "instanceOffset": 0,
+          "baseVertex": 0,
+          "drawIndex": 0,
+          "groupCountX": 0,
+          "groupCountY": 0,
+          "groupCountZ": 0,
+          "threadCountX": 0,
+          "threadCountY": 0,
+          "threadCountZ": 0,
+          "dispatchBase": [
+            0,
+            0,
+            0
+          ]
+        },
+        "outputs": [
+          {
+            "resourceId": 48,
+            "name": "BreadVerificationColor",
+            "format": "R8G8B8A8_UNORM",
+            "sampleCount": 1
+          }
+        ]
+      },
+      {
+        "eventId": 13,
+        "name": "End of Capture",
+        "flags": 256,
+        "numIndices": 0,
+        "numVertices": 0,
+        "numInstances": 0,
+        "depth": 0,
+        "markerPath": [],
+        "markerEventPath": [],
+        "parentEventId": 0,
+        "executionIndex": 2,
+        "workload": {
+          "indexCount": 0,
+          "vertexCount": 0,
+          "instanceCount": 1,
+          "indexOffset": 0,
+          "vertexOffset": 0,
+          "instanceOffset": 0,
+          "baseVertex": 0,
+          "drawIndex": 0,
+          "groupCountX": 0,
+          "groupCountY": 0,
+          "groupCountZ": 0,
+          "threadCountX": 0,
+          "threadCountY": 0,
+          "threadCountZ": 0,
+          "dispatchBase": [
+            0,
+            0,
+            0
+          ]
+        },
+        "outputs": [
+          {
+            "resourceId": 48,
+            "name": "BreadVerificationColor",
+            "format": "R8G8B8A8_UNORM",
+            "sampleCount": 1
+          }
+        ]
+      }
+    ],
+    "pipelineStates": {
+      "11": {
+        "shaders": {
+          "vertex": {
+            "shaderId": 42,
+            "entryPointSelection": {
+              "status": "selected",
+              "source": "unique-bound-resource-entry",
+              "resourceId": 42,
+              "stage": "vertex",
+              "pipelineReportedEntryPoint": "main",
+              "selectedEntryPoint": "VS",
+              "candidateCount": 1,
+              "stageCompatibleCandidateCount": 1,
+              "entryPoints": [
+                {
+                  "name": "VS",
+                  "stage": "vertex"
+                }
+              ],
+              "errorId": null,
+              "error": null
+            },
+            "entryPoint": "VS",
+            "rawSha256": "63a5daeeb344e1fdbfb5eb6cad20d93820684f57663bdccf2ef00bd47258cde5",
+            "constantBufferCount": 0,
+            "samplerCount": 0,
+            "boundSamplerCount": 0
+          },
+          "fragment": {
+            "shaderId": 43,
+            "entryPointSelection": {
+              "status": "selected",
+              "source": "unique-bound-resource-entry",
+              "resourceId": 43,
+              "stage": "fragment",
+              "pipelineReportedEntryPoint": "main",
+              "selectedEntryPoint": "PS",
+              "candidateCount": 1,
+              "stageCompatibleCandidateCount": 1,
+              "entryPoints": [
+                {
+                  "name": "PS",
+                  "stage": "fragment"
+                }
+              ],
+              "errorId": null,
+              "error": null
+            },
+            "entryPoint": "PS",
+            "rawSha256": "2655ae2df08621619ba7f1ff6eab0bc18777f79f4fdef0afdb3059d8557fa275",
+            "constantBufferCount": 1,
+            "samplerCount": 0,
+            "boundSamplerCount": 0
+          }
+        },
+        "renderTargets": [
+          {
+            "resourceId": 48,
+            "name": "BreadVerificationColor",
+            "format": "R8G8B8A8_UNORM",
+            "sampleCount": 1,
+            "access": "color-target",
+            "slot": 0,
+            "byteOffset": 0,
+            "byteSize": 0,
+            "firstMip": 0,
+            "numMips": 1,
+            "firstSlice": 0,
+            "numSlices": 1
+          }
+        ],
+        "colorWriteTargets": [
+          {
+            "resourceId": 48,
+            "name": "BreadVerificationColor",
+            "format": "R8G8B8A8_UNORM",
+            "sampleCount": 1,
+            "access": "color-target",
+            "slot": 0,
+            "byteOffset": 0,
+            "byteSize": 0,
+            "firstMip": 0,
+            "numMips": 1,
+            "firstSlice": 0,
+            "numSlices": 1
+          }
+        ],
+        "colorTargetStates": [
+          {
+            "slot": 0,
+            "blendEnabled": false,
+            "logicOperationEnabled": false,
+            "colorBlend": {
+              "sourceFactor": "BlendMultiplier.One",
+              "destinationFactor": "BlendMultiplier.Zero",
+              "operation": "BlendOperation.Add"
+            },
+            "alphaBlend": {
+              "sourceFactor": "BlendMultiplier.One",
+              "destinationFactor": "BlendMultiplier.Zero",
+              "operation": "BlendOperation.Add"
+            },
+            "logicOperation": "LogicOperation.NoOp",
+            "writeMask": 15,
+            "writeChannels": "RGBA"
+          }
+        ],
+        "depthTarget": null,
+        "readResources": [
+          {
+            "resourceId": 47,
+            "name": "Buffer 47",
+            "format": "Undefined",
+            "stage": "fragment",
+            "access": "constant-buffer",
+            "byteOffset": 0,
+            "byteSize": 65536,
+            "firstMip": 0,
+            "numMips": 1,
+            "firstSlice": 0,
+            "numSlices": 1,
+            "staticallyUnused": false
+          },
+          {
+            "resourceId": 45,
+            "name": "Buffer 45",
+            "format": "",
+            "stage": "vertex",
+            "access": "vertex-buffer",
+            "byteOffset": 0,
+            "byteSize": 18446744073709551615,
+            "byteStride": 32
+          },
+          {
+            "resourceId": 46,
+            "name": "Buffer 46",
+            "format": "",
+            "stage": "vertex",
+            "access": "index-buffer",
+            "byteOffset": 0,
+            "byteSize": 18446744073709551615,
+            "byteStride": 2
+          }
+        ],
+        "writeResources": [
+          {
+            "resourceId": 48,
+            "name": "BreadVerificationColor",
+            "format": "R8G8B8A8_UNORM",
+            "sampleCount": 1,
+            "access": "color-target",
+            "slot": 0,
+            "byteOffset": 0,
+            "byteSize": 0,
+            "firstMip": 0,
+            "numMips": 1,
+            "firstSlice": 0,
+            "numSlices": 1
+          }
+        ],
+        "lateFrameFraction": 0.3333333333333333,
+        "vertexBufferBindingsResolved": true,
+        "vertexInputUsageResolved": true,
+        "vertexLayout": [
+          {
+            "index": 0,
+            "name": "POSITION",
+            "vertexBuffer": 0,
+            "byteOffset": 0,
+            "format": "R32G32B32_FLOAT",
+            "perInstance": false,
+            "instanceRate": 0,
+            "genericEnabled": false,
+            "used": true
+          },
+          {
+            "index": 1,
+            "name": "NORMAL",
+            "vertexBuffer": 0,
+            "byteOffset": 12,
+            "format": "R32G32B32_FLOAT",
+            "perInstance": false,
+            "instanceRate": 0,
+            "genericEnabled": false,
+            "used": true
+          },
+          {
+            "index": 2,
+            "name": "TEXCOORD",
+            "vertexBuffer": 0,
+            "byteOffset": 24,
+            "format": "R32G32_FLOAT",
+            "perInstance": false,
+            "instanceRate": 0,
+            "genericEnabled": false,
+            "used": true
+          }
+        ],
+        "vertexLayoutOmittedCount": 0,
+        "indexBufferBindingResolved": true,
+        "indexStride": 2,
+        "blendEnabled": false,
+        "sampleCount": 1,
+        "sampleCountResolved": true,
+        "stencilStateResolved": true,
+        "colorWriteMasksResolved": true,
+        "attachmentSubresourcesResolved": false,
+        "rasterStateResolved": true,
+        "topology": "Topology.TriangleList",
+        "rasterizedStream": 0,
+        "rasterizerDiscardEnabled": false,
+        "viewport": {
+          "x": 0.0,
+          "y": 0.0,
+          "width": 256.0,
+          "height": 256.0,
+          "minDepth": 0.0,
+          "maxDepth": 1.0
+        },
+        "scissor": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "stencilFront": {
+          "function": "CompareFunction.AlwaysTrue",
+          "failOperation": "StencilOperation.Keep",
+          "depthFailOperation": "StencilOperation.Keep",
+          "passOperation": "StencilOperation.Keep",
+          "reference": 0,
+          "compareMask": 255,
+          "writeMask": 255
+        },
+        "stencilBack": {
+          "function": "CompareFunction.AlwaysTrue",
+          "failOperation": "StencilOperation.Keep",
+          "depthFailOperation": "StencilOperation.Keep",
+          "passOperation": "StencilOperation.Keep",
+          "reference": 0,
+          "compareMask": 255,
+          "writeMask": 255
+        },
+        "stencilWriteOperationsCanWrite": false,
+        "depthStateResolved": true,
+        "depthTestEnabled": true,
+        "depthWriteEnabled": true,
+        "depthReadOnly": false,
+        "depthFunction": "CompareFunction.Less",
+        "stencilTestEnabled": false,
+        "stencilReadOnly": false,
+        "cullMode": "CullMode.Back",
+        "fillMode": "FillMode.Solid",
+        "frontCCW": false,
+        "stencilWritePossible": false,
+        "rasterOutputApplicable": true,
+        "samplers": {
+          "vertex": {
+            "bindingsResolved": true,
+            "declaredCount": 0,
+            "boundCount": 0,
+            "bindings": []
+          },
+          "fragment": {
+            "bindingsResolved": true,
+            "declaredCount": 0,
+            "boundCount": 0,
+            "bindings": []
+          }
+        },
+        "inputOmittedCount": 0,
+        "outputOmittedCount": 0
+      }
+    },
+    "summary": {
+      "actionCount": 3,
+      "pipelineStateCount": 1,
+      "singleReplayThreadTransaction": true,
+      "truncated": false,
+      "requestedMaxActions": 8000,
+      "omittedActionCountLowerBound": 0,
+      "truncationReasons": [],
+      "serializedBudgetBytes": 8388608,
+      "inputResourceOmittedCount": 0,
+      "outputResourceOmittedCount": 0,
+      "resourceFactsTruncated": false,
+      "resourceMetadata": {
+        "sourceRecordCount": 11,
+        "retainedEntryCount": 10,
+        "omittedSourceRecordCount": 0,
+        "recordLimit": 4096,
+        "byteBudget": 2097152,
+        "budgetedBytes": 810,
+        "truncated": false
+      },
+      "serializedBytes": 12663
+    }
+  },
+  "export_to_unity": {
+    "eventId": 11,
+    "outputDir": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\unity-export",
+    "meshFile": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\unity-export\\BreadTriangle.obj",
+    "textures": [],
+    "materialFile": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\unity-export\\BreadTriangle_material.json",
+    "shaderInfo": {
+      "fragment": {
+        "shaderId": 43,
+        "entryPoint": "PS",
+        "inputCount": 3,
+        "outputCount": 1,
+        "textureCount": 0,
+        "cbufferCount": 1,
+        "constantBuffers": [
+          {
+            "name": "TestColor",
+            "size": 16,
+            "variables": [
+              {
+                "name": "Tint",
+                "type": "VarType.Float",
+                "rows": 1,
+                "columns": 4
+              }
+            ]
+          }
+        ]
+      },
+      "vertex": {
+        "shaderId": 42,
+        "entryPoint": "VS",
+        "inputCount": 3,
+        "outputCount": 3,
+        "textureCount": 0,
+        "cbufferCount": 0,
+        "constantBuffers": []
+      }
+    },
+    "files": [
+      "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\unity-export\\BreadTriangle.obj",
+      "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\unity-export\\BreadTriangle.fbx",
+      "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\unity-export\\BreadTriangle_material.json",
+      "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\unity-export\\BreadTriangle_UnityImport.cs",
+      "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\unity-export\\BreadTriangle_unity_export.json"
+    ],
+    "fbxFile": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\unity-export\\BreadTriangle.fbx",
+    "meshStats": {
+      "vertices": 3,
+      "triangles": 1,
+      "hasNormals": true,
+      "hasUVs": true,
+      "method": "VBuffer"
+    },
+    "importScript": "C:\\Program Files\\GraphicsDebugger-DF研究\\replaylab\\output\\df-verification-20261116\\live-evidence\\unity-export\\BreadTriangle_UnityImport.cs"
+  }
+}

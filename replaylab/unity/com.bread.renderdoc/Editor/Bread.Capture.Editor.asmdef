@@ -1,0 +1,8 @@
+{
+  "name": "Bread.Capture.Editor",
+  "references": ["MCPForUnity.Editor", "Bread.Capture.Runtime"],
+  "includePlatforms": ["Editor"],
+  "overrideReferences": true,
+  "precompiledReferences": ["Newtonsoft.Json.dll"],
+  "autoReferenced": true
+}

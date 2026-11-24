@@ -30,6 +30,7 @@
 #include <QPixmap>
 #include <QPointer>
 #include <QScrollBar>
+#include <QToolTip>
 #include <QTreeView>
 #include "Code/QRDUtils.h"
 
@@ -80,6 +81,11 @@ void RDHeaderView::setModel(QAbstractItemModel *model)
 
   if(m)
   {
+    QObject::disconnect(m_sectionDataChangedConnection);
+    QObject::disconnect(m, &QAbstractItemModel::modelReset, this,
+                        &RDHeaderView::invalidateSectionMinSizes);
+    QObject::disconnect(m, &QAbstractItemModel::layoutChanged, this,
+                        &RDHeaderView::invalidateSectionMinSizes);
     QObject::disconnect(m, &QAbstractItemModel::headerDataChanged, this,
                         &RDHeaderView::headerDataChanged);
     QObject::disconnect(m, &QAbstractItemModel::columnsInserted, this,
@@ -98,13 +104,19 @@ void RDHeaderView::setModel(QAbstractItemModel *model)
                      &RDHeaderView::columnsInserted);
     QObject::connect(model, &QAbstractItemModel::rowsInserted, this, &RDHeaderView::rowsChanged);
     QObject::connect(model, &QAbstractItemModel::rowsRemoved, this, &RDHeaderView::rowsChanged);
-    QObject::connect(model, &QAbstractItemModel::dataChanged,
-                     [this](const QModelIndex &topLeft, const QModelIndex &bottomRight,
-                            const QVector<int> &roles) {
-                       if(roles.contains(Qt::DisplayRole))
-                         rowsChanged(QModelIndex(), 0, 0);
-                     });
+    QObject::connect(model, &QAbstractItemModel::modelReset, this,
+                     &RDHeaderView::invalidateSectionMinSizes);
+    QObject::connect(model, &QAbstractItemModel::layoutChanged, this,
+                     &RDHeaderView::invalidateSectionMinSizes);
+    m_sectionDataChangedConnection = QObject::connect(
+        model, &QAbstractItemModel::dataChanged, this,
+        [this](const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles) {
+          if(roles.isEmpty() || roles.contains(Qt::DisplayRole) || roles.contains(Qt::SizeHintRole) ||
+             roles.contains(Qt::FontRole) || roles.contains(Qt::DecorationRole))
+            rowsChanged(QModelIndex(), 0, 0);
+        });
   }
+  invalidateSectionMinSizes();
 }
 
 void RDHeaderView::reset()
@@ -113,6 +125,7 @@ void RDHeaderView::reset()
     cacheSections();
 
   QHeaderView::reset();
+  invalidateSectionMinSizes();
 }
 
 void RDHeaderView::cacheSections()
@@ -363,6 +376,11 @@ bool RDHeaderView::hasGroupTitle(int columnIndex) const
 
 void RDHeaderView::cacheSectionMinSizes()
 {
+  if(!m_sectionMinSizesDirty && m_sectionMinSizes.count() == count() &&
+     m_cachedMinimumSectionSize == minimumSectionSize())
+    return;
+  m_sectionMinSizesDirty = false;
+  m_cachedMinimumSectionSize = minimumSectionSize();
   m_sectionMinSizes.resize(count());
 
   for(int i = 0; i < m_sectionMinSizes.count(); i++)
@@ -497,14 +515,21 @@ void RDHeaderView::setColumnStretchHints(const QList<int> &hints)
 {
   if(hints.count() != count())
     qCritical() << "Got" << hints.count() << "hints, but have" << count() << "columns";
+  if(m_sectionStretchHints == hints && !m_sectionMinSizesDirty)
+    return;
   m_sectionStretchHints = hints;
 
   // we take control of the sizing, we don't currently support custom resizing AND stretchy size
   // hints.
   QHeaderView::setSectionResizeMode(QHeaderView::Fixed);
 
-  cacheSectionMinSizes();
-  resizeSectionsWithHints();
+  invalidateSectionMinSizes();
+}
+
+void RDHeaderView::setMinimumSectionSize(int size)
+{
+  QHeaderView::setMinimumSectionSize(size);
+  invalidateSectionMinSizes();
 }
 
 void RDHeaderView::setPinnedColumns(int numColumns, QAbstractScrollArea *scroll)
@@ -518,37 +543,62 @@ void RDHeaderView::setRootIndex(const QModelIndex &index)
 {
   QHeaderView::setRootIndex(index);
 
-  // need to enqueue this after the root index is actually processed (this function is called
-  // *before* the root index changes).
-  if(!m_sectionStretchHints.isEmpty())
-  {
-    QPointer<RDHeaderView> ptr = this;
-    GUIInvoke::defer(this, [this]() {
-      cacheSectionMinSizes();
-      resizeSectionsWithHints();
-    });
-  }
+  // Model clears can reset a header several times in a single publication. Measure the final
+  // model once per header, after Qt has processed the new root, rather than queueing every reset.
+  invalidateSectionMinSizes();
 }
 
 void RDHeaderView::headerDataChanged(Qt::Orientation orientation, int logicalFirst, int logicalLast)
 {
   if(m_customSizing)
     cacheSections();
+  invalidateSectionMinSizes();
 }
 
 void RDHeaderView::columnsInserted(const QModelIndex &parent, int first, int last)
 {
   if(m_customSizing)
     cacheSections();
+  invalidateSectionMinSizes();
 }
 
 void RDHeaderView::rowsChanged(const QModelIndex &, int, int)
 {
-  if(!m_sectionStretchHints.isEmpty())
-  {
+  invalidateSectionMinSizes();
+}
+
+void RDHeaderView::invalidateSectionMinSizes()
+{
+  m_sectionMinSizesDirty = true;
+  queueSectionResize();
+}
+
+void RDHeaderView::queueSectionResize()
+{
+  if(m_sectionResizeQueued || m_sectionStretchHints.isEmpty() || !isVisible())
+    return;
+  m_sectionResizeQueued = true;
+  GUIInvoke::defer(this, [this]() {
+    m_sectionResizeQueued = false;
+    if(!isVisible())
+      return;
     cacheSectionMinSizes();
     resizeSectionsWithHints();
-  }
+  });
+}
+
+void RDHeaderView::showEvent(QShowEvent *event)
+{
+  QHeaderView::showEvent(event);
+  queueSectionResize();
+}
+
+void RDHeaderView::changeEvent(QEvent *event)
+{
+  QHeaderView::changeEvent(event);
+  if(event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange ||
+     event->type() == QEvent::LanguageChange)
+    invalidateSectionMinSizes();
 }
 
 void RDHeaderView::mousePressEvent(QMouseEvent *event)
@@ -864,6 +914,28 @@ void RDHeaderView::paintEvent(QPaintEvent *e)
   }
 }
 
+bool RDHeaderView::viewportEvent(QEvent *e)
+{
+  if(e->type() == QEvent::ToolTip)
+  {
+    QHelpEvent *h = (QHelpEvent *)e;
+    int section = logicalIndexAt(h->pos());
+    if(section >= 0)
+    {
+      QAbstractItemModel *m = this->model();
+
+      QVariant tooltip = m->headerData(section, orientation(), Qt::ToolTipRole);
+      if(tooltip.isValid())
+      {
+        QToolTip::showText(h->globalPos(), tooltip.toString(), this);
+        return true;
+      }
+    }
+  }
+
+  return QHeaderView::viewportEvent(e);
+}
+
 void RDHeaderView::paintSection(QPainter *painter, const QRect &rect, int section) const
 {
   if(!m_customSizing)
@@ -981,8 +1053,104 @@ void RDHeaderView::currentChanged(const QModelIndex &current, const QModelIndex 
 
 void RDHeaderView::updateGeometries()
 {
+  if(m_cachedMinimumSectionSize != minimumSectionSize())
+    invalidateSectionMinSizes();
   if(!m_sectionStretchHints.isEmpty())
     resizeSectionsWithHints();
 
   QHeaderView::updateGeometries();
 }
+
+#if ENABLE_UNIT_TESTS
+#include <QApplication>
+#include <QStandardItemModel>
+#include <QStyledItemDelegate>
+#include <memory>
+#include "3rdparty/catch/catch.hpp"
+
+namespace
+{
+class HeaderMeasureDelegate : public QStyledItemDelegate
+{
+public:
+  mutable int measurements = 0;
+  QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
+  {
+    measurements++;
+    return QStyledItemDelegate::sizeHint(option, index);
+  }
+};
+
+void DrainHeaderEvents()
+{
+  for(int i = 0; i < 4; i++)
+    QApplication::processEvents();
+}
+};    // namespace
+
+TEST_CASE("Header sizing coalesces model changes and invalidates cached dependencies",
+          "[header-cache]")
+{
+  int argc = 1;
+  char program[] = "bread-header-test";
+  char *argv[] = {program, NULL};
+  std::unique_ptr<QApplication> application;
+  if(!QApplication::instance())
+    application.reset(new QApplication(argc, argv));
+  GUIInvoke::init();
+
+  QTreeView view;
+  view.setAttribute(Qt::WA_ShowWithoutActivating);
+  view.setWindowFlags(Qt::Tool | Qt::WindowDoesNotAcceptFocus);
+  view.setWindowOpacity(0.0);
+  QStandardItemModel model(12, 2);
+  HeaderMeasureDelegate delegate;
+  view.setItemDelegate(&delegate);
+  RDHeaderView *header = new RDHeaderView(Qt::Horizontal, &view);
+  view.setHeader(header);
+  view.setModel(&model);
+  header->setColumnStretchHints({1, 1});
+  view.resize(640, 300);
+  view.show();
+  DrainHeaderEvents();
+
+  SECTION("A publication measures final content once instead of each root reset")
+  {
+    const int before = delegate.measurements;
+    model.setData(model.index(0, 0), QString(80, QLatin1Char('W')));
+    for(int i = 0; i < 80; i++)
+    {
+      header->setRootIndex(QModelIndex());
+    }
+    DrainHeaderEvents();
+    CHECK(delegate.measurements - before < 12 * model.rowCount() * model.columnCount());
+    CHECK(header->sectionSize(0) > 500);
+  }
+  SECTION("Hidden content stays dirty until revealed")
+  {
+    view.hide();
+    DrainHeaderEvents();
+    const int before = delegate.measurements;
+    model.setData(model.index(0, 0), QString(120, QLatin1Char('W')));
+    DrainHeaderEvents();
+    // Qt may measure the changed row itself, but the hidden header must not scan both columns.
+    CHECK(delegate.measurements - before < model.rowCount() * model.columnCount());
+    view.show();
+    DrainHeaderEvents();
+    CHECK(delegate.measurements > before);
+    CHECK(header->sectionSize(0) > 700);
+  }
+  SECTION("Empty data roles and a changed minimum size invalidate measurements")
+  {
+    model.blockSignals(true);
+    model.setData(model.index(0, 0), QString(100, QLatin1Char('W')));
+    model.blockSignals(false);
+    emit model.dataChanged(model.index(0, 0), model.index(0, 0), {});
+    DrainHeaderEvents();
+    CHECK(header->sectionSize(0) > 600);
+    header->setMinimumSectionSize(420);
+    DrainHeaderEvents();
+    CHECK(header->sectionSize(1) >= 420);
+  }
+}
+#endif

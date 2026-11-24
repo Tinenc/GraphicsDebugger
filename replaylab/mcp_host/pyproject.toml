@@ -1,0 +1,32 @@
+[project]
+name = "renderdoc-mcp"
+version = "1.46.142"
+description = "ReplayLab sidecar host for RenderDocUltra's built-in AI integration, capture analysis, and shader workflows"
+requires-python = ">=3.10"
+dependencies = [
+    # This server uses the MCP 1.x FastMCP import/API. MCP 2.0 removed
+    # mcp.server.fastmcp, so an unbounded major upgrade breaks the entry point.
+    "mcp[cli]>=1.0.0,<2.0.0",
+    # Task reports are validated in the Host, not trusted from vendor agents.
+    "pydantic>=2.12,<3",
+    # Verified frame previews are also packaged as portable opaque GIF sequences.
+    "Pillow>=12.3,<14",
+]
+
+[project.optional-dependencies]
+bundle = [
+    # Build-only dependency. The produced BreadMCP executable contains the
+    # MCP runtime, so recipients do not install Python or FastMCP separately.
+    "pyinstaller>=6.10,<7.0",
+]
+
+[project.scripts]
+renderdoc-mcp = "src.server:main"
+bread-mcp = "src.replaylab_host:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

@@ -122,6 +122,7 @@ WindowingData CustomPaintWidget::GetWidgetWindowingData()
 void CustomPaintWidget::SetOutput(IReplayOutput *out)
 {
   m_Output = out;
+  m_OutputEventId.store(~0U);
   m_Rendering = (out != NULL);
 
   RecreateInternalWidget();
@@ -160,11 +161,19 @@ void CustomPaintWidget::changeEvent(QEvent *event)
 
 void CustomPaintWidget::renderInternal(QPaintEvent *e)
 {
+  if(!m_AutomaticDisplay)
+  {
+    emit displayRequested();
+    return;
+  }
   if(m_Ctx && m_Output && m_Ctx->IsCaptureLoaded())
   {
     QPointer<CustomPaintWidget> me(this);
-    m_Ctx->Replay().AsyncInvoke(m_Tag, [me](IReplayController *r) {
-      if(me && me->m_Output && me->m_Ctx->IsCaptureLoaded())
+    const uint32_t outputEvent = m_OutputEventId.load();
+    m_Ctx->Replay().AsyncInvoke(m_Tag, [me, outputEvent](IReplayController *r) {
+      if(me && me->m_Output && me->m_Ctx->IsCaptureLoaded() &&
+         me->m_OutputEventId.load() == outputEvent &&
+         (outputEvent == ~0U || r->GetCurrentEventID() == outputEvent))
         me->m_Output->Display();
     });
   }

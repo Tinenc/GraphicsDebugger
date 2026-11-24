@@ -39,6 +39,8 @@
 DECLARE_REFLECTION_ENUM(RENDERDOC_AnnotationType);
 DECLARE_REFLECTION_STRUCT(RENDERDOC_AnnotationValue);
 
+#define REMOTE_DLL_NAME "system_load.dll"
+
 class Chunk;
 struct RDCThumb;
 struct ReplayOptions;
@@ -118,6 +120,10 @@ struct IFrameCapturer
   virtual void StartFrameCapture(DeviceOwnedWindow devWnd) = 0;
   virtual bool EndFrameCapture(DeviceOwnedWindow devWnd) = 0;
   virtual bool DiscardFrameCapture(DeviceOwnedWindow devWnd) = 0;
+
+  // Used by capture bridges whose frame boundary comes from a different device. Normal frame
+  // capturers are always ready; bridged capturers can wait until real GPU work has been submitted.
+  virtual bool HasFrameCaptureWork() { return true; }
 
   virtual uint32_t SetObjectAnnotation(void *object, const char *key,
                                        RENDERDOC_AnnotationType valueType, uint32_t valueVectorWidth,
@@ -401,6 +407,7 @@ typedef bool (*VulkanLayerCheck)(VulkanLayerFlags &flags, rdcarray<rdcstr> &myJS
 typedef void (*VulkanLayerInstall)(bool systemLevel);
 
 typedef void (*ShutdownFunction)();
+typedef void (*EnvSetupFunction)();
 
 // this class mediates everything and owns any 'global' resources such as the crash handler.
 //
@@ -536,6 +543,8 @@ public:
   rdcarray<CaptureFileFormat> GetCaptureFileFormats();
   rdcarray<GPUDevice> GetAvailableGPUs();
 
+  void AddEnvSetup(EnvSetupFunction envSetup) { m_EnvSetups.push_back(envSetup); }
+
   void SetVulkanLayerCheck(VulkanLayerCheck callback) { m_VulkanCheck = callback; }
   void SetVulkanLayerInstall(VulkanLayerInstall callback) { m_VulkanInstall = callback; }
   bool NeedVulkanLayerRegistration(VulkanLayerFlags &flags, rdcarray<rdcstr> &myJSONs,
@@ -593,6 +602,13 @@ public:
   // manually through the renderdoc API with NULL device/window handles
   void AddDeviceFrameCapturer(void *dev, IFrameCapturer *cap);
   void RemoveDeviceFrameCapturer(void *dev);
+
+  // Vulkan emulators can render and present through separate instances. Register capture-ready
+  // Vulkan devices here so a capture triggered on the presenting instance is mirrored to every
+  // rendering instance in the process.
+  void AddVulkanBridgeCapturer(IFrameCapturer *cap);
+  void RemoveVulkanBridgeCapturer(IFrameCapturer *cap);
+  bool IsVulkanBridgeCaptureReady(IFrameCapturer *primary);
 
   IFrameCapturer *MatchFrameCapturer(DeviceOwnedWindow devWnd);
 
@@ -736,6 +752,7 @@ private:
   VulkanLayerInstall m_VulkanInstall;
 
   rdcarray<ShutdownFunction> m_ShutdownFunctions;
+  rdcarray<EnvSetupFunction> m_EnvSetups;
 
   struct FrameCap
   {
@@ -754,6 +771,9 @@ private:
   std::map<DeviceOwnedWindow, FrameCap> m_WindowFrameCapturers;
   DeviceOwnedWindow m_ActiveWindow;
   std::map<void *, IFrameCapturer *> m_DeviceFrameCapturers;
+  rdcarray<IFrameCapturer *> m_VulkanBridgeCapturers;
+  PerformanceTimer m_VulkanBridgeCaptureTimer;
+  uint32_t m_VulkanBridgeEndDeferrals = 0;
 
   bool m_VendorExts[arraydim<VendorExtensions>()] = {};
 
@@ -780,6 +800,7 @@ private:
   SDObject *FindConfigSetting(const rdcstr &name);
 
   SDObject *m_Config = NULL;
+  bool m_ConfigLoadFailed = false;
 };
 
 struct DriverRegistration

@@ -31,9 +31,12 @@
 #include <QToolButton>
 #include "Code/Interface/QRDInterface.h"
 #include "Code/QRDUtils.h"
+#include "Code/TranslationManager.h"
+#include "Code/pyrenderdoc/PythonContext.h"
 #include "Styles/StyleData.h"
 #include "Widgets/OrderedListEditor.h"
 #include "Widgets/ReplayOptionsSelector.h"
+#include "Windows/AI/AIAssistant.h"
 #include "CaptureDialog.h"
 #include "ConfigEditor.h"
 #include "ui_SettingsDialog.h"
@@ -44,6 +47,18 @@ SettingsDialog::SettingsDialog(ICaptureContext &ctx, QWidget *parent)
   ui->setupUi(this);
 
   m_Init = true;
+
+  // Store stable, untranslated values in itemData. Display strings can evolve independently and
+  // translated labels never leak into the persisted configuration.
+  ui->UILanguage->addItem(tr("Simplified Chinese"),
+                          TranslationManager::SimplifiedChineseSetting());
+  ui->UILanguage->addItem(tr("English"), TranslationManager::EnglishSetting());
+  ui->UILanguage->addItem(tr("Follow system language"), TranslationManager::SystemSetting());
+
+  const QString configuredLanguage =
+      TranslationManager::NormalizeSetting(m_Ctx.Config().UILanguage);
+  const int languageIndex = ui->UILanguage->findData(configuredLanguage);
+  ui->UILanguage->setCurrentIndex(languageIndex >= 0 ? languageIndex : 0);
 
   m_ReplayOptions = new ReplayOptionsSelector(m_Ctx, false, this);
 
@@ -138,6 +153,19 @@ SettingsDialog::SettingsDialog(ICaptureContext &ctx, QWidget *parent)
 
   ui->tabWidget->tabBar()->setVisible(false);
 
+  // AI connections belong in qrenderdoc's standard Settings surface. CreateBuiltinWindow keeps a
+  // newly-created assistant hidden (CaptureContext::setupDockWindow(..., true)); it does not open
+  // or switch tool windows. The assistant owns session-only credentials and provider lifecycle,
+  // while this dialog owns only the page widget's lifetime.
+  QWidget *assistantWidget = m_Ctx.CreateBuiltinWindow(lit("aiAssistant"));
+  if(assistantWidget)
+  {
+    AIAssistant *assistant = static_cast<AIAssistant *>(assistantWidget);
+    QWidget *aiPage = assistant->CreateSettingsPage(ui->tabWidget);
+    aiPage->setObjectName(lit("AIConnections"));
+    ui->tabWidget->addTab(aiPage, tr("AI"));
+  }
+
   for(int i = 0; i < ui->tabWidget->count(); i++)
     ui->pages->addItem(ui->tabWidget->tabText(i));
 
@@ -186,6 +214,7 @@ SettingsDialog::SettingsDialog(ICaptureContext &ctx, QWidget *parent)
 
   ui->deleteShaderTool->setEnabled(false);
   ui->editShaderTool->setEnabled(false);
+  ui->ShaderEditor_LanguageServer->setText(m_Ctx.Config().ShaderEditor_LanguageServer);
 
   ui->ExternalTool_RadeonGPUProfiler->setText(m_Ctx.Config().ExternalTool_RadeonGPUProfiler);
 
@@ -198,6 +227,8 @@ SettingsDialog::SettingsDialog(ICaptureContext &ctx, QWidget *parent)
   ui->TextureViewer_PerTexYFlip->setEnabled(ui->TextureViewer_PerTexSettings->isChecked());
 
   ui->AlwaysReplayLocally->setChecked(m_Ctx.Config().AlwaysReplayLocally);
+  ui->CaptureDialog_ShowMonitorScript->setChecked(m_Ctx.Config().CaptureDialog_ShowMonitorScript);
+  ui->CaptureDialog_ShowCustomInjectDLL->setChecked(m_Ctx.Config().CaptureDialog_ShowCustomInjectDLL);
 
   {
     const SDObject *getPaths = RENDERDOC_GetConfigSetting("DXBC.Debug.SearchDirPaths");
@@ -306,6 +337,13 @@ SettingsDialog::SettingsDialog(ICaptureContext &ctx, QWidget *parent)
   ui->EventBrowser_ApplyColors->setChecked(m_Ctx.Config().EventBrowser_ApplyColors);
   ui->EventBrowser_ColorEventRow->setChecked(m_Ctx.Config().EventBrowser_ColorEventRow);
 
+  ui->Python_DebugEnabled->setChecked(m_Ctx.Config().Python_DebugEnabled);
+  ui->Python_LaunchVSCode->setChecked(m_Ctx.Config().Python_LaunchVSCode);
+  ui->Python_PromptReloadUnchanged->setChecked(m_Ctx.Config().Python_PromptReloadUnchanged);
+
+  ui->Python_DebugPyDir->setText(m_Ctx.Config().Python_DebugPyDir);
+  ui->Python_VSCodePath->setText(m_Ctx.Config().Python_VSCodePath);
+
   ui->Comments_ShowOnLoad->setChecked(m_Ctx.Config().Comments_ShowOnLoad);
 
   ui->Formatter_MinFigures->setValue(m_Ctx.Config().Formatter_MinFigures);
@@ -372,6 +410,26 @@ void SettingsDialog::focusItem(QString item)
   }
 
   qCritical() << "Couldn't find" << item << "to focus on settings dialog";
+}
+
+void SettingsDialog::focusPage(QString page)
+{
+  for(int i = 0; i < ui->tabWidget->count(); i++)
+  {
+    QWidget *widget = ui->tabWidget->widget(i);
+    if(widget->objectName().compare(page, Qt::CaseInsensitive) == 0 ||
+       ui->tabWidget->tabText(i).compare(page, Qt::CaseInsensitive) == 0)
+    {
+      ui->tabWidget->setCurrentIndex(i);
+      ui->pages->setCurrentRow(i);
+      if(page.compare(lit("AI"), Qt::CaseInsensitive) == 0 ||
+         page.compare(lit("AIConnections"), Qt::CaseInsensitive) == 0)
+        resize(qMax(width(), 880), qMax(height(), 620));
+      return;
+    }
+  }
+
+  qCritical() << "Couldn't find settings page" << page;
 }
 
 void SettingsDialog::on_pages_itemSelectionChanged()
@@ -558,6 +616,30 @@ void SettingsDialog::on_AlwaysReplayLocally_toggled(bool checked)
   m_Ctx.Config().AlwaysReplayLocally = ui->AlwaysReplayLocally->isChecked();
 
   m_Ctx.Config().Save();
+}
+
+void SettingsDialog::updateCaptureDialogOptionalSettings()
+{
+  if(!m_Ctx.HasCaptureDialog())
+    return;
+
+  CaptureDialog *captureDialog = qobject_cast<CaptureDialog *>(m_Ctx.GetCaptureDialog()->Widget());
+  if(captureDialog)
+    captureDialog->UpdateOptionalSettingsVisibility();
+}
+
+void SettingsDialog::on_CaptureDialog_ShowMonitorScript_toggled(bool checked)
+{
+  m_Ctx.Config().CaptureDialog_ShowMonitorScript = checked;
+  m_Ctx.Config().Save();
+  updateCaptureDialogOptionalSettings();
+}
+
+void SettingsDialog::on_CaptureDialog_ShowCustomInjectDLL_toggled(bool checked)
+{
+  m_Ctx.Config().CaptureDialog_ShowCustomInjectDLL = checked;
+  m_Ctx.Config().Save();
+  updateCaptureDialogOptionalSettings();
 }
 
 void SettingsDialog::on_analyticsAutoSubmit_toggled(bool checked)
@@ -793,6 +875,126 @@ void SettingsDialog::on_browseRGPPath_clicked()
   m_Ctx.Config().Save();
 }
 
+void SettingsDialog::on_Python_StubPaths_clicked()
+{
+  QDialog listEditor;
+
+  listEditor.setWindowTitle(tr("Extra python stubs generation directories"));
+  listEditor.setWindowFlags(listEditor.windowFlags() & ~Qt::WindowContextHelpButtonHint);
+
+  OrderedListEditor list(tr("Stubs Directory"),
+                         OrderedItemExtras::BrowseFolder | OrderedItemExtras::Delete);
+
+  QVBoxLayout layout;
+  QDialogButtonBox okCancel;
+  okCancel.setStandardButtons(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
+  layout.addWidget(&list);
+  layout.addWidget(&okCancel);
+
+  QObject::connect(&okCancel, &QDialogButtonBox::accepted, &listEditor, &QDialog::accept);
+  QObject::connect(&okCancel, &QDialogButtonBox::rejected, &listEditor, &QDialog::reject);
+
+  listEditor.setLayout(&layout);
+
+  QStringList items;
+  for(const rdcstr &dir : m_Ctx.Config().Python_StubDirs)
+  {
+    items.append(dir);
+  }
+
+  list.setItems(items);
+
+  int res = RDDialog::show(&listEditor);
+
+  if(res)
+  {
+    items = list.getItems();
+
+    rdcarray<rdcstr> newDirs;
+    newDirs.resize(items.size());
+    for(int i = 0; i < items.size(); i++)
+    {
+      newDirs[i] = items[i];
+    }
+
+    if(newDirs.size() > m_Ctx.Config().Python_StubDirs.size())
+      PythonContext::GenerateStubs(newDirs);
+
+    m_Ctx.Config().Python_StubDirs = newDirs;
+
+    m_Ctx.Config().Save();
+  }
+}
+
+void SettingsDialog::on_Python_DebugPyDirBrowse_clicked()
+{
+  QString dir = RDDialog::getExistingDirectory(this, tr("Choose location of debugpy module"),
+                                               m_Ctx.Config().Python_DebugPyDir);
+
+  // i18n-ignore: Python module filename or VS Code executable name.
+  if(!dir.isEmpty() && QDir(dir).exists() && QDir(dir).exists(lit("__init__.py")))
+  {
+    m_Ctx.Config().Python_DebugPyDir = dir;
+    ui->Python_DebugPyDir->setText(dir);
+  }
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_Python_DebugPyDir_textEdited(const QString &dir)
+{
+  // i18n-ignore: Python module filename or VS Code executable name.
+  if((QDir(dir).exists() && QDir(dir).exists(lit("__init__.py"))) || dir.isEmpty())
+    m_Ctx.Config().Python_DebugPyDir = dir;
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_Python_VSCodePathBrowse_clicked()
+{
+  QString dir = RDDialog::getExecutableFileName(
+      this, tr("Choose location of code executable"),
+      // i18n-ignore: Python module filename or VS Code executable name.
+      m_Ctx.Config().Python_VSCodePath, lit("code"));
+
+  if(!dir.isEmpty() && QFileInfo(dir).isExecutable())
+  {
+    m_Ctx.Config().Python_VSCodePath = dir;
+    ui->Python_VSCodePath->setText(dir);
+  }
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_Python_VSCodePath_textEdited(const QString &path)
+{
+  if(QFileInfo(path).isExecutable() || path.isEmpty())
+    m_Ctx.Config().Python_DebugPyDir = path;
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_Python_DebugEnabled_toggled(bool checked)
+{
+  m_Ctx.Config().Python_DebugEnabled = ui->Python_DebugEnabled->isChecked();
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_Python_LaunchVSCode_toggled(bool checked)
+{
+  m_Ctx.Config().Python_LaunchVSCode = ui->Python_LaunchVSCode->isChecked();
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_Python_PromptReloadUnchanged_toggled(bool checked)
+{
+  m_Ctx.Config().Python_PromptReloadUnchanged = ui->Python_PromptReloadUnchanged->isChecked();
+
+  m_Ctx.Config().Save();
+}
+
 // texture viewer
 void SettingsDialog::on_TextureViewer_PerTexSettings_toggled(bool checked)
 {
@@ -817,7 +1019,8 @@ void SettingsDialog::on_TextureViewer_ChooseShaderDirectories_clicked()
   listEditor.setWindowTitle(tr("Custom shaders search directories"));
   listEditor.setWindowFlags(listEditor.windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
-  OrderedListEditor list(tr("Shaders Directory"), OrderedItemExtras::BrowseFolder);
+  OrderedListEditor list(tr("Shaders Directory"),
+                         OrderedItemExtras::BrowseFolder | OrderedItemExtras::Delete);
 
   QVBoxLayout layout;
   QDialogButtonBox okCancel;
@@ -852,6 +1055,8 @@ void SettingsDialog::on_TextureViewer_ChooseShaderDirectories_clicked()
     }
 
     m_Ctx.Config().TextureViewer_ShaderDirs = newDirs;
+
+    m_Ctx.Config().Save();
   }
 }
 
@@ -868,6 +1073,13 @@ void SettingsDialog::on_ShaderViewer_FriendlyNaming_toggled(bool checked)
   RENDERDOC_SetConfigSetting("DXBC.Disassembly.FriendlyNaming")->data.basic.b = checked;
 
   RENDERDOC_SaveConfigSettings();
+}
+
+void SettingsDialog::on_ShaderEditor_LanguageServer_editingFinished()
+{
+  m_Ctx.Config().ShaderEditor_LanguageServer =
+      ui->ShaderEditor_LanguageServer->text().trimmed();
+  m_Ctx.Config().Save();
 }
 
 void SettingsDialog::addProcessor(const ShaderProcessingTool &tool)
@@ -1411,5 +1623,18 @@ void SettingsDialog::on_UIStyle_currentIndexChanged(int index)
     m_Ctx.Config().SetStyle();
   }
 
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_UILanguage_currentIndexChanged(int index)
+{
+  if(m_Init || index < 0)
+    return;
+
+  const QString language = ui->UILanguage->itemData(index).toString();
+  if(language.isEmpty() || language == m_Ctx.Config().UILanguage)
+    return;
+
+  m_Ctx.Config().UILanguage = language;
   m_Ctx.Config().Save();
 }

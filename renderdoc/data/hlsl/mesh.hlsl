@@ -190,11 +190,17 @@ meshV2F RENDERDOC_MeshVS(meshA2V IN, uint vid : SV_VertexID)
   }
 
   OUT.pos = mul(pos, ModelViewProj);
-  OUT.pos.xy += SpriteSize.xy * 0.01f * psprite[vid % 4] * OUT.pos.w;
+  const uint corners[6] = {0, 1, 2, 2, 1, 3};
+  const bool componentPoint = SpriteSize.x < 0.0f;
+  const bool marker = componentPoint && vid >= componentSelectedVertices;
+  float2 sprite = psprite[componentPoint ? corners[vid % 6] : vid % 4];
+  OUT.pos.xy += abs(SpriteSize.xy) * (marker ? 0.0045f : 0.01f) * sprite * OUT.pos.w;
   OUT.norm = float3(0, 0, 1);
   OUT.secondary = IN.secondary;
 
-  if(vertMeshDisplayFormat == MESHDISPLAY_MESHLET)
+  if(componentPoint)
+    OUT.secondary = float4(sprite, marker ? 1.0f : 0.0f, 0.0f);
+  else if(vertMeshDisplayFormat == MESHDISPLAY_MESHLET)
     OUT.secondary = getMeshletColor(vid);
 
   return OUT;
@@ -269,6 +275,11 @@ float4 RENDERDOC_MeshPS(meshV2F IN)
 {
   uint type = MeshDisplayFormat;
 
+  if(type == MESHDISPLAY_POINT)
+  {
+    clip(1.0f - dot(IN.secondary.xy, IN.secondary.xy));
+    return float4(IN.secondary.z > 0.5f ? float3(0.32f, 0.58f, 0.72f) : MeshColour, 1);
+  }
   if(type == MESHDISPLAY_SECONDARY || type == MESHDISPLAY_MESHLET)
     return float4(IN.secondary.xyz, 1);
   else if(type == MESHDISPLAY_SECONDARY_ALPHA)

@@ -32,6 +32,7 @@
 #include <QThread>
 #include <QVariantMap>
 #include <QWaitCondition>
+#include <atomic>
 #include <functional>
 #include "Interface/QRDInterface.h"
 #include "QRDUtils.h"
@@ -64,9 +65,24 @@ public:
   // processed.
   // the manager processes only the request on the top of the queue, so when a new tagged invoke
   // comes in, we remove any other requests in the queue before it that have the same tag
-  void AsyncInvoke(const rdcstr &tag, InvokeCallback m);
-  void AsyncInvoke(InvokeCallback m);
-  void BlockInvoke(InvokeCallback m);
+  void AsyncInvoke(ReplayInvokeCallback m, rdcstr tag = "");
+  using IReplayManager::AsyncInvoke;
+  void BlockInvoke(ReplayInvokeCallback m);
+  // Compatibility names retained for Python. These report only a real
+  // selected/effective EID transition, not ordinary foreground maintenance.
+  bool HasPendingForegroundInvoke();
+  uint64_t GetForegroundInvokeGeneration();
+  // Internal idle scheduling: unlike capture-identity preemption, this includes ordinary panel
+  // reads and untagged parameter edits. Call from an executing background callback.
+  bool HasPendingNonBackgroundInvoke();
+  // Monotonically identifies the most recently dequeued callback (and therefore the current
+  // callback when queried on the replay thread). This is kept on the concrete manager rather than
+  // IReplayManager because it is an internal scheduling aid, not part of the extension/Python API.
+  uint64_t GetExecutingInvokeGeneration() const
+  {
+    return m_ExecutingInvokeGeneration.load(std::memory_order_acquire);
+  }
+  void BlockInvokeTagged(const rdcstr &tag, ReplayInvokeCallback m);
 
   void CancelReplayLoop();
 
@@ -104,7 +120,7 @@ public:
 private:
   struct InvokeHandle
   {
-    InvokeHandle(InvokeCallback m, const QString &t = QString())
+    InvokeHandle(ReplayInvokeCallback m, const QString &t = QString())
     {
       tag = t;
       method = m;
@@ -112,7 +128,7 @@ private:
     }
 
     QString tag;
-    InvokeCallback method;
+    ReplayInvokeCallback method;
     QSemaphore processed;
     bool selfdelete;
   };
@@ -126,12 +142,15 @@ private:
 
   QMutex m_RenderLock;
   QQueue<InvokeHandle *> m_RenderQueue;
+  uint64_t m_ForegroundInvokeGeneration = 0;
+  bool m_UserReplayContextInFlight = false;
+  std::atomic<uint64_t> m_ExecutingInvokeGeneration = {0};
   QWaitCondition m_RenderCondition;
 
   ICaptureFile *m_CaptureFile = NULL;
   IReplayController *m_Renderer = NULL;
 
-  void PushInvoke(InvokeHandle *cmd);
+  void PushInvoke(InvokeHandle *cmd, bool coalesceTag = false);
 
   QMutex m_RemoteLock;
   RemoteHost m_RemoteHost;
@@ -140,7 +159,7 @@ private:
 
   std::function<void()> m_FatalErrorCallback;
   ResultDetails m_FatalError = {ResultCode::Succeeded};
-  volatile bool m_Running;
+  std::atomic<bool> m_Running = {false};
   LambdaThread *m_Thread;
   ResultDetails m_CreateResult = {ResultCode::Succeeded};
 };

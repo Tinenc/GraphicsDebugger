@@ -1,0 +1,40 @@
+{
+  "status": "built-and-validated",
+  "version": "1.46.142",
+  "upstreamCommit": "57a71d58e37fde5b915625a0dd760162c7256f25",
+  "branch": "DF研究",
+  "head": "32de33ad275ecfc4e8dfe6548ce5955075c0c833",
+  "files": [
+    {
+      "path": "qTinecmaTool.exe",
+      "bytes": 43441664,
+      "sha256": "56d466bd74fde31b6fccddf952825d3d36f7df2c6fd831f3360b19e18856ffd8"
+    },
+    {
+      "path": "TinecmaTool.dll",
+      "bytes": 66044416,
+      "sha256": "60b1e983569c0f273f15e1834c6781d63882a1c47a42274f510332976f9220d7"
+    },
+    {
+      "path": "replaylab/replaylab-ai.exe",
+      "bytes": 116557175,
+      "sha256": "6dced69ec2bbf7b44190c125a0082e8d682bd695aadfcaed1b97bc892430ebda"
+    },
+    {
+      "path": "replaylab/BreadMCP.exe",
+      "bytes": 56011177,
+      "sha256": "c86a4cf0d777830be9ebdcdbe53d82efd1cc07786b4a8b18f2a364dda64fabe4"
+    },
+    {
+      "path": "replaylab/ReplayLabInternal.exe",
+      "bytes": 55464638,
+      "sha256": "f219ee57f8dcc387dc4540083f3018de53ced50ffd2b54fffe84853576c9252d"
+    },
+    {
+      "path": "replaylab/ReplayLabShaderTools.exe",
+      "bytes": 8685277,
+      "sha256": "02f3d94cced0c0557d69cd6149cc8ca6c6aaff6719737bbbb1d308711256cb45"
+    }
+  ],
+  "sharedExtensionSha256": "c82637e0bea259211546ae7f9b61db70c1fe576861c0124508ab20554a614c3f"
+}

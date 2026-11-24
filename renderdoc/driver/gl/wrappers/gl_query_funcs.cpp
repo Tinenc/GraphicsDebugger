@@ -25,6 +25,7 @@
 
 #include "../gl_driver.h"
 #include "common/common.h"
+#include "replay/replay_timing.h"
 #include "strings/string_utils.h"
 
 enum GLsyncbitfield
@@ -124,6 +125,7 @@ bool WrappedOpenGL::Serialise_glClientWaitSync(SerialiserType &ser, GLsync sync_
   if(IsReplayingAndReading() && GetResourceManager()->HasResource(sync))
   {
     GLResource res = GetResourceManager()->GetResource(sync);
+    ScopedReplayTimingSection timing(ReplayTimingSection::ExplicitWait);
     GL.glClientWaitSync(GetResourceManager()->GetSync(res.name), flags, timeout);
   }
 
@@ -160,6 +162,7 @@ bool WrappedOpenGL::Serialise_glWaitSync(SerialiserType &ser, GLsync sync_, GLbi
   if(IsReplayingAndReading() && GetResourceManager()->HasResource(sync))
   {
     GLResource res = GetResourceManager()->GetResource(sync);
+    ScopedReplayTimingSection timing(ReplayTimingSection::ExplicitWait);
     GL.glWaitSync(GetResourceManager()->GetSync(res.name), flags, timeout);
   }
 

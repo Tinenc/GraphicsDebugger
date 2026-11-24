@@ -24,10 +24,14 @@
 
 #pragma once
 
+#include <memory>
+
 #include "common/formatting.h"
 #include "common/timing.h"
 #include "core/gpu_address_range_tracker.h"
 #include "core/rdcbytetrie.h"
+#include "replay/replay_driver.h"
+#include "replay/replay_resource_versions.h"
 #include "serialise/serialiser.h"
 #include "vk_acceleration_structure.h"
 #include "vk_common.h"
@@ -61,7 +65,7 @@ struct VkInitParams
   uint64_t GetSerialiseSize();
 
   // check if a frame capture section version is supported
-  static const uint64_t CurrentVersion = 0x19;
+  static const uint64_t CurrentVersion = 0x20;
   static bool IsSupportedVersion(uint64_t ver);
 };
 
@@ -130,18 +134,71 @@ struct VkIndirectPatchData
   ResourceId commandBuffer;
 };
 
-struct VulkanActionTreeNode
+// Optional replay evidence must be bounded while it is produced, before action-tree copies or
+// final access-index construction. Charges are monotonic for this capture, including discarded
+// recordings: exhaustion permanently disables this proof rather than retrying at every draw.
+struct VulkanReplayBindingEvidenceBudget
 {
-  VulkanActionTreeNode() {}
-  explicit VulkanActionTreeNode(const ActionDescription &a) : action(a) {}
+  uint64_t storageBytes = 0, submittedWork = 0;
+  bool complete = true;
+
+  bool ReserveStorage(uint64_t count, uint64_t stride, uint64_t limit = 64ULL * 1024 * 1024)
+  {
+    return Reserve(storageBytes, count, stride, limit);
+  }
+  bool ReserveSubmittedWork(uint64_t count, uint64_t limit = 1000000)
+  {
+    return Reserve(submittedWork, count, 1, limit);
+  }
+
+private:
+  bool Reserve(uint64_t &used, uint64_t count, uint64_t stride, uint64_t limit)
+  {
+    if(!complete || used > limit || (stride && count > (limit - used) / stride))
+    {
+      complete = false;
+      return false;
+    }
+    used += count * stride;
+    return true;
+  }
+};
+
+struct VulkanEventNode
+{
+  VulkanEventNode() = default;
+  ~VulkanEventNode() = default;
+
+  // eventId is not used
+  APIEvent event;
+
   ActionDescription action;
-  rdcarray<VulkanActionTreeNode> children;
 
   VkIndirectPatchData indirectPatch;
 
-  rdcarray<rdcpair<ResourceId, EventUsage>> resourceUsage;
+  rdcarray<rdcpair<ResourceId, ResourceUsage>> resourceUsage;
 
-  rdcarray<ResourceId> executedCmds;
+  // Potential UBO inputs include every bound descriptor element, independent of reflection.
+  // EIDs are assigned only when this command-buffer recording is inserted into a submission.
+  // Immutable IDs and dynamic offsets only. Descriptor contents are still resolved separately
+  // for every real submission. Repeated/secondary/indirect tree copies share these snapshots.
+  typedef rdcarray<VulkanStatePipeline::DescriptorAndOffsets> ReplayDescriptorSnapshot;
+  std::shared_ptr<const ReplayDescriptorSnapshot> replayPatchDescriptorSets;
+  // All framebuffer attachments, including resolves/input attachments. This is a conservative
+  // physical write envelope, recorded before submission assigns the absolute execution EID.
+  std::shared_ptr<const rdcarray<ResourceId>> replayCheckpointAttachments;
+
+  const ReplayDescriptorSnapshot &ReplayPatchDescriptorSets() const
+  {
+    static const ReplayDescriptorSnapshot empty;
+    return replayPatchDescriptorSets ? *replayPatchDescriptorSets : empty;
+  }
+  const rdcarray<ResourceId> &ReplayCheckpointAttachments() const
+  {
+    static const rdcarray<ResourceId> empty;
+    return replayCheckpointAttachments ? *replayCheckpointAttachments : empty;
+  }
+
 
   struct DeferredResourceUsage
   {
@@ -152,59 +209,16 @@ struct VulkanActionTreeNode
   };
   rdcarray<DeferredResourceUsage> deferredResourceUsage;
 
-  VulkanActionTreeNode &operator=(const ActionDescription &a)
-  {
-    *this = VulkanActionTreeNode(a);
-    return *this;
-  }
+  // eventId is not used
+  rdcarray<DebugMessage> debugMessages;
+  rdcarray<PendingAnnotation> annotations;
 
-  void InsertAndUpdateIDs(const VulkanActionTreeNode &child, uint32_t baseEventID, uint32_t baseDrawID)
-  {
-    resourceUsage.reserve(child.resourceUsage.size());
-    for(size_t i = 0; i < child.resourceUsage.size(); i++)
-    {
-      resourceUsage.push_back(child.resourceUsage[i]);
-      resourceUsage.back().second.eventId += baseEventID;
-    }
-
-    children.reserve(child.children.size());
-    for(size_t i = 0; i < child.children.size(); i++)
-    {
-      children.push_back(child.children[i]);
-      children.back().UpdateIDs(baseEventID, baseDrawID);
-    }
-  }
-
-  void UpdateIDs(uint32_t baseEventID, uint32_t baseDrawID)
-  {
-    action.eventId += baseEventID;
-    action.actionId += baseDrawID;
-
-    for(APIEvent &ev : action.events)
-      ev.eventId += baseEventID;
-
-    for(size_t i = 0; i < resourceUsage.size(); i++)
-      resourceUsage[i].second.eventId += baseEventID;
-
-    for(size_t i = 0; i < children.size(); i++)
-      children[i].UpdateIDs(baseEventID, baseDrawID);
-  }
-
-  rdcarray<ActionDescription> Bake()
-  {
-    rdcarray<ActionDescription> ret;
-    if(children.empty())
-      return ret;
-
-    ret.resize(children.size());
-    for(size_t i = 0; i < children.size(); i++)
-    {
-      ret[i] = children[i].action;
-      ret[i].children = children[i].Bake();
-    }
-
-    return ret;
-  }
+  ResourceId cmdBufId;
+  ResourceId childCmdBufId;
+  bool addActionUse = false;
+  bool addSubmit = false;
+  bool startChildExecute = false;
+  bool endChildExecute = false;
 };
 
 #define SERIALISE_TIME_CALL(...)                                                                \
@@ -334,10 +348,6 @@ private:
   ScopedDebugMessageSink *GetDebugMessageSink();
   void SetDebugMessageSink(ScopedDebugMessageSink *sink);
 
-  // the messages retrieved for the current event (filled in Serialise_vk...() and read in
-  // AddEvent())
-  rdcarray<DebugMessage> m_EventMessages;
-
   // list of all debug messages by EID in the frame
   rdcarray<DebugMessage> m_DebugMessages;
   template <typename SerialiserType>
@@ -362,6 +372,9 @@ private:
 
   bool m_MarkedActive = false;
   uint32_t m_SubmitCounter = 0;
+  // Set atomically after at least one successful, non-empty queue submission during capture. This
+  // is independent of m_SubmitCounter, which is only a best-effort progress estimate.
+  int32_t m_BridgeSubmitSeen = 0;
 
   uint64_t threadSerialiserTLSSlot;
 
@@ -579,6 +592,7 @@ private:
   bool m_DynColorWrite = false;
   bool m_DynVertexInput = false;
   bool m_DynAttachmentLoop = false;
+  bool m_DepthBiasControl = false;
   bool m_MultiView = false;
   bool m_MultiViewGeometryShaders = false;
   bool m_MeshQueries = false;
@@ -592,6 +606,7 @@ private:
   bool m_Maintenance9 = false;
   bool m_DescriptorBuffers = false;
   bool m_MultiviewPerViewViewports = false;
+  uint32_t m_PreciseFMAMask = 0;
 
   uint32_t m_RTCaptureReplayHandleSize = 0;
 
@@ -606,6 +621,10 @@ private:
 
   // the instance corresponding to this WrappedVulkan
   VkInstance m_Instance;
+  // Only application instances with an initialised logical device participate in emulator
+  // multi-instance capture bridging. RenderDoc's internal Android instance must stay excluded.
+  bool m_VulkanBridgeEligible = false;
+  bool m_VulkanBridgeRegistered = false;
   // the instance's dbg msg callback handle
   VkDebugReportCallbackEXT m_DbgReportCallback;
   VkDebugUtilsMessengerEXT m_DbgUtilsCallback;
@@ -693,6 +712,7 @@ private:
 
   GPUBuffer m_IndirectBuffer;
   size_t m_IndirectBufferSize = 0;
+  GPUBuffer m_IndirectBufferCB;
   VkCommandBuffer m_IndirectCommandBuffer = VK_NULL_HANDLE;
   bool m_IndirectDraw = false;
 
@@ -792,36 +812,33 @@ private:
     }
   };
 
-  // CommandBufferExecuteInfo tracks the position of the execution of a secondary command buffer
-  // relative to the beginning of the parent command buffer. At the end of a replay's initial
-  // loading stage, these are used to build the tree of CommandBufferNodes that track a command
-  // buffer execution's absolute position in the frame.
+  // CommandBufferExecuteInfo tracks the absolute position of the execution of a secondary command
+  // buffer. After baking the VulkanEventNodes into actions/events, these are used to build the tree
+  // of CommandBufferNodes that track a command buffer execution's absolute position in the frame.
   struct CommandBufferExecuteInfo
   {
     ResourceId cmdId = ResourceId();
-    uint32_t relPos = 0;
+    uint32_t eid = 0;
   };
 
   struct BakedCmdBufferInfo
   {
     BakedCmdBufferInfo()
-        : action(NULL),
-          eventCount(0),
+        : eventCount(0),
           curEventID(0),
-          actionCount(0),
           level(VK_COMMAND_BUFFER_LEVEL_PRIMARY),
           beginFlags(0),
           markerCount(0)
 
     {
     }
-    ~BakedCmdBufferInfo() { SAFE_DELETE(action); }
+    ~BakedCmdBufferInfo() {}
     rdcarray<APIEvent> curEvents;
-    rdcarray<DebugMessage> debugMessages;
-    rdcarray<VulkanActionTreeNode *> actionStack;
-    rdcarray<PendingAnnotation> annotations;
 
     rdcarray<VkIndirectRecordData> indirectCopies;
+    rdcarray<VulkanEventNode> eventNodes;
+    rdcarray<PendingAnnotation> pendingAnnotations;
+    rdcarray<ResourceId> executedCmds;
 
     uint32_t beginChunk = 0;
     uint32_t endChunk = 0;
@@ -832,8 +849,6 @@ private:
     bool inheritConditionalRendering = false;
 
     int markerCount;
-
-    rdcarray<rdcpair<ResourceId, EventUsage>> resourceUsage;
 
     VulkanRenderState state;
 
@@ -854,19 +869,14 @@ private:
     // vkCmdNextSubpass for valid barrier counting.
     int activeSubpass = 0;
 
-    // Is custom resolve active : when it is active the resolve target of the colour attachment is the output
-    bool customResolve;
-
     ResourceId GetPushDescriptorID(VkPipelineBindPoint bindpoint, uint32_t set)
     {
       return pushDescriptorID[bindpoint == VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR ? 2 : bindpoint][set];
     }
     ResourceId pushDescriptorID[3][64];
 
-    VulkanActionTreeNode *action;    // the root action to copy from when submitting
-    uint32_t eventCount;             // how many events are in this cmd buffer, for quick skipping
-    uint32_t curEventID;             // current event ID while reading or executing
-    uint32_t actionCount;            // similar to above
+    uint32_t eventCount;    // how many events are in this cmd buffer, for quick skipping
+    uint32_t curEventID;    // current event ID while replaying, not used during loading
 
     // the index in m_DescriptorBufferVersions for the current GPUBuffer containing the descriptor buffer snapshot
     uint32_t descBufVersionIdx = ~0U;
@@ -980,12 +990,6 @@ private:
   // determines whether we should track the open/close state of a renderpass.
   bool ShouldUpdateRenderpassActive(ResourceId cmdId, bool dynamicRendering = false);
 
-  // shifts the beginEvent of any command buffer nodes executed after targetEvent by eidShift.
-  // additionally updates the action and event counts for the corresponding BakedCmdBufferInfo.
-  // this function is used to account for events added by DrawIndirectCount calls
-  void ShiftSuccessiveCommandNodes(uint32_t targetEvent, uint32_t eidShift,
-                                   CommandBufferNode *current = NULL);
-
   // if we're replaying just a single action or a particular command
   // buffer subsection of command events, we don't go through the
   // whole original command buffers to set up the partial replay,
@@ -1053,15 +1057,18 @@ private:
     // with descriptor buffers, we also need to hold onto images and image views
     rdcarray<VkImage> DeadImages;
     rdcarray<VkImageView> DeadImageViews;
-  } m_DeviceAddressResources;
+
+    // image states are needed until the end of the capture, don't erase them until then
+    rdcarray<ResourceId> DeadImageStates;
+  } m_DeferredDestructResources;
 
   struct
   {
     rdcarray<VkDeviceMemory> DeadMemories;
     rdcarray<VkImage> DeadImages;
     rdcarray<VkImageView> DeadImageViews;
-  } m_InternalDeviceAddressResources;
-  Threading::CriticalSection m_DeviceAddressResourcesLock;
+  } m_InternalDeferredDestructResources;
+  Threading::CriticalSection m_DeferredDestructLock;
 
   // holds the current list of coherent mapped memory. Locked against concurrent use
   rdcarray<VkResourceRecord *> m_CoherentMaps;
@@ -1106,6 +1113,106 @@ private:
   std::map<ResourceId, LockingImageState> m_ImageStates;
   Threading::CriticalSection m_ImageStatesLock;
 
+  // Immutable capture upload sources, never rendered intermediate results. Raw Vulkan objects
+  // belong to this replay device and are retired after its shutdown barrier.
+  struct InitialUploadCache
+  {
+    struct Entry
+    {
+      VkBuffer source = VK_NULL_HANDLE;
+      VkDeviceSize offset = 0;
+      VkDeviceSize size = 0;
+      VkImage image = VK_NULL_HANDLE;
+      VkDeviceMemory allocation = VK_NULL_HANDLE;
+      rdcarray<VkBufferImageCopy> uploadRegions;
+      rdcarray<VkImageCopy> imageRegions;
+    };
+    bool initialized = false;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkDeviceSize capacity = 0, used = 0, available = 0;
+    std::map<ResourceId, Entry> entries;
+    std::set<ResourceId> rejected;
+  } m_InitialUploadCache;
+  VkBuffer InitialUploadSource(ResourceId id, const VkInitialContents &initial, VkCommandBuffer cmd,
+                               uint64_t restoreBytes, VkDeviceSize &sourceOffset);
+  void ReleaseInitialUploadCache();
+  bool RestoreInitialImage(ResourceId id, const VkInitialContents &initial, VkCommandBuffer cmd,
+                           VkImage destination, const rdcarray<VkBufferImageCopy> &regions,
+                           uint64_t restoreBytes);
+  bool m_InitialRestoreInFlight = false;
+  bool m_CapturedReplayWorkSubmitted = false;
+  bool m_AllowPreparedReplay = false;
+  bool m_PartialReplayInFlight = false;
+  bool m_PreparedWritesSafeForPartial = false;
+  uint32_t m_ActivePreparedModes = 0;
+  static uint32_t PreparedReplayModes();
+  uint32_t m_PreparedReplayEndEvent = 0;
+  struct FixedHostWriteProof
+  {
+    ResourceId memory;
+    uint64_t offset = 0, size = 0;
+    uint32_t eventId = 0;
+  };
+  std::map<uint64_t, FixedHostWriteProof> m_FixedHostWriteProofs;
+  void RecordFixedHostWriteProof(ReadSerialiser &ser, VkDeviceMemory memory, uint64_t offset,
+                                 uint64_t size);
+  void SkipOverwrittenInitialMemory(ResourceId memory, uint64_t limit,
+                                    Intervals<InitReqType> &requirements);
+  void DrainPreparedReplayBeforeMutation();
+  std::set<VkQueue> m_ReplayCapturedQueues;
+  std::map<ResourceId, Intervals<bool>> m_InitialRestoreHostRanges;
+  std::map<ResourceId, Intervals<bool>> m_InitialRestoreImageHostRanges;
+  VkFence m_InitialRestoreHostFence = VK_NULL_HANDLE;
+  bool m_InitialRestoreHostPrefixSubmitted = false;
+  void SubmitInitialRestoreHostPrefix();
+  bool CanDeferInitialRestore() const;
+  void WaitForCapturedFence(VkDevice device);
+  void WaitForInitialRestoreHostWrite(VkDeviceMemory memory, uint64_t offset, uint64_t size);
+  VkQueryPool m_RestoreTimingQueries = VK_NULL_HANDLE;
+  bool m_RestoreTimingPending = false;
+  void BeginRestoreGPUTiming();
+  void EndRestoreGPUTiming(VkCommandBuffer cmd);
+  void CollectRestoreGPUTiming();
+
+  // Immutable captured host updates; indexed by stream position, never by selected EID.
+  struct ReplayHostWrite
+  {
+    ResourceId memory;
+    uint64_t offset = 0, size = 0, streamBytes = 0, allocationBytes = 0;
+    VkBuffer upload = VK_NULL_HANDLE;
+    VkDeviceMemory allocation = VK_NULL_HANDLE;
+    rdcarray<VkBufferCopy> regions;
+  };
+  std::map<uint64_t, ReplayHostWrite> m_ReplayHostWrites;
+  uint64_t m_ReplayHostWriteBytes = 0;
+  bool ReplayCachedHostWrite(ReadSerialiser &ser, VkDeviceMemory memory, uint64_t offset,
+                             uint64_t size);
+  bool ReplayCachedHostWrite(WriteSerialiser &, VkDeviceMemory, uint64_t, uint64_t)
+  {
+    return false;
+  }
+  void ReleaseReplayHostWrites();
+
+  struct DecodedDescriptorWrites
+  {
+    VkDevice device = VK_NULL_HANDLE;
+    uint64_t bodyOffset = 0, streamBytes = 0;
+    DescUpdateTemplateApplication application;
+    ~DecodedDescriptorWrites() { Deserialise(application); }
+  };
+  std::map<uint64_t, std::unique_ptr<DecodedDescriptorWrites>> m_DecodedDescriptorWrites;
+  uint64_t m_DecodedDescriptorBytes = 0;
+  bool ReplayDecodedDescriptorWrites(ReadSerialiser &ser);
+  bool ReplayDecodedDescriptorWrites(WriteSerialiser &) { return false; }
+  void CacheDecodedDescriptorWrites(ReadSerialiser &ser, VkDevice device, uint64_t bodyOffset,
+                                    DescUpdateTemplateApplication &application);
+  void CacheDecodedDescriptorWrites(WriteSerialiser &, VkDevice, uint64_t,
+                                    DescUpdateTemplateApplication &)
+  {
+  }
+  void ClearDecodedDescriptorWrites();
+
   // find swapchain for an image
   std::map<RENDERDOC_WindowHandle, VkSwapchainKHR> m_SwapLookup;
   Threading::CriticalSection m_SwapLookupLock;
@@ -1116,6 +1223,160 @@ private:
   std::map<ResourceId, DescriptorSetInfo> m_DescriptorSetState;
   // data for a baked command buffer - its actions and events, ready to submit
   std::map<ResourceId, BakedCmdBufferInfo> m_BakedCmdBufferInfo;
+  struct ReplayPatchUpload
+  {
+    ReplayBufferPatch patch;
+    GPUBuffer upload;
+  };
+  rdcarray<ReplayPatchUpload *> m_ReplayBufferPatches;
+  rdcarray<ReplayBufferPatch> m_ReplayBufferMemoryPatches;
+  rdcarray<ReplayBufferPatchRange> m_ReplayBufferRestoreRanges;
+  std::map<ResourceId, Intervals<bool>> m_ReplayPatchRestoreMemory;
+  bool m_ReplayPatchCaptureChecked = false;
+  rdcstr m_ReplayPatchCaptureError;
+  std::map<ResourceId, uint32_t> m_ReplayPatchFirstReads;
+  struct ReplayPatchRead
+  {
+    ReplayBufferPatchRange range;
+    uint32_t eventId;
+  };
+  rdcarray<ReplayPatchRead> m_ReplayPatchReads;
+  ReplayResourceAccessIndex m_ReplayPatchReadIndex;
+  std::set<ResourceId> m_ReplayPatchReadIndexBuffers;
+  uint32_t m_ReplayPatchReadLastEvent = 0;
+  bool m_ReplayPatchReadsComplete = true;
+  rdcstr m_ReplayPatchReadEvidenceError;
+  VulkanReplayBindingEvidenceBudget m_ReplayBindingEvidenceBudget;
+  void InvalidateReplayBindingEvidence(const char *reason);
+  uint32_t m_ReplayPatchFirstAffectedEvent = 0;
+  uint32_t m_ReplayPatchAnchorEvent = 0;
+  bool m_ReplayPatchAnchorAttempted = false;
+  uint32_t m_ReplayPatchFirstConsumer = 0;
+  void RecordReplayPatchUniformInputs(VulkanEventNode &action, const VulkanStatePipeline &pipeline);
+  void RecordReplayDescriptorOffsets(rdcarray<VulkanStatePipeline::DescriptorAndOffsets> &sets,
+                                     ResourceId layout, uint32_t firstSet, uint32_t setCount,
+                                     uint32_t offsetCount, const uint32_t *offsets);
+  void RecordReplayPatchSubmittedReads(const VulkanEventNode &action, uint32_t event);
+  void PrepareReplayPatchReadIndex(const std::set<ResourceId> &validatedBuffers);
+  bool CanBuildReplayPatchAnchor(uint32_t target, rdcstr &reason);
+  rdcstr SetReplayBufferPatches(const rdcarray<ReplayBufferPatch> &patches);
+  void DestroyReplayBufferPatches();
+  void ApplyReplayBufferPatches(VkCommandBuffer cmd);
+  void ApplyReplayBufferMemoryPatches(VkDeviceMemory memory, uint64_t offset, void *data,
+                                      uint64_t size);
+  // Native resource versions and the CPU cursor for a bounded primary-command-buffer prefix.
+  // Kept separate from presentation snapshots: these are copied back into the original resources.
+  struct ReplayCheckpointContent
+  {
+    ~ReplayCheckpointContent();
+    const VkDevDispatchTable *dispatch = NULL;
+    VkDevice device = VK_NULL_HANDLE;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkBuffer sourceBuffer = VK_NULL_HANDLE;
+    VkImage sourceImage = VK_NULL_HANDLE;
+    uint64_t bytes = 0, copyBytes = 0;
+    bool populated = false, releaseSafe = true;
+  };
+  struct ReplayCheckpointResource
+  {
+    ResourceId source;
+    VkBuffer sourceBuffer = VK_NULL_HANDLE;
+    VkImage sourceImage = VK_NULL_HANDLE;
+    std::shared_ptr<ReplayCheckpointContent> version;
+    uint64_t copyBytes = 0;
+    ImageState imageState;
+    bool shared = false;
+  };
+  enum class ReplayCheckpointKind
+  {
+    PartialCommand,
+    FrameInitial,
+    CompletedSubmission,
+  };
+  struct ReplayCheckpoint
+  {
+    ReplayCheckpointKind kind = ReplayCheckpointKind::PartialCommand;
+    uint32_t eventId = 0;
+    uint64_t serial = 0;
+    // Conservative CPU ownership charge, admitted before copying any variable-sized state.
+    uint64_t metadataBytes = 0;
+    VulkanRenderState renderState;
+    rdcarray<CommandBufferNode> partialStack;
+    rdcflatmap<ResourceId, ImageState> cmdImageStates;
+    ResourceId lastCmdBuffer, pushCommandBuffer;
+    uint32_t curEventID = 0, activeSubpass = 0;
+    bool renderPassOpen = false;
+    rdcarray<VkImageMemoryBarrier> endBarriers;
+    rdcarray<ReplayCheckpointResource> resources;
+  };
+  ReplayCheckpointConfig m_CheckpointConfig;
+  ReplayCheckpointStats m_CheckpointStats;
+  rdcarray<ReplayCheckpointCandidate> m_CheckpointCandidates;
+  rdcarray<ReplayCheckpoint *> m_Checkpoints;
+  uint64_t m_CheckpointSerial = 0;
+  bool m_CheckpointCaptureSafe = false;
+  // Original capture usage is immutable after loading; edits add their mutable memory separately.
+  bool m_CheckpointWriteUsageCached = false;
+  std::set<ResourceId> m_CheckpointWrittenResources;
+  std::map<ResourceId, rdcarray<uint32_t>> m_CheckpointPhysicalWrites, m_CheckpointContentWrites;
+  std::map<ResourceId, std::weak_ptr<ReplayCheckpointContent>> m_CheckpointResidentVersions;
+  std::set<ResourceId> m_CheckpointHostWrittenUnits;
+  uint64_t m_CheckpointPhysicalWriteCount = 0;
+  bool m_CheckpointPhysicalWritesComplete = true, m_CheckpointWriteIndexPrepared = false;
+  bool m_CheckpointWriteIndexComplete = false;
+  rdcstr m_CheckpointWriteIndexReason;
+  void RecordReplayCheckpointAttachments(VulkanEventNode &action, const VulkanRenderState &state);
+  void RecordReplayCheckpointSubmittedWrites(const VulkanEventNode &action, uint32_t event);
+  void PrepareReplayCheckpointWriteIndex();
+  void ForgetReplayCheckpointWrites(uint32_t first, uint32_t last);
+  bool CanReuseReplayCheckpointContents(const ReplayCheckpointResource &resource) const;
+  bool DrainReplayCheckpointWork();
+  uint64_t ReplayCheckpointAllocatedBytes(const ReplayCheckpoint *pending = NULL) const;
+  // Actual submitted queues and complete VkSubmitInfo endpoints, gathered during loading. A
+  // queue family alone does not prove serial execution when more than one queue was used.
+  std::set<ResourceId> m_CheckpointSubmittedQueues;
+  std::set<uint32_t> m_CheckpointSubmissionEnds;
+  bool m_CheckpointSubmissionCaptureSafe = false;
+  bool m_CheckpointFileOrderReplay = false, m_CheckpointFileOrderFailed = false;
+  bool m_CheckpointSaveSubmissions = false;
+  ReplayCheckpoint *m_CheckpointFileOrderRestore = NULL;
+  uint32_t m_CheckpointSkippedSubmissions = 0, m_CheckpointExecutedSubmissions = 0;
+  void ConfigureReplayCheckpoints(const ReplayCheckpointConfig &config,
+                                  const rdcarray<ReplayCheckpointCandidate> &candidates);
+  void InvalidateReplayCheckpoints(uint32_t firstAffectedEvent = 0);
+  ReplayCheckpointStats GetReplayCheckpointStats();
+  void DestroyReplayCheckpoint(ReplayCheckpoint *checkpoint);
+  bool CheckReplayCheckpointCapture(rdcstr &reason);
+  bool CheckReplayCheckpointResourceReplacements();
+  bool ReplayCheckpointCandidateSelected(uint32_t eventId, ReplayCheckpointKind kind) const;
+  bool ReplayCheckpointIsPatchAnchor(uint32_t eventId, ReplayCheckpointKind kind) const;
+  bool CheckReplayCheckpointInterval(const ReplayCheckpoint &checkpoint, uint32_t target,
+                                     rdcstr *reason = NULL);
+  uint32_t RestoreReplayCheckpoint(uint32_t endEventID, ReplayLogType replayType);
+  void SaveReplayCheckpoint(uint32_t endEventID, ReplayLogType replayType,
+                            ReplayCheckpointKind kind = ReplayCheckpointKind::PartialCommand);
+  bool ReplayCheckpointSubmissionSkipped(uint32_t endEventID);
+  bool ReplayCheckpointIsProtected(const ReplayCheckpoint &checkpoint,
+                                   const ReplayCheckpoint &building) const;
+  bool CopyReplayCheckpointResources(ReplayCheckpoint &checkpoint, bool restore);
+  // One actual ordinary replay cursor. It owns no snapshots and is consumed on each request.
+  struct LiveForwardState
+  {
+    bool valid = false;
+    uint32_t eventId = 0, beginEvent = 0, pendingTarget = 0, subpass = 0;
+    uint64_t generation = 0, pendingGeneration = 0, completedGeneration = 0;
+    ResourceId commandBuffer, pushCommandBuffer, renderPass;
+    bool renderPassActive = false;
+    rdcstr reason = "noOrdinaryTarget";
+  } m_LiveForward;
+  void InvalidateLiveForward(const char *reason);
+  bool CanReplayLiveForward(uint32_t target, rdcstr &reason);
+  void CompleteLiveForwardTarget(uint32_t eventId);
+  void FinishLiveForwardRequest(uint32_t eventId, bool ordinaryRoot, bool ordinaryTarget,
+                                bool succeeded);
+
   // immutable creation data
   VulkanCreationInfo m_CreationInfo;
 
@@ -1179,6 +1440,7 @@ private:
   void PatchImageViewUsage(VkImageViewUsageCreateInfo *usage, VkFormat imgFormat,
                            VkSampleCountFlagBits samples);
   void PatchImageCreateInfo(VkImageCreateInfo *pInfo, VkFormat *newViewFormats);
+  void PatchStencilUsageInfo(VkImageCreateInfo *pInfo);
 
   VkIndirectPatchData FetchIndirectData(VkIndirectPatchType type, VkCommandBuffer commandBuffer,
                                         VkBuffer dataBuffer, VkDeviceSize dataOffset, uint32_t count,
@@ -1186,6 +1448,9 @@ private:
                                         VkDeviceSize counterOffset = 0);
   void ExecuteIndirectReadback(VkCommandBuffer commandBuffer,
                                const VkIndirectRecordData &indirectcopy);
+  void ReplayIndirectCB(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
+                        uint32_t countToReplay, uint32_t stride, uint32_t curEID,
+                        uint32_t baseEventID, VkIndirectPatchType type);
 
   WriteSerialiser &GetThreadSerialiser();
   template <typename SerialiserType>
@@ -1214,6 +1479,7 @@ private:
   void StartFrameCapture(DeviceOwnedWindow devWnd);
   bool EndFrameCapture(DeviceOwnedWindow devWnd);
   bool DiscardFrameCapture(DeviceOwnedWindow devWnd);
+  bool HasFrameCaptureWork() override { return Atomic::CmpExch32(&m_BridgeSubmitSeen, 0, 0) != 0; }
 
   ResourceId GetIDForUserObject(void *object);
   uint32_t SetObjectAnnotation(void *object, const char *key, RENDERDOC_AnnotationType valueType,
@@ -1246,16 +1512,20 @@ private:
 
   void ApplyInitialContents();
 
-  rdcarray<APIEvent> m_RootEvents, m_Events;
-  bool m_AddedAction;
+  rdcarray<APIEvent> m_Events;
+  VulkanEventNode m_LoadingEventNode;
+  rdcarray<VulkanEventNode> m_EventNodes;
+  bool m_AddedEventNode;
 
   SDObject *m_RootAnnotation = NULL;
 
   uint64_t m_CurChunkOffset;
   SDChunkMetaData m_ChunkMetadata;
-  uint32_t m_RootEventID, m_RootActionID;
+  uint32_t m_RootEventID;
   uint32_t m_FirstEventID, m_LastEventID;
   VulkanChunk m_LastChunk;
+
+  bool m_HasSubmit = false;
 
   ResourceId m_LastPresentedImage;
 
@@ -1266,8 +1536,6 @@ private:
   double m_DeferredTime = 0.0;
   RDResult m_FailedReplayResult = ResultCode::APIReplayFailed;
 
-  VulkanActionTreeNode m_ParentAction;
-
   bool m_LayersEnabled[VkCheckLayer_Max] = {};
 
   // in vk_<platform>.cpp
@@ -1275,8 +1543,9 @@ private:
                              const std::set<rdcstr> &supportedExtensions);
 
   bool PatchIndirectDraw(size_t drawIndex, uint32_t paramStride, VkIndirectPatchType type,
-                         ActionDescription &action, byte *&argptr, byte *argend);
-  void InsertActionsAndRefreshIDs(BakedCmdBufferInfo &cmdBufInfo);
+                         uint32_t chunkIndex, ActionDescription &action, byte *&argptr, byte *argend);
+  // insert the baked command buffer into the root events, resolving indirect and deferred actions
+  SDObject *InsertEventNodes(BakedCmdBufferInfo &cmdBufInfo);
   void AddReferencesForSecondaries(VkResourceRecord *record,
                                    rdcarray<VkResourceRecord *> &cmdsWithReferences,
                                    std::unordered_set<ResourceId> &refdIDs);
@@ -1297,16 +1566,6 @@ private:
 
   void DoSubmit(VkQueue queue, VkSubmitInfo2 submitInfo);
 
-  rdcarray<VulkanActionTreeNode *> m_ActionStack;
-
-  rdcarray<VulkanActionTreeNode *> &GetActionStack()
-  {
-    if(m_LastCmdBufferID != ResourceId())
-      return m_BakedCmdBufferInfo[m_LastCmdBufferID].actionStack;
-
-    return m_ActionStack;
-  }
-
   bool ProcessChunk(ReadSerialiser &ser, VulkanChunk chunk);
   RDResult ContextReplayLog(CaptureState readType, uint32_t startEventID, uint32_t endEventID,
                             bool partial);
@@ -1314,28 +1573,31 @@ private:
   void AddAction(const ActionDescription &a);
   void AddEvent();
 
-  void AddUsage(VulkanActionTreeNode &actionNode, rdcarray<DebugMessage> &debugMessages);
+  VulkanEventNode &GetLastEventNode()
+  {
+    rdcarray<VulkanEventNode> &eventNodes =
+        (m_LastCmdBufferID != ResourceId() ? m_BakedCmdBufferInfo[m_LastCmdBufferID].eventNodes
+                                           : m_EventNodes);
+    return eventNodes.back();
+  }
 
-  void AddUsageForDescriptorSets(VulkanActionTreeNode &actionNode,
-                                 rdcarray<DebugMessage> &debugMessages);
-  void AddUsageForDescriptorSetBind(VulkanActionTreeNode &actionNode,
-                                    rdcarray<DebugMessage> &debugMessages, uint32_t bindset,
-                                    uint32_t bind, ResourceUsage usage);
-  void AddUsageForDescriptorBuffers(VulkanActionTreeNode &actionNode,
-                                    rdcarray<DebugMessage> &debugMessages,
-                                    const VulkanActionTreeNode::DeferredResourceUsage &def);
-  void AddUsageForDescriptorBufferBind(VulkanActionTreeNode &actionNode,
-                                       rdcarray<DebugMessage> &debugMessages,
-                                       const VulkanActionTreeNode::DeferredResourceUsage &def,
+  void BakeEventNodes(ActionDescription &rootAction);
+
+  void AddUsage(VulkanEventNode &eventNode);
+  void AddUsageForDescriptorSets(VulkanEventNode &eventNode);
+  void AddUsageForDescriptorSetBind(VulkanEventNode &eventNode, uint32_t bindset, uint32_t bind,
+                                    ResourceUsage usage);
+  void AddUsageForDescriptorBuffers(VulkanEventNode &eventNode,
+                                    const VulkanEventNode::DeferredResourceUsage &def);
+  void AddUsageForDescriptorBufferBind(VulkanEventNode &eventNode,
+                                       const VulkanEventNode::DeferredResourceUsage &def,
                                        byte *descriptorBytes, size_t descriptorSize,
                                        DescriptorType type, uint32_t bindset, uint32_t bind,
                                        ResourceUsage usage);
-  void AddUsageForDescriptor(VulkanActionTreeNode &actionNode, const DescriptorSetSlot &slot,
+  void AddUsageForDescriptor(VulkanEventNode &eventNode, const DescriptorSetSlot &slot,
                              ResourceUsage usage);
 
-  void AddFramebufferUsage(VulkanActionTreeNode &actionNode, const VulkanRenderState &renderState);
-  void AddFramebufferUsageAllChildren(VulkanActionTreeNode &actionNode,
-                                      const VulkanRenderState &renderState);
+  void AddFramebufferUsage(VulkanEventNode &eventNode, const VulkanRenderState &renderState);
 
   // no copy semantics
   WrappedVulkan(const WrappedVulkan &) = delete;
@@ -1425,7 +1687,9 @@ public:
     m_State = CaptureState::StructuredExport;
   }
   void Shutdown();
-  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType);
+  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType,
+                 bool allowCheckpoints = false, bool ordinaryRoot = false,
+                 bool ordinaryTarget = false);
   void ReplayDraw(VkCommandBuffer cmd, const ActionDescription &action);
   RDResult ReadLogInitialisation(RDCFile *rdc, bool storeStructuredBuffers);
 
@@ -1436,6 +1700,16 @@ public:
     m_StoredStructuredData = m_StructuredFile = NULL;
     return ret;
   }
+  rdcarray<SDObject *> DetachAnnotations()
+  {
+    rdcarray<SDObject *> ret;
+    ret.swap(m_EventAnnotations);
+    for(auto it = m_Annotations.begin(); it != m_Annotations.end(); ++it)
+      ret.push_back(it->second);
+    m_Annotations.clear();
+    return ret;
+  }
+
   const APIEvent &GetEvent(uint32_t eventId);
   uint32_t GetMaxEID() { return m_Events.back().eventId; }
   const ActionDescription *GetAction(uint32_t eventId);
@@ -1506,7 +1780,8 @@ public:
   void AddPendingCommandBuffer(VkCommandBuffer cmd);
   void AddFreeCommandBuffer(VkCommandBuffer cmd);
   void SubmitCmds(VkSemaphore *unwrappedWaitSemaphores = NULL,
-                  VkPipelineStageFlags *waitStageMask = NULL, uint32_t waitSemaphoreCount = 0);
+                  VkPipelineStageFlags *waitStageMask = NULL, uint32_t waitSemaphoreCount = 0,
+                  VkFence unwrappedCompletionFence = VK_NULL_HANDLE);
   VkSemaphore GetNextSemaphore();
   void SubmitSemaphores();
   void FlushQ();
@@ -1565,6 +1840,7 @@ public:
   bool DynamicColorWrite() const { return m_DynColorWrite; }
   bool DynamicVertexInput() const { return m_DynVertexInput; }
   bool DynamicAttachmentLoop() const { return m_DynAttachmentLoop; }
+  bool DepthBiasControl() const { return m_DepthBiasControl; }
   bool MultiView() const { return m_MultiView; }
   bool MeshQueries() const { return m_MeshQueries; }
   bool TaskShaders() const { return m_TaskShaders; }
@@ -1578,6 +1854,7 @@ public:
   bool DescriptorBuffers() const { return m_DescriptorBuffers; }
   bool MultiViewGeometryShaders() const { return m_MultiViewGeometryShaders; }
   bool MultiviewPerViewViewports() const { return m_MultiviewPerViewViewports; }
+  uint32_t PreciseFMAMask() const { return m_PreciseFMAMask; }
   VulkanRenderState &GetRenderState() { return m_RenderState; }
   void SetActionCB(VulkanActionCallback *cb) { m_ActionCallback = cb; }
   void SetSubmitChain(void *submitChain) { m_SubmitChain = submitChain; }
@@ -1641,7 +1918,7 @@ public:
   LockedConstImageStateRef FindConstImageState(ResourceId id);
   LockedImageStateRef InsertImageState(VkImage wrappedHandle, ResourceId id, const ImageInfo &info,
                                        FrameRefType refType, bool *inserted = NULL);
-  bool EraseImageState(ResourceId id);
+  void EraseImageState(ResourceId id);
   void UpdateImageStates(const rdcflatmap<ResourceId, ImageState> &dstStates);
 
   inline ImageTransitionInfo GetImageTransitionInfo() const
@@ -3366,4 +3643,30 @@ public:
   // VK_EXT_custom_resolve
   IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdBeginCustomResolveEXT, VkCommandBuffer commandBuffer,
                                 const VkBeginCustomResolveInfoEXT *pBeginCustomResolveInfo);
+
+  // VK_NV_device_diagnostic_checkpoints
+  IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdSetCheckpointNV, VkCommandBuffer commandBuffer,
+                                const void *pCheckpointMarker);
+  void vkGetQueueCheckpointDataNV(VkQueue queue, uint32_t *pCheckpointDataCount,
+                                  VkCheckpointDataNV *pCheckpointData);
+  void vkGetQueueCheckpointData2NV(VkQueue queue, uint32_t *pCheckpointDataCount,
+                                   VkCheckpointData2NV *pCheckpointData);
+
+  // VK_EXT_depth_bias_control
+  IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdSetDepthBias2EXT, VkCommandBuffer commandBuffer,
+                                const VkDepthBiasInfoEXT *pDepthBiasInfo);
+
+  // VK_EXT_present_timing
+  VkResult vkGetPastPresentationTimingEXT(
+      VkDevice device, const VkPastPresentationTimingInfoEXT *pPastPresentationTimingInfo,
+      VkPastPresentationTimingPropertiesEXT *pPastPresentationTimingProperties);
+  VkResult vkGetSwapchainTimeDomainPropertiesEXT(
+      VkDevice device, VkSwapchainKHR swapchain,
+      VkSwapchainTimeDomainPropertiesEXT *pSwapchainTimeDomainProperties,
+      uint64_t *pTimeDomainsCounter);
+  VkResult vkGetSwapchainTimingPropertiesEXT(VkDevice device, VkSwapchainKHR swapchain,
+                                             VkSwapchainTimingPropertiesEXT *pSwapchainTimingProperties,
+                                             uint64_t *pSwapchainTimingPropertiesCounter);
+  VkResult vkSetSwapchainPresentTimingQueueSizeEXT(VkDevice device, VkSwapchainKHR swapchain,
+                                                   uint32_t size);
 };

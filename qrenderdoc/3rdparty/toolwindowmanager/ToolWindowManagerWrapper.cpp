@@ -157,7 +157,7 @@ void ToolWindowManagerWrapper::updateTitle()
     }
   }
 
-  setWindowTitle(QStringLiteral("Tool Window"));
+  setWindowTitle(tr("Tool Window"));
 }
 
 void ToolWindowManagerWrapper::closeEvent(QCloseEvent *event)

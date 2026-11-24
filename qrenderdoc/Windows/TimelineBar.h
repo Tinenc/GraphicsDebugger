@@ -47,6 +47,9 @@ public:
   void OnCaptureClosed() override;
   void OnSelectedEventChanged(uint32_t eventId) override {}
   void OnEventChanged(uint32_t eventId) override;
+  // Input position is independent of the last completed GPU replay.
+  void OnReplayNavigationRequested(uint32_t eventId);
+  void CancelReplayNavigation();
 
 protected:
   void mousePressEvent(QMouseEvent *e) override;
@@ -59,6 +62,40 @@ protected:
 
 private:
   ICaptureContext &m_Ctx;
+
+  // GUI-owned identity. Replay workers only carry a token and publish through the GUI thread.
+  struct UsageRequestState
+  {
+    struct Token
+    {
+      uint64_t serial, capture;
+      ResourceId resource;
+    };
+    uint64_t serial = 0, capture = 0;
+    ResourceId resource;
+    Token Begin(ResourceId id)
+    {
+      resource = id;
+      return {++serial, capture, id};
+    }
+    void Cancel() { ++serial; }
+    void CaptureChanged()
+    {
+      ++capture;
+      Cancel();
+      resource = ResourceId();
+    }
+    bool Publish(const Token &request, bool loaded, const QList<EventUsage> &events,
+                 QList<EventUsage> &destination) const
+    {
+      if(!loaded || request.serial != serial || request.capture != capture ||
+         request.resource != resource || resource == ResourceId())
+        return false;
+      destination = events;
+      return true;
+    }
+  } m_UsageRequests;
+  friend struct TimelineUsageRequestTestAccess;
 
   struct Marker
   {
@@ -75,8 +112,11 @@ private:
   QVector<Marker> m_RootMarkers;
   QVector<uint32_t> m_RootActions;
   QVector<uint32_t> m_Actions;
+  uint32_t m_DisplayedEventID = 0;
+  uint32_t m_NavigationEventID = 0;
+  bool m_NavigationPending = false;
 
-  ResourceId m_ID;
+  ResourceId m_HistoryID;
   QString m_HistoryTarget;
   QList<PixelModification> m_HistoryEvents;
 

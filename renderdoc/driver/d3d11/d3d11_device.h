@@ -539,6 +539,9 @@ private:
   D3D11InitParams m_InitParams;
   uint64_t m_SectionVersion;
   ReplayOptions m_ReplayOptions;
+  // Every native replay (including analysis callers bypassing D3D11Replay) changes the working
+  // context. An interactive cursor is usable only while this execution serial still matches.
+  uint64_t m_ReplayExecutionSerial = 0;
 
   ResourceId m_BBID;
 
@@ -781,7 +784,8 @@ public:
   }
   RDResult ReadLogInitialisation(RDCFile *rdc, bool storeStructuredBuffers);
   bool ProcessChunk(ReadSerialiser &ser, D3D11Chunk context);
-  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType);
+  bool ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType);
+  uint64_t GetReplayExecutionSerial() const { return m_ReplayExecutionSerial; }
 
   ////////////////////////////////////////////////////////////////
   // 'fake' interfaces

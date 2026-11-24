@@ -35,9 +35,21 @@
 #include "glslang/glslang/Public/ResourceLimits.h"
 #include "glslang/glslang/Public/ShaderLang.h"
 
+bool rdcspv::SupportsHLSL()
+{
+#ifdef ENABLE_HLSL
+  return true;
+#else
+  return false;
+#endif
+}
+
 rdcstr rdcspv::Compile(const rdcspv::CompilationSettings &settings, const rdcarray<rdcstr> &sources,
                        rdcarray<uint32_t> &spirv)
 {
+  if(settings.lang == rdcspv::InputLanguage::VulkanHLSL && !SupportsHLSL())
+    return "This glslang build does not include its HLSL frontend";
+
   if(settings.stage == rdcspv::ShaderStage::Invalid)
     return "Invalid shader stage specified";
 

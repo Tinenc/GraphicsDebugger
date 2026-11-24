@@ -29,17 +29,30 @@ class QStyle;
 
 namespace StyleData
 {
+// Stores only the source text during static initialisation, then translates on each UI access. This
+// avoids freezing theme labels before the application's translator has been installed and also
+// makes a later language refresh observe the current translator.
+struct TranslatableString
+{
+  explicit TranslatableString(const char *source) : sourceText(source) {}
+
+  operator QString() const;
+
+private:
+  const char *sourceText;
+};
+
 struct ThemeDescriptor
 {
-  ThemeDescriptor(const QString &id, const QString &name, const QString &desc,
+  ThemeDescriptor(const QString &id, const char *name, const char *desc,
                   std::function<QStyle *()> cr)
       : styleID(id), styleName(name), styleDescription(desc), creator(cr)
   {
   }
 
   QString styleID;
-  QString styleName;
-  QString styleDescription;
+  TranslatableString styleName;
+  TranslatableString styleDescription;
   std::function<QStyle *()> creator;
 };
 

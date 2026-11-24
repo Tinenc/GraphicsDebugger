@@ -38,6 +38,7 @@
 #include "common/formatting.h"
 #include "os/os_specific.h"
 #include "strings/string_utils.h"
+#include "core/core.h"
 
 // gives us an address to identify this dll with
 static int dllLocator = 0;
@@ -176,6 +177,10 @@ void GetLibraryFilename(rdcstr &selfName)
   wchar_t curFile[512] = {0};
   GetModuleFileNameW(GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll"), curFile, 511);
 
+  size_t dirLen = wcslen(curFile) - wcslen(TEXT(STRINGIZE(RDOC_BASE_NAME) ".dll"));
+  curFile[dirLen] = L'\0';
+  wcscat(curFile, TEXT(REMOTE_DLL_NAME));
+
   selfName = StringFormat::Wide2UTF8(curFile);
 }
 
@@ -281,12 +286,41 @@ rdcstr GetReplayAppFilename()
   GetModuleHandleEx(
       GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
       (LPCTSTR)&dllLocator, &hModule);
-  wchar_t curFile[512] = {0};
-  GetModuleFileNameW(hModule, curFile, 511);
+  wchar_t curFile[32768] = {0};
+  const DWORD length = GetModuleFileNameW(hModule, curFile, 32768);
+  if(length == 0 || length >= 32768)
+    return "";
 
   rdcstr path = StringFormat::Wide2UTF8(curFile);
   path = get_dirname(path);
-  rdcstr exe = path + "/qTinecmaTool.exe";
+  // Prefer this distribution's GUI before legacy names or installed file associations.
+  // A portable package must never launch another RenderDoc from the registry.
+  bool portable = false;
+  rdcarray<rdcstr> roots = {path};
+  if(strlower(get_basename(path)) == "x86")
+    roots.push_back(path + "/..");
+  for(const rdcstr &root : roots)
+  {
+    FILE *marker = FileIO::fopen(root + "/RenderDocBread.portable", FileIO::ReadBinary);
+    if(marker)
+    {
+      portable = true;
+      FileIO::fclose(marker);
+    }
+    for(const char *name : {"qTinecmaTool.exe", "RenderDocBread.exe", "q_render_soco_doc.exe"})
+    {
+      const rdcstr candidate = root + "/" + name;
+      FILE *file = FileIO::fopen(candidate, FileIO::ReadBinary);
+      if(file)
+      {
+        FileIO::fclose(file);
+        return candidate;
+      }
+    }
+  }
+  if(portable)
+    return "";
+  rdcstr exe = path + "/qrenderdoc.exe";
 
   FILE *f = FileIO::fopen(exe, FileIO::ReadBinary);
   if(f)
@@ -295,7 +329,7 @@ rdcstr GetReplayAppFilename()
     return exe;
   }
 
-  // if qrenderdoc.exe doesn't live in the same dir, we must be in x86/
+  // if the replay application doesn't live in the same dir, we must be in x86/
   // so look one up the tree.
   exe = path + "/../qTinecmaTool.exe";
 
@@ -386,8 +420,41 @@ rdcstr GetHomeFolderFilename()
   return ret;
 }
 
-rdcstr GetAppFolderFilename(const rdcstr &filename)
+rdcstr GetPlatformAppFolderFilename(const rdcstr &filename)
 {
+  // The replay DLL loads its configuration before the GUI reaches main(). Resolve the
+  // portable default here too, so that first load cannot read/write the ordinary profile.
+  // Explicit RENDERDOC_CONFIG_DIR overrides have already been handled by the shared wrapper.
+  if(RenderDoc::Inst().IsReplayApp())
+  {
+    rdcstr executable;
+    GetExecutableFilename(executable);
+    const rdcwstr marker =
+        StringFormat::UTF82Wide(get_dirname(executable) + "/RenderDocBread.portable");
+    const DWORD attributes = GetFileAttributesW(marker.c_str());
+    if(attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY))
+    {
+      rdcstr localData = Process::GetEnvVariable("LOCALAPPDATA");
+      if(localData.empty())
+      {
+        PWSTR localDataPath = NULL;
+        if(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DONT_VERIFY, NULL,
+                                        &localDataPath)) &&
+           localDataPath)
+          localData = StringFormat::Wide2UTF8(localDataPath);
+        CoTaskMemFree(localDataPath);
+      }
+      if(localData.empty() || IsRelativePath(localData))
+      {
+        RDCERR("Cannot resolve the portable configuration directory; refusing user-directory fallback");
+        exit(2);
+      }
+      rdcstr ret = localData + "/RenderDocBread/ui/" + filename;
+      CreateParentDirectory(ret);
+      return ret;
+    }
+  }
+
   PWSTR appDataPath = NULL;
   HRESULT hr = SHGetKnownFolderPath(
       FOLDERID_RoamingAppData, KF_FLAG_SIMPLE_IDLIST | KF_FLAG_DONT_UNEXPAND, NULL, &appDataPath);

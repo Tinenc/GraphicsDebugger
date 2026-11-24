@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE QPH>
+<QPH language="zh_CN">
+    <phrase><source>Vertex Shader</source><target>顶点着色器</target><definition>Graphics pipeline vertex stage.</definition></phrase>
+    <phrase><source>Pixel Shader</source><target>像素着色器</target><definition>Direct3D fragment-processing stage.</definition></phrase>
+    <phrase><source>Fragment Shader</source><target>片元着色器</target><definition>OpenGL/Vulkan fragment-processing stage.</definition></phrase>
+    <phrase><source>Compute Shader</source><target>计算着色器</target></phrase>
+    <phrase><source>Pipeline State</source><target>管线状态</target></phrase>
+    <phrase><source>Render Pass</source><target>渲染通道</target></phrase>
+    <phrase><source>Render Target</source><target>渲染目标</target></phrase>
+    <phrase><source>Framebuffer</source><target>帧缓冲</target></phrase>
+    <phrase><source>Texture</source><target>纹理</target></phrase>
+    <phrase><source>Buffer</source><target>缓冲区</target></phrase>
+    <phrase><source>Constant Buffer</source><target>常量缓冲区</target></phrase>
+    <phrase><source>Vertex Buffer</source><target>顶点缓冲区</target></phrase>
+    <phrase><source>Index Buffer</source><target>索引缓冲区</target></phrase>
+    <phrase><source>Sampler</source><target>采样器</target></phrase>
+    <phrase><source>Descriptor</source><target>描述符</target></phrase>
+    <phrase><source>Resource</source><target>资源</target></phrase>
+    <phrase><source>Subresource</source><target>子资源</target></phrase>
+    <phrase><source>Primitive</source><target>图元</target></phrase>
+    <phrase><source>Topology</source><target>拓扑</target></phrase>
+    <phrase><source>Viewport</source><target>视口</target></phrase>
+    <phrase><source>Scissor</source><target>裁剪矩形</target></phrase>
+    <phrase><source>Normal Map</source><target>法线贴图</target><definition>Do not use 正常贴图.</definition></phrase>
+    <phrase><source>Overdraw</source><target>过度绘制</target></phrase>
+    <phrase><source>Capture</source><target>捕获</target></phrase>
+    <phrase><source>Drawcall</source><target>绘制调用</target></phrase>
+    <phrase><source>Dispatch</source><target>调度</target></phrase>
+</QPH>

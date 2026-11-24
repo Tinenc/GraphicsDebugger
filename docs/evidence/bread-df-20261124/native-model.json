@@ -1,0 +1,50 @@
+{
+  "schema": "bread-rt-annotation-live/v1",
+  "ok": true,
+  "cases": [
+    {
+      "id": "df-circle-native",
+      "prompt": "这是圈选功能验收。请查看附带的原图和红圈标记图，用中文简述圈中可见的颜色和形状。调用只读捕获工具核对标记绑定的 EID，并给出可点击的事件链接。仅做这几项检查，不编辑 Shader、参数、资源或工程，不进行全帧分析，也不要委派子智能体。最后明确说明图片观察和工具证据各是什么。",
+      "annotationEID": 14,
+      "currentEIDAtSend": 13,
+      "sent": true,
+      "taskId": "b620efafb1fe4e59998be63706129a7f",
+      "events": "C:\\Users\\Administrator\\AppData\\Local\\ReplayLab\\ai-tasks\\b620efafb1fe4e59998be63706129a7f.jsonl",
+      "terminal": {
+        "schema": "replaylab-ai-task-event/v1",
+        "taskId": "b620efafb1fe4e59998be63706129a7f",
+        "kind": "completed",
+        "sequence": 41,
+        "timestampUnixMs": 1795517289167,
+        "backend": "codex-app-server",
+        "profile": "codex",
+        "summary": "**图片观察：**红圈圈住了三角形的中部，主要呈黄绿、橄榄色与棕黄色的平滑渐变，左下偏橙。圈内没有独立的圆形物体；红色圆环是标记。\n\n**工具证据：**只读检查确认捕获会话与附件一致，[EID 14](rdoc://event/14) 的颜色输出目标为 `BreadVerificationColor`（ResourceId 48），与标记引用一致。当前 UI 选中的是 EID 13，本次按附件指定的 EID 14 核对。\n\n未编辑 Shader、参数、资源或工程，未进行全帧分析，也未委派子智能体。",
+        "text": "",
+        "tool": "",
+        "data": {
+          "terminalStatus": "completed",
+          "completionScope": "agent-turn",
+          "acceptanceAuthority": "agent"
+        },
+        "deliveryId": "agent-ee454f742dc1f41c93c3d63553a6dab9"
+      },
+      "eventLinks": [
+        {
+          "url": "rdoc://event/14",
+          "eventId": 14,
+          "observedEventId": 14
+        }
+      ],
+      "eventLinksVerified": true,
+      "largeAttachmentsPersisted": {
+        "count": 2,
+        "payloadBytes": 36236
+      }
+    }
+  ],
+  "pid": 143176,
+  "phase": "links",
+  "draftEditKeepsOneChip": true,
+  "error": null,
+  "elapsedSeconds": 151.56200000000536
+}

@@ -23,9 +23,11 @@
  ******************************************************************************/
 
 #include "TimelineBar.h"
+#include <QApplication>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPointer>
 #include <QScrollBar>
 #include <QStylePainter>
 #include <QWheelEvent>
@@ -135,27 +137,39 @@ TimelineBar::~TimelineBar()
 
 void TimelineBar::HighlightResourceUsage(ResourceId id)
 {
-  m_ID = id;
+  const UsageRequestState::Token request = m_UsageRequests.Begin(id);
   m_UsageEvents.clear();
-  m_UsageTarget = m_Ctx.GetResourceName(id);
+  m_UsageTarget = id == ResourceId() ? QString() : QString(m_Ctx.GetResourceName(id));
 
-  m_Ctx.Replay().AsyncInvoke([this, id](IReplayController *r) {
-    rdcarray<EventUsage> usage = r->GetUsage(id);
+  if(id != ResourceId() && m_Ctx.IsCaptureLoaded())
+  {
+    const QPointer<TimelineBar> self(this);
+    // i18n-ignore: internal foreground replay-request coalescing tag, never shown to the user.
+    m_Ctx.Replay().AsyncInvoke(lit("TimelineBarUsage"), [self, request](IReplayController *r) {
+      const rdcarray<EventUsage> usage = r->GetUsage(request.resource);
+      QList<EventUsage> events;
+      events.reserve(int(usage.size()));
+      for(const EventUsage &event : usage)
+        events.push_back(event);
+      std::sort(events.begin(), events.end());
 
-    GUIInvoke::call(this, [this, usage]() {
-      for(const EventUsage &u : usage)
-        m_UsageEvents << u;
-      std::sort(m_UsageEvents.begin(), m_UsageEvents.end());
-      viewport()->update();
+      // Do not dereference a QWidget or its context on the replay thread. The application
+      // outlives replay shutdown; the weak window and request identity are checked on the GUI.
+      GUIInvoke::call(qApp, [self, request, events]() {
+        if(self && self->m_UsageRequests.Publish(request, self->m_Ctx.IsCaptureLoaded(), events,
+                                               self->m_UsageEvents))
+          self->viewport()->update();
+      });
     });
-  });
+  }
 
   viewport()->update();
 }
 
 void TimelineBar::HighlightHistory(ResourceId id, const rdcarray<PixelModification> &history)
 {
-  m_ID = id;
+  m_UsageRequests.Cancel();
+  m_HistoryID = id;
   m_HistoryTarget = QString();
   m_HistoryEvents.clear();
 
@@ -173,9 +187,13 @@ void TimelineBar::HighlightHistory(ResourceId id, const rdcarray<PixelModificati
 
 void TimelineBar::OnCaptureClosed()
 {
+  m_UsageRequests.CaptureChanged();
+  m_DisplayedEventID = 0;
+  m_NavigationEventID = 0;
+  m_NavigationPending = false;
   setWindowTitle(tr("Timeline"));
 
-  m_ID = ResourceId();
+  m_HistoryID = ResourceId();
   m_HistoryTarget = m_UsageTarget = QString();
   m_HistoryEvents.clear();
   m_UsageEvents.clear();
@@ -189,6 +207,10 @@ void TimelineBar::OnCaptureClosed()
 
 void TimelineBar::OnCaptureLoaded()
 {
+  m_UsageRequests.CaptureChanged();
+  m_DisplayedEventID = m_Ctx.CurEvent();
+  m_NavigationEventID = m_DisplayedEventID;
+  m_NavigationPending = false;
   uint32_t frameNumber = m_Ctx.FrameInfo().frameNumber;
 
   if(frameNumber != ~0U)
@@ -207,11 +229,39 @@ void TimelineBar::OnCaptureLoaded()
 
 void TimelineBar::OnEventChanged(uint32_t eventId)
 {
+  m_DisplayedEventID = eventId;
+  // A completed intermediate frame must not pull the input cursor away from a newer target.
+  if(!m_NavigationPending || m_NavigationEventID == eventId)
+  {
+    m_NavigationEventID = eventId;
+    m_NavigationPending = false;
+  }
+  setProperty("navigationCursorEvent", m_NavigationEventID);
   if(!m_HistoryTarget.isEmpty())
-    m_HistoryTarget = m_Ctx.GetResourceName(m_ID);
+    m_HistoryTarget = m_Ctx.GetResourceName(m_HistoryID);
   if(!m_UsageTarget.isEmpty())
-    m_UsageTarget = m_Ctx.GetResourceName(m_ID);
+    m_UsageTarget = m_Ctx.GetResourceName(m_UsageRequests.resource);
 
+  viewport()->update();
+}
+
+void TimelineBar::OnReplayNavigationRequested(uint32_t eventId)
+{
+  m_NavigationEventID = eventId;
+  // Even returning to the currently displayed EID can supersede an older replay in flight.
+  m_NavigationPending = true;
+  // Diagnostic identity for the actual painted cursor, independent of pipeline publication.
+  setProperty("navigationCursorEvent", m_NavigationEventID);
+  viewport()->update();
+}
+
+void TimelineBar::CancelReplayNavigation()
+{
+  if(!m_NavigationPending)
+    return;
+  m_NavigationPending = false;
+  m_NavigationEventID = m_Ctx.CurEvent();
+  setProperty("navigationCursorEvent", m_NavigationEventID);
   viewport()->update();
 }
 
@@ -335,7 +385,8 @@ void TimelineBar::mousePressEvent(QMouseEvent *e)
           if(it != m_HistoryEvents.begin() && (eid - (it - 1)->eventId) < (it->eventId - eid))
             it--;
 
-          m_Ctx.SetEventID({}, it->eventId, it->eventId);
+          m_Ctx.ScrubToEvent(it->eventId);
+          m_Ctx.EndScrub();
         }
 
         return;
@@ -353,7 +404,8 @@ void TimelineBar::mousePressEvent(QMouseEvent *e)
           if(it != m_UsageEvents.begin() && (eid - (it - 1)->eventId) < (it->eventId - eid))
             it--;
 
-          m_Ctx.SetEventID({}, it->eventId, it->eventId);
+          m_Ctx.ScrubToEvent(it->eventId);
+          m_Ctx.EndScrub();
         }
       }
 
@@ -363,23 +415,24 @@ void TimelineBar::mousePressEvent(QMouseEvent *e)
     if(!m_Actions.isEmpty() && m_dataArea.contains(m_lastPos))
     {
       uint32_t eid = eventAt(x);
-      auto it = std::find_if(m_Actions.begin(), m_Actions.end(), [eid](uint32_t d) {
-        if(d >= eid)
-          return true;
+      auto it = std::lower_bound(m_Actions.begin(), m_Actions.end(), eid);
 
-        return false;
-      });
-
+      // Grabbing the timeline starts an interactive scrub (fast, non-blocking). A plain click
+      // without a drag commits on mouse release; a drag scrubs continuously until release.
       if(it == m_Actions.end())
-        m_Ctx.SetEventID({}, m_Actions.back(), m_Actions.back());
+        m_Ctx.ScrubToEvent(m_Actions.back());
       else
-        m_Ctx.SetEventID({}, *it, *it);
+        m_Ctx.ScrubToEvent(*it);
     }
   }
 }
 
 void TimelineBar::mouseReleaseEvent(QMouseEvent *e)
 {
+  // If a scrub was in progress, asynchronously commit pipeline state and panel refresh for its
+  // final event. EndScrub does not block this mouse-release handler.
+  if(m_Ctx.IsScrubbing())
+    m_Ctx.EndScrub();
 }
 
 void TimelineBar::mouseMoveEvent(QMouseEvent *e)
@@ -401,15 +454,10 @@ void TimelineBar::mouseMoveEvent(QMouseEvent *e)
             !m_highlightingRect.contains(e->localPos()))
     {
       uint32_t eid = eventAt(x);
-      auto it = std::find_if(m_Actions.begin(), m_Actions.end(), [eid](uint32_t d) {
-        if(d >= eid)
-          return true;
-
-        return false;
-      });
+      auto it = std::lower_bound(m_Actions.begin(), m_Actions.end(), eid);
 
       if(it != m_Actions.end())
-        m_Ctx.SetEventID({}, *it, *it);
+        m_Ctx.ScrubToEvent(*it);
     }
   }
   else
@@ -612,7 +660,7 @@ void TimelineBar::paintEvent(QPaintEvent *e)
 
   // draw the current label and line
   {
-    uint32_t curEID = m_Ctx.CurEvent();
+    uint32_t curEID = m_NavigationEventID;
 
     currentRect.setLeft(offsetOf(curEID));
     currentRect.setWidth(
@@ -1000,7 +1048,7 @@ void TimelineBar::paintMarkers(QPainter &p, const QVector<Marker> &markers,
     path.addRoundedRect(r, 5, 5);
 
     p.setPen(QPen(palette().brush(QPalette::Text), 1.0));
-    p.fillPath(path, a == m_Ctx.CurEvent() ? Qt::green : Qt::blue);
+    p.fillPath(path, a == m_DisplayedEventID ? Qt::green : Qt::blue);
     p.drawPath(path);
   }
 
@@ -1080,3 +1128,81 @@ uint32_t TimelineBar::processActions(QVector<Marker> &markers, QVector<uint32_t>
 
   return maxEID;
 }
+
+#if ENABLE_UNIT_TESTS
+#include "3rdparty/catch/catch.hpp"
+
+struct TimelineUsageRequestTestAccess
+{
+  static void CheckPublication()
+  {
+    TimelineBar::UsageRequestState requests;
+    // Opaque IDs model two captured resources; the test does not create a replay device.
+    ResourceId a, b;
+    const uint64_t first = 1, second = 2;
+    memcpy(&a, &first, sizeof(a));
+    memcpy(&b, &second, sizeof(b));
+    const QList<EventUsage> older = {EventUsage(10, ResourceUsage::Unused)};
+    const QList<EventUsage> latest = {EventUsage(20, ResourceUsage::Unused),
+                                     EventUsage(30, ResourceUsage::Unused)};
+    QList<EventUsage> displayed;
+
+    SECTION("A to B to A rejects the old A even though the resource matches again")
+    {
+      const auto oldA = requests.Begin(a);
+      const auto oldB = requests.Begin(b);
+      const auto newA = requests.Begin(a);
+      CHECK_FALSE(requests.Publish(oldA, true, older, displayed));
+      CHECK_FALSE(requests.Publish(oldB, true, older, displayed));
+      CHECK(displayed.empty());
+      REQUIRE(requests.Publish(newA, true, latest, displayed));
+      REQUIRE(displayed.size() == 2);
+      CHECK(displayed[0].eventId == 20);
+      CHECK(displayed[1].eventId == 30);
+    }
+    SECTION("Repeated same-resource results replace rather than accumulate")
+    {
+      const auto old = requests.Begin(a);
+      REQUIRE(requests.Publish(old, true, older, displayed));
+      const auto newest = requests.Begin(a);
+      REQUIRE(requests.Publish(newest, true, latest, displayed));
+      CHECK_FALSE(requests.Publish(old, true, older, displayed));
+      REQUIRE(requests.Publish(newest, true, latest, displayed));
+      REQUIRE(displayed.size() == 2);
+      CHECK(displayed[0].eventId == 20);
+    }
+    SECTION("History changes and capture close cancel already completed queued results")
+    {
+      const auto historyPending = requests.Begin(a);
+      requests.Cancel();
+      CHECK_FALSE(requests.Publish(historyPending, true, older, displayed));
+      const auto closePending = requests.Begin(a);
+      CHECK_FALSE(requests.Publish(closePending, false, older, displayed));
+      requests.CaptureChanged();
+      const auto reopened = requests.Begin(a);
+      CHECK_FALSE(requests.Publish(closePending, true, older, displayed));
+      REQUIRE(requests.Publish(reopened, true, latest, displayed));
+      CHECK(displayed.size() == 2);
+    }
+    SECTION("Capture and resource identity are independent publication guards")
+    {
+      auto request = requests.Begin(a);
+      auto wrongCapture = request;
+      ++wrongCapture.capture;
+      CHECK_FALSE(requests.Publish(wrongCapture, true, latest, displayed));
+      auto wrongResource = request;
+      wrongResource.resource = b;
+      CHECK_FALSE(requests.Publish(wrongResource, true, latest, displayed));
+      request = requests.Begin(ResourceId());
+      CHECK_FALSE(requests.Publish(request, true, older, displayed));
+      CHECK(displayed.empty());
+    }
+  }
+};
+
+TEST_CASE("Timeline usage publishes only the latest resource request without duplicate markers",
+          "[timeline][publication]")
+{
+  TimelineUsageRequestTestAccess::CheckPublication();
+}
+#endif

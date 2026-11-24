@@ -1,0 +1,247 @@
+{
+  "operationId": "a10cd984debe475e8b95b679d3530be7",
+  "completed": true,
+  "restoreMode": "project-target-inventory",
+  "cache": {
+    "hit": false,
+    "reason": "verified-rdc-cache-miss: invalid-or-stale: RuntimeError: verified RDC restore omits or repeats a matched original Shader"
+  },
+  "inventoryCache": {
+    "hit": false,
+    "reason": "target-inventory-capture-session-changed",
+    "written": false
+  },
+  "inventoryScope": "target-raw-sha256",
+  "fullFrame": false,
+  "targetLookup": {
+    "observedTargetRawSha256s": [
+      "3340f49408cb6c4e0b7365cf529143346fb1a6e36e74c3763ed956dbdaa720a5",
+      "3c4afb434934308919e884efa26523f832807f2adc839d3a3754ceb559255205",
+      "96ce183dd38e8c5774101e9e4768fd7e368b5dd73e2f0dd477a6059cf9ee9e77",
+      "9cebc3b0057b57da268b1fe76b6ae75e04b51e75077c836400b5560da272ed90"
+    ],
+    "rawIdentitySearchComplete": true,
+    "targetInventoryComplete": true,
+    "targetRawSha256s": [
+      "3340f49408cb6c4e0b7365cf529143346fb1a6e36e74c3763ed956dbdaa720a5",
+      "3c4afb434934308919e884efa26523f832807f2adc839d3a3754ceb559255205",
+      "96ce183dd38e8c5774101e9e4768fd7e368b5dd73e2f0dd477a6059cf9ee9e77",
+      "9cebc3b0057b57da268b1fe76b6ae75e04b51e75077c836400b5560da272ed90"
+    ],
+    "unobservedTargetRawSha256s": []
+  },
+  "index": {
+    "present": false,
+    "read": true,
+    "warning": null,
+    "written": false
+  },
+  "realizedReceipts": {
+    "adoptedCurrentSession": 0,
+    "idempotentApplyResponses": 0,
+    "loadedFromIndex": 0,
+    "mutationsCreated": 3,
+    "persisted": 3,
+    "produced": 3,
+    "reusedValidation": 3,
+    "validatedForRouting": 0
+  },
+  "warnings": [],
+  "verifiedRdcCache": {
+    "hit": false,
+    "reason": "validated-content-snapshot",
+    "written": true
+  },
+  "editing": {
+    "attempted": 3,
+    "deferred": 0,
+    "enabled": 3,
+    "failed": 0,
+    "items": [
+      {
+        "captureBinding": {
+          "capturePath": "@CAPTURE@",
+          "captureSessionId": "96a62c8d8d32434096ebb403dba17965",
+          "instanceId": "25476-4299009be456463d8ba9d424765bc5b3"
+        },
+        "liveEditId": "abe4d938173a40b19785313323878707",
+        "startTiming": {
+          "failedPhase": "",
+          "phasesMs": {
+            "captureIdentity": 304.138,
+            "capturePreflight": 476.54,
+            "editorPublication": 3.683,
+            "nativeInventory": 102.412,
+            "nativeRecovery": 156.104,
+            "resumeValidation": 48.492,
+            "startAdmission": 1091.928,
+            "statusSnapshot": 373.187,
+            "watcherStart": 70.9,
+            "workspaceIdentity": 479.11
+          },
+          "totalMs": 1396.139
+        },
+        "status": "enabled",
+        "watchId": "329d1410499e4b779b7a6c40ae682798",
+        "workspaceId": "dccd87d1a0d0403088b9da673236a1d2",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/89f6cdd681caf74f8a6658fbd3723ba8eb94111b7a6900b76f20dfba2e7b7cd7"
+      },
+      {
+        "captureBinding": {
+          "capturePath": "@CAPTURE@",
+          "captureSessionId": "96a62c8d8d32434096ebb403dba17965",
+          "instanceId": "25476-4299009be456463d8ba9d424765bc5b3"
+        },
+        "liveEditId": "7e9d216ecda540118ea003fef0c1ef76",
+        "startTiming": {
+          "failedPhase": "",
+          "phasesMs": {
+            "captureIdentity": 102.402,
+            "capturePreflight": 478.591,
+            "editorPublication": 4.508,
+            "nativeInventory": 303.908,
+            "nativeRecovery": 357.591,
+            "resumeValidation": 48.414,
+            "startAdmission": 1312.954,
+            "statusSnapshot": 387.879,
+            "watcherStart": 72.381,
+            "workspaceIdentity": 481.12
+          },
+          "totalMs": 1415.425
+        },
+        "status": "enabled",
+        "watchId": "56dd7f13f404441cb1f3c3ea97c87445",
+        "workspaceId": "3cc2ce39e7bf4a3ebdcbc6aabcc477bd",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/1ea20dda08e7007e9d99d6c4b1d51adfd7cb09d0ab5a1becf36f1ccb767b31a5"
+      },
+      {
+        "captureBinding": {
+          "capturePath": "@CAPTURE@",
+          "captureSessionId": "96a62c8d8d32434096ebb403dba17965",
+          "instanceId": "25476-4299009be456463d8ba9d424765bc5b3"
+        },
+        "liveEditId": "38f8970e40a44cd09759558aaf187b2b",
+        "startTiming": {
+          "failedPhase": "",
+          "phasesMs": {
+            "captureIdentity": 202.703,
+            "capturePreflight": 585.67,
+            "editorPublication": 3.593,
+            "nativeInventory": 102.037,
+            "nativeRecovery": 157.262,
+            "resumeValidation": 48.784,
+            "startAdmission": 1255.674,
+            "statusSnapshot": 422.736,
+            "watcherStart": 74.085,
+            "workspaceIdentity": 588.627
+          },
+          "totalMs": 1458.459
+        },
+        "status": "enabled",
+        "watchId": "0b20a7548d2547dab6b6570c00eee06f",
+        "workspaceId": "af80f6bcf44d4e3bbea196397ddbd5b6",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/3071fcd062ab24e79c335791df4152cbb012cf6b729d1f2339459317510e86c5"
+      }
+    ]
+  },
+  "shaders": {
+    "applied": 3,
+    "attempted": 3,
+    "failed": 0,
+    "skipped": 1,
+    "items": [
+      {
+        "detail": "Saved source opened for editing; compile, validation and replay application remain pending",
+        "knowledgeId": "12eae68d5f579495a8c378dfddb598a5",
+        "knowledgeSourceSha256": "7f7717a41e452cbecd1d9a690d108fb2b1dca0c77dfffe2b5672a49f60f349fd",
+        "reason": "legacy-saved-organization-draft",
+        "resourceId": 1000000000000000728,
+        "source": "reuse-plan",
+        "stage": "fragment",
+        "status": "skipped",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/2e8aef0efc2edfdc5c02bbebcd501eade946858aff7c083166d3d46460db5f0b-recovery",
+        "workspaceSourceSha256": "7f7717a41e452cbecd1d9a690d108fb2b1dca0c77dfffe2b5672a49f60f349fd"
+      },
+      {
+        "candidateRawSha256": "8fb71bd7f350836587d99d7a88b1c1af03f234d8c00e2cbc2a1eed07d6b6de27",
+        "candidateRevision": 1,
+        "idempotentlyAdopted": false,
+        "knowledgeId": "41537008a6eb7084042a315c5e0200f5",
+        "localValidatedCandidate": false,
+        "pairValidationCache": {
+          "hit": true,
+          "written": true
+        },
+        "projectCandidateRawSha256": "",
+        "projectSourceSha256": "e2c519c27c92c8fa6d3ac3a4ac302b0df3eba050e6e76a97edf7d91616b6af3a",
+        "replacementId": "5adcbc4103c04bfe967b26d703e4e8c8",
+        "resourceId": 1000000000000000751,
+        "reusedValidation": true,
+        "source": "reuse-plan",
+        "sourcePreparationOnly": true,
+        "sourceSha256": "e2c519c27c92c8fa6d3ac3a4ac302b0df3eba050e6e76a97edf7d91616b6af3a",
+        "stage": "fragment",
+        "status": "applied",
+        "supersededLocalEdit": null,
+        "workspaceId": "dccd87d1a0d0403088b9da673236a1d2",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/89f6cdd681caf74f8a6658fbd3723ba8eb94111b7a6900b76f20dfba2e7b7cd7"
+      },
+      {
+        "candidateRawSha256": "740adf26008aff2dc7998b1b94decd20b51c0dc028022a9e3e5a743683cc6268",
+        "candidateRevision": 1,
+        "idempotentlyAdopted": false,
+        "knowledgeId": "2cbef5ce749b366d0e37aaf96583b2f0",
+        "localValidatedCandidate": false,
+        "pairValidationCache": {
+          "hit": true,
+          "written": true
+        },
+        "projectCandidateRawSha256": "",
+        "projectSourceSha256": "593cbe25a817b680426e34f3bb1f5551710b0824d26be6157a7fcfdb6433aab9",
+        "replacementId": "5ec57da872084c9382de873127ac4c0e",
+        "resourceId": 1000000000000000754,
+        "reusedValidation": true,
+        "source": "reuse-plan",
+        "sourcePreparationOnly": true,
+        "sourceSha256": "593cbe25a817b680426e34f3bb1f5551710b0824d26be6157a7fcfdb6433aab9",
+        "stage": "fragment",
+        "status": "applied",
+        "supersededLocalEdit": null,
+        "workspaceId": "3cc2ce39e7bf4a3ebdcbc6aabcc477bd",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/1ea20dda08e7007e9d99d6c4b1d51adfd7cb09d0ab5a1becf36f1ccb767b31a5"
+      },
+      {
+        "candidateRawSha256": "0d737d575ecf12f80bb5748946876a0b9ef6a1fe93f9de5ffa0c86bdb661a1ca",
+        "candidateRevision": 1,
+        "idempotentlyAdopted": false,
+        "knowledgeId": "71c5ecd044e3e631eae6a1a34237f107",
+        "localValidatedCandidate": false,
+        "pairValidationCache": {
+          "hit": true,
+          "written": true
+        },
+        "projectCandidateRawSha256": "",
+        "projectSourceSha256": "6ddca2a18cb59c313284973b75d9a76b6fd33d942db2664136af4d7532bac68b",
+        "replacementId": "a8dbb30cd534446e91d52a83136b09bc",
+        "resourceId": 1000000000000000760,
+        "reusedValidation": true,
+        "source": "reuse-plan",
+        "sourcePreparationOnly": true,
+        "sourceSha256": "6ddca2a18cb59c313284973b75d9a76b6fd33d942db2664136af4d7532bac68b",
+        "stage": "fragment",
+        "status": "applied",
+        "supersededLocalEdit": null,
+        "workspaceId": "af80f6bcf44d4e3bbea196397ddbd5b6",
+        "workspacePath": "@PROJECT@/workspaces/shaders/v2/3071fcd062ab24e79c335791df4152cbb012cf6b729d1f2339459317510e86c5"
+      }
+    ]
+  },
+  "materials": {
+    "attempted": 0,
+    "failed": 0,
+    "restored": 0,
+    "sessionIds": [],
+    "skipped": 0,
+    "items": []
+  }
+}

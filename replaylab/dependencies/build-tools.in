@@ -1,0 +1,4 @@
+# Build backends are deliberately locked with the runtime dependencies.
+# pip's isolated editable-build environment must not choose a newer backend.
+hatchling>=1.27,<2
+editables>=0.5,<1

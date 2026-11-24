@@ -63,12 +63,16 @@ public:
   ~BitcodeReader();
   BlockOrRecord ReadToplevelBlock();
   bool AtEndOfStream();
+  // An optional completeness veto for analyses that depend on absence of instructions.
+  // Existing parsing/disassembly behaviour is unchanged.
+  bool HasError() { return m_Error || b.IsErrored() || b.BitOffset() > b.BitLength(); }
 
   static bool Valid(const byte *bitcode, size_t length);
 
 private:
   BitReader b;
   size_t abbrevSize;
+  bool m_Error = false;
 
   void ReadBlockContents(BlockOrRecord &block);
   const AbbrevDesc &getAbbrev(uint32_t blockId, uint32_t abbrevID);

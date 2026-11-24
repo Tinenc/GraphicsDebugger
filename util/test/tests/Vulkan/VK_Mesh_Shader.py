@@ -51,44 +51,41 @@ class VK_Mesh_Shader(rdtest.TestCase):
 
         action = self.find_action("Mesh Shaders")
 
-        action = action.next
+        action = action.nextAction
         name = f"Pure Mesh Shader Test EID:{action.eventId}"
-        rdtest.log.begin_section(name)
-        self.controller.SetFrameEvent(action.eventId, False)
+        with rdtest.log.auto_section(name):
+            self.controller.SetFrameEvent(action.eventId, False)
 
-        x = 70
-        y = 240
-        
-        orgY = 0.65
-        color = [1.0, 0.0, 0.0, 1.0]
-        postms_ref = self.build_meshout_reference(orgY, color)
-        postms_data = self.get_postvs(action, rd.MeshDataStage.MeshOut, 0, action.numIndices)
-        self.check_mesh_data(postms_ref, postms_data)
-        self.check_debug_pixel(x, y)
-        rdtest.log.end_section(name)
+            x = 70
+            y = 240
+            
+            orgY = 0.65
+            color = [1.0, 0.0, 0.0, 1.0]
+            postms_ref = self.build_meshout_reference(orgY, color)
+            postms_data = self.get_postvs(action, rd.MeshDataStage.MeshOut, 0, action.numIndices)
+            self.check_mesh_data(postms_ref, postms_data)
+            self.check_debug_pixel(x, y)
 
         y -= 100
-        action = action.next
+        action = action.nextAction
         name = f"Task Shader with Local Payload EID:{action.eventId}"
-        rdtest.log.begin_section(name)
-        self.controller.SetFrameEvent(action.eventId, False)
+        with rdtest.log.auto_section(name):
+            self.controller.SetFrameEvent(action.eventId, False)
 
-        postts_ref = self.build_local_taskout_reference()
-        postts_data = self.get_task_data(action)
-        self.check_task_data(postts_ref, postts_data)
+            postts_ref = self.build_local_taskout_reference()
+            postts_data = self.get_task_data(action)
+            self.check_task_data(postts_ref, postts_data)
 
-        orgY = 0.0
-        color = [0.0, 0.0, 1.0, 1.0]
-        postms_ref = self.build_meshout_reference(orgY, color)
-        postms_data = self.get_postvs(action, rd.MeshDataStage.MeshOut, 0, action.numIndices)
-        self.check_mesh_data(postms_ref, postms_data)
-        self.check_debug_pixel(x, y)
-        rdtest.log.end_section(name)
+            orgY = 0.0
+            color = [0.0, 0.0, 1.0, 1.0]
+            postms_ref = self.build_meshout_reference(orgY, color)
+            postms_data = self.get_postvs(action, rd.MeshDataStage.MeshOut, 0, action.numIndices)
+            self.check_mesh_data(postms_ref, postms_data)
+            self.check_debug_pixel(x, y)
         
         name = f"Mesh Shader with Points output"
-
         with rdtest.log.auto_section(name):
-            action = action.next
+            action = action.nextAction
             self.controller.SetFrameEvent(action.eventId, False)
             x = 290
             y = 90
@@ -106,5 +103,7 @@ class VK_Mesh_Shader(rdtest.TestCase):
             postms_data = self.get_postvs(action, rd.MeshDataStage.MeshOut, 0, action.numIndices)
             self.check_mesh_data(postms_ref, postms_data)
             self.check_debug_pixel(x, y)
-            rdtest.log.end_section(name)
-            
+
+        with rdtest.log.auto_section("Checking Indirect Action Names"):
+            if not self.check_indirect_action_name_consistency(self.controller):
+                raise rdtest.TestFailureException("Indirect action parameters do not match its event parameters")

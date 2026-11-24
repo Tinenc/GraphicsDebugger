@@ -98,6 +98,14 @@
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
   </ItemDefinitionGroup>
+  <!-- Optional performance measurement with Development diagnostics and PDBs retained. -->
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Development' and '$(ReplayOptimizeDevelopment)'=='true'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="imagestate_tests.cpp" />
     <ClCompile Include="imgrefs_tests.cpp" />

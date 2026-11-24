@@ -1,5 +1,15 @@
 # TinecmaTools - RenderDoc 反作弊绕过工具集
 
+## DF + RenderDocBread 集成（1.46.142）
+
+此分支已移入原作者 RenderDocBread 的 Qt 编辑器、AI/MCP、Shader Workspace、CBuffer 编辑、帧流程及资源导出源码，并保留 DF 抓帧后端与原有相机诊断修改。使用 `run_bread.ps1` 启动独立的 `x64/BreadDevelopment/qTinecmaTool.exe`；完整构建入口为 `build_bread.ps1`。
+
+- [工程架构](docs/Bread_DF_工程架构.md)
+- [工具使用说明书](docs/Bread_DF_工具使用说明书.md)
+- [圈选分析与网格查看器：使用与本次更新](docs/Bread_DF_圈选分析与网格查看器_2026-11-24.md)
+- [首次集成验证报告（2026-11-16）](docs/Bread_DF_验证报告_2026-11-16.md)
+- [固定上游提交与移植边界](integrations/renderdoc-bread/UPSTREAM.md)
+
 本工具集提供了多种方法来绕过游戏反作弊系统对 RenderDoc 的检测,适用于图形开发、性能分析等合法用途。
 
 ## ⚠️ 免责声明

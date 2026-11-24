@@ -1,0 +1,51 @@
+{
+  "schema": "bread-shader-language-server/v1",
+  "provider": "slangd",
+  "version": "2026.20",
+  "platform": "windows-x86_64",
+  "license": "Apache-2.0 WITH LLVM-exception",
+  "release_url": "https://github.com/shader-slang/slang/releases/tag/v2026.20",
+  "archive_url": "https://github.com/shader-slang/slang/releases/download/v2026.20/slang-2026.20-windows-x86_64.zip",
+  "archive_api_url": "https://api.github.com/repos/shader-slang/slang/releases/assets/649551530",
+  "archive_size": 63658255,
+  "archive_sha256": "e6dd32bbddf1720ebb4e679d55e9635ce792865a5bd84f3d2cd9af28647c0174",
+  "install_subdirectory": "integrations/shader-language-server",
+  "files": [
+    {
+      "member": "bin/slangd.exe",
+      "destination": "slangd.exe",
+      "size": 254976,
+      "sha256": "0241607d061e8156b288a4b840311f20491d0b6818990e5d1d5b8aecb8f49c70"
+    },
+    {
+      "member": "bin/slang-compiler.dll",
+      "destination": "slang-compiler.dll",
+      "size": 26524672,
+      "sha256": "3fe9fca8bef7fab9cb6748b6e6e7d8f4abbfe2d7f7a8c863ba9253b9ba8ef0b1"
+    }
+  ],
+  "license_members": [
+    "LICENSE"
+  ],
+  "license_prefixes": [
+    "LICENSES/",
+    "third-party-notices/"
+  ],
+  "license_files": {
+    "LICENSE": "61f6d4d529404f6f8270c30bbe15d755157424cc83a1af563b4840adfd8b5466",
+    "LICENSES/Apache-2.0.txt": "9bf4e882bdd75e8d10fc788c53d0a787ef0f59cead1fe1f0878c240896fc8610",
+    "LICENSES/BSL-1.0.txt": "5adb64129956e45be2b27cba102d99425d82bcb81cf6c81c5a43f27c8959a097",
+    "LICENSES/CC-BY-4.0.txt": "4500200b91acb1324538d8e8f9665d5f4142d3f1c5cd9730564cf1895b6170f7",
+    "LICENSES/LLVM-exception.txt": "4e6a1c0b79241b02764099699f1dbd2c606d85b1fdf44037e3c60f32083ab549",
+    "LICENSES/LicenseRef-UOI-NCSA.txt": "5389e656edf87841e249ad249284553004e09c7dfb1304162ded06b1a39f5c0f",
+    "LICENSES/MIT.txt": "d62678ed4c712a4b33f043790f28b00a8d74986c3eba4e01b06f1ba767dcaabc",
+    "LICENSES/Unlicense.txt": "57eb25943fb7e6400920a434acc7fc2aed841b2a28cfdabc62306aa0e06198f0",
+    "third-party-notices/cmark-COPYING": "47b4663d595eeb98239946d9e964adba2660b0298c6699112100d34e6030dab3",
+    "third-party-notices/glslang-LICENSE.txt": "7d4c1655be3a4d99e8a4859335e28c8950f2e7f72dcf3eed3379846120f5bf47",
+    "third-party-notices/lz4-LICENSE": "8b58c446121a109ccf32edc094bba3010a3d85e4ee3702950db55e4d3e87736c",
+    "third-party-notices/mimalloc-LICENSE": "19c99805e7a44a34b297a75d1edea9985e300066dfc024d5c99d4236d4573b5d",
+    "third-party-notices/miniz-LICENSE": "0115478d567121238cf6cc1c0c361926cf07a49d9e4c9e66da97fac6a01646b3",
+    "third-party-notices/spirv-tools-LICENSE": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5",
+    "third-party-notices/unordered_dense-LICENSE": "55284952bd483a64a38f48069796b813da1085f1360d8d59cfbef6cce802868e"
+  }
+}

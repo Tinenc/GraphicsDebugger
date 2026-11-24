@@ -112,6 +112,7 @@ void D3D11Replay::CreateSOBuffers()
 
 void D3D11Replay::ClearPostVSCache()
 {
+  InvalidateLiveForward();
   for(auto it = m_PostVSData.begin(); it != m_PostVSData.end(); ++it)
   {
     SAFE_RELEASE(it->second.vsout.buf);
@@ -198,6 +199,10 @@ void D3D11Replay::InitPostVSBuffers(uint32_t eventId)
 {
   if(m_PostVSData.find(eventId) != m_PostVSData.end())
     return;
+
+  // This analysis issues native draws directly, rather than through Device::ReplayLog. A
+  // pipeline tracker restores bindings but cannot undo UAV side effects of the captured VS.
+  InvalidateLiveForward();
 
   D3D11PostVSData &ret = m_PostVSData[eventId];
 

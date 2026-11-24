@@ -22,11 +22,19 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
+#include <algorithm>
+#include <map>
+#include <set>
 #include "common/formatting.h"
 #include "core/settings.h"
 #include "strings/string_utils.h"
 #include "dxil_bytecode.h"
 #include "dxil_common.h"
+
+#if ENABLED(ENABLE_UNIT_TESTS)
+#include "catch/catch.hpp"
+#include "llvm_encoder.h"
+#endif
 
 namespace DXIL
 {
@@ -320,7 +328,7 @@ EntryPointInterface::ResourceBase::ResourceBase(ResourceClass resourceClass, con
     srv.shape = getival<ResourceKind>(md->children[(size_t)ResField::SRVShape]);
     srv.sampleCount = getival<uint32_t>(md->children[(size_t)ResField::SRVSampleCount]);
     srv.compType = ComponentType::Invalid;
-    srv.elementStride = ~0U;
+    srv.elementStride = (srv.shape == DXIL::ResourceKind::RawBuffer) ? 1 : ~0U;
     const Metadata *tags = md->children[(size_t)ResField::SRVTags];
     for(size_t t = 0; tags && t < tags->children.size(); t += 2)
     {
@@ -348,7 +356,7 @@ EntryPointInterface::ResourceBase::ResourceBase(ResourceClass resourceClass, con
     uav.rasterizerOrderedView =
         (getival<uint32_t>(md->children[(size_t)ResField::UAVRasterOrder]) == 1);
     uav.compType = ComponentType::Invalid;
-    uav.elementStride = ~0U;
+    uav.elementStride = (uav.shape == DXIL::ResourceKind::RawBuffer) ? 1 : ~0U;
     uav.samplerFeedback = SamplerFeedbackType::LastEntry;
     uav.atomic64Use = false;
 
@@ -1518,17 +1526,22 @@ rdcarray<ShaderEntryPoint> Program::GetEntryPoints()
       {
         ShaderEntryPoint entryPoint;
         entryPoint.name = entry->children[1]->str;
+        if(uint32_t(m_Type) < uint32_t(DXBC::ShaderType::Max) &&
+           m_Type != DXBC::ShaderType::Library)
+          entryPoint.stage = GetShaderStage(m_Type);
 
-        Metadata *tags = entry->children[4];
+        Metadata *tags = entry->children.size() > 4 ? entry->children[4] : NULL;
         if(tags)
         {
-          for(size_t i = 0; i < tags->children.size(); i += 2)
+          for(size_t i = 0; i + 1 < tags->children.size(); i += 2)
           {
             // 8 is the type tag
             if(getival<uint32_t>(tags->children[i]) == 8U)
             {
-              entryPoint.stage =
-                  GetShaderStage((DXBC::ShaderType)getival<uint32_t>(tags->children[i + 1]));
+              const uint32_t shaderType = getival<uint32_t>(tags->children[i + 1]);
+              if(shaderType < uint32_t(DXBC::ShaderType::Max) &&
+                 shaderType != uint32_t(DXBC::ShaderType::Library))
+                entryPoint.stage = GetShaderStage((DXBC::ShaderType)shaderType);
               break;
             }
           }
@@ -1663,7 +1676,7 @@ DXBC::Reflection *Program::BuildReflection()
       }
     }
     if(!Files.empty())
-      m_CompileFlags.flags.push_back({"preferSourceDebug", "1"});
+      m_SourceInfo = true;
   }
 
   if(dx.source.args && dx.source.args->children.size() == 1)
@@ -1825,6 +1838,593 @@ DXBC::Reflection *Program::BuildReflection()
   return refl;
 }
 
+static bool ReplayIntegerType(const Type *type, uint32_t width)
+{
+  return type && type->type == Type::Scalar && type->scalarType == Type::Int &&
+         type->bitWidth == width;
+}
+
+static bool ReplayConstantUInt(const Value *value, uint32_t width, uint32_t &out)
+{
+  const Constant *constant = value ? cast<Constant>(value) : NULL;
+  if(!constant || !ReplayIntegerType(constant->type, width) || constant->isUndef() ||
+     (!constant->isLiteral() && !constant->isNULL()) || constant->op != Operation::NoOp)
+    return false;
+  const uint64_t number = constant->isNULL() ? 0 : constant->getU64();
+  if(number > (width == 32 ? uint64_t(UINT_MAX) : ((1ULL << width) - 1)))
+    return false;
+  out = uint32_t(number);
+  return true;
+}
+
+static bool ReplayMetadataUInt(const Metadata *metadata, uint32_t &out)
+{
+  return metadata && metadata->isConstant && ReplayConstantUInt(metadata->value, 32, out);
+}
+
+static bool ReplayStructConstants(const Value *value, const char *name,
+                                   const rdcarray<uint32_t> &widths, rdcarray<uint32_t> &out)
+{
+  out.clear();
+  const Constant *constant = value ? cast<Constant>(value) : NULL;
+  const Type *type = constant ? constant->type : NULL;
+  if(!constant || constant->isUndef() || constant->op != Operation::NoOp || !type ||
+     type->type != Type::Struct || type->name != name || type->members.size() != widths.size())
+    return false;
+  for(size_t i = 0; i < widths.size(); i++)
+    if(!ReplayIntegerType(type->members[i], widths[i]))
+      return false;
+  // ResBind zeroinitializer is the ordinary finite SRV t0 binding, not missing metadata.
+  if(constant->isNULL())
+  {
+    out.resize(widths.size());
+    return true;
+  }
+  if(!constant->isCompound() || constant->getMembers().size() != widths.size())
+    return false;
+  for(size_t i = 0; i < widths.size(); i++)
+  {
+    uint32_t number = 0;
+    if(!ReplayConstantUInt(constant->getMembers()[i], widths[i], number))
+      return false;
+    out.push_back(number);
+  }
+  return true;
+}
+
+static bool ReplayHandleType(const Type *type)
+{
+  return type && type->type == Type::Struct && type->name == "dx.types.Handle";
+}
+
+static bool ReplayContainsHandle(const Type *type, std::set<const Type *> &visited)
+{
+  if(!type || !visited.insert(type).second)
+    return false;
+  if(ReplayHandleType(type))
+    return true;
+  if(ReplayContainsHandle(type->inner, visited))
+    return true;
+  for(const Type *member : type->members)
+    if(ReplayContainsHandle(member, visited))
+      return true;
+  return false;
+}
+
+static bool ReplayContainsHandle(const Type *type)
+{
+  std::set<const Type *> visited;
+  return ReplayContainsHandle(type, visited);
+}
+
+static bool ReplayFiniteBinding(uint32_t first, uint32_t count)
+{
+  return count && count != UINT_MAX && uint64_t(first) + count <= uint64_t(UINT_MAX) + 1;
+}
+
+static const char *ReplayFiniteMetadataBindings(const Metadata *entries, const Metadata *global,
+                                                 const rdcarray<Function *> &functions,
+                                                 rdcarray<ReplayRootBinding> &bindings)
+{
+  if(!entries || entries->children.size() != 1 || !entries->children[0] ||
+     entries->children[0]->children.size() != 5 || !entries->children[0]->children[0] ||
+     !entries->children[0]->children[0]->value)
+    return "sm66IncompleteEntryPoint";
+  const Function *entry = cast<Function>(entries->children[0]->children[0]->value);
+  if(!entry || entry->external ||
+     std::find(functions.begin(), functions.end(), entry) == functions.end())
+    return "sm66UnknownEntryFunction";
+  const Metadata *resources = entries->children[0]->children[3];
+  if((resources && (!global || global->children.size() != 1 || global->children[0] != resources ||
+                    resources->children.size() != 4)) ||
+     (!resources && global && (global->children.size() != 1 || global->children[0])))
+    return "sm66IncompleteResourceMetadata";
+  if(!resources)
+    return NULL;
+  for(uint32_t resourceClass = 0; resourceClass < 4; resourceClass++)
+  {
+    const Metadata *list = resources->children[resourceClass];
+    if(!list)
+      continue;
+    std::set<uint32_t> identifiers;
+    for(const Metadata *resource : list->children)
+    {
+      const uint32_t minimumFields[] = {9, 11, 8, 8};
+      ReplayRootBinding binding;
+      binding.resourceClass = ResourceClass(resourceClass);
+      uint32_t id = 0;
+      if(!resource || resource->children.size() < minimumFields[resourceClass] ||
+         !resource->children[1] ||
+         !ReplayMetadataUInt(resource->children[0], id) || !identifiers.insert(id).second ||
+         !ReplayMetadataUInt(resource->children[3], binding.space) ||
+         !ReplayMetadataUInt(resource->children[4], binding.first) ||
+         !ReplayMetadataUInt(resource->children[5], binding.count) ||
+         !ReplayFiniteBinding(binding.first, binding.count))
+        return "sm66IncompleteOrUnboundedResource";
+      bindings.push_back(binding);
+    }
+  }
+  return NULL;
+}
+
+static const char *ReplayFiniteRootCalls(const rdcarray<Function *> &functions,
+                                         const rdcarray<GlobalVar *> &globals,
+                                         const Metadata *entries, const Metadata *resources,
+                                         rdcarray<ReplayRootBinding> &bindings)
+{
+  bindings.clear();
+  rdcarray<ReplayRootBinding> declared;
+  const char *failure = ReplayFiniteMetadataBindings(entries, resources, functions, declared);
+  if(failure)
+    return failure;
+  for(const GlobalVar *global : globals)
+    if(!global || ReplayContainsHandle(global->type))
+      return "sm66GlobalHandleStorage";
+  std::map<const Value *, ReplayRootBinding> handles;
+  for(const Function *function : functions)
+  {
+    if(!function || !function->type || function->type->type != Type::Function ||
+       function->type->vararg)
+      return "sm66UnknownFunctionSignature";
+    const bool dxFunction = function->name.beginsWith("dx.op.");
+    const bool llvmNoMemory = function->name.beginsWith("llvm.dbg.") ||
+                              function->name.beginsWith("llvm.lifetime.") ||
+                              function->name.beginsWith("llvm.invariant.");
+    if(function->external)
+    {
+      if(!dxFunction && !llvmNoMemory)
+        return "sm66UnknownExternalFunction";
+      continue;
+    }
+    if(ReplayContainsHandle(function->type))
+      return "sm66HandleFunctionParameterOrReturn";
+    for(const Instruction *instruction : function->instructions)
+    {
+      if(!instruction || !instruction->type)
+        return "sm66UnknownInstructionType";
+      const bool producesHandle = ReplayContainsHandle(instruction->type);
+      if(instruction->op != Operation::Call)
+      {
+        if(producesHandle)
+          return "sm66UnknownHandleProducer";
+        for(const Value *argument : instruction->args)
+          if(argument && ReplayContainsHandle(argument->type))
+            return "sm66HandleOutsideIntrinsic";
+        continue;
+      }
+      const Function *called = instruction->getFuncCall();
+      if(!called || std::find(functions.begin(), functions.end(), called) == functions.end() ||
+         !called->type ||
+         called->type->type != Type::Function || called->type->vararg ||
+         called->type->inner != instruction->type ||
+         called->type->members.size() != instruction->args.size())
+        return "sm66UnknownCallTarget";
+      for(size_t i = 0; i < instruction->args.size(); i++)
+      {
+        const Value *argument = instruction->args[i];
+        if(!argument || argument->type != called->type->members[i])
+          return "sm66CallTypeMismatch";
+        if(ReplayContainsHandle(argument->type) &&
+           (!ReplayHandleType(argument->type) || handles.find(argument) == handles.end()))
+          return "sm66UnknownHandleArgument";
+      }
+      if(!called->external || !called->name.beginsWith("dx.op."))
+      {
+        if(producesHandle || ReplayContainsHandle(called->type))
+          return "sm66UnknownHandleCall";
+        continue;
+      }
+      uint32_t opcode = 0;
+      if(instruction->args.empty() || !ReplayConstantUInt(instruction->args[0], 32, opcode) ||
+         opcode > uint32_t(DXOp::IsHelperLane))
+        return "sm66UnknownDXILOpcode";
+      if(opcode == uint32_t(DXOp::CreateHandleFromHeap) ||
+         opcode == uint32_t(DXOp::CreateHandleForLib) || opcode == uint32_t(DXOp::CreateHandle))
+        return "sm66UnsupportedHandleOrigin";
+      if(opcode == uint32_t(DXOp::CreateHandleFromBinding))
+      {
+        rdcarray<uint32_t> bind;
+        if(called->name != "dx.op.createHandleFromBinding" || !ReplayHandleType(instruction->type) ||
+           instruction->args.size() != 4 ||
+           !ReplayStructConstants(instruction->args[1], "dx.types.ResBind", {32, 32, 32, 8}, bind) ||
+           !ReplayIntegerType(instruction->args[2]->type, 32) ||
+           !ReplayIntegerType(instruction->args[3]->type, 1) || bind[3] >= 4 || bind[1] == UINT_MAX ||
+           bind[0] > bind[1])
+          return "sm66InvalidConstantResBind";
+        const uint32_t count = bind[1] - bind[0] + 1;
+        bool matched = false;
+        for(const ReplayRootBinding &binding : declared)
+          if(uint32_t(binding.resourceClass) == bind[3] && binding.first == bind[0] &&
+             binding.count == count && binding.space == bind[2])
+          {
+            handles[instruction] = binding;
+            matched = true;
+            break;
+          }
+        if(!matched)
+          return "sm66ResBindMetadataMismatch";
+      }
+      else if(opcode == uint32_t(DXOp::AnnotateHandle))
+      {
+        rdcarray<uint32_t> properties;
+        if(called->name != "dx.op.annotateHandle" || !ReplayHandleType(instruction->type) ||
+           instruction->args.size() != 3 || handles.find(instruction->args[1]) == handles.end() ||
+           !ReplayStructConstants(instruction->args[2], "dx.types.ResourceProperties", {32, 32},
+                                    properties))
+          return "sm66UnknownAnnotatedHandle";
+        const ResourceKind kind = ResourceKind(properties[0] & 0xff);
+        if(kind <= ResourceKind::Unknown || kind > ResourceKind::FeedbackTexture2DArray)
+          return "sm66UnknownAnnotationKind";
+        const ResourceClass resourceClass = kind == ResourceKind::CBuffer ? ResourceClass::CBuffer :
+            kind == ResourceKind::Sampler ? ResourceClass::Sampler :
+            (properties[0] & (1U << 12)) ? ResourceClass::UAV : ResourceClass::SRV;
+        if(resourceClass != handles[instruction->args[1]].resourceClass)
+          return "sm66AnnotationClassMismatch";
+        handles[instruction] = handles[instruction->args[1]];
+      }
+      else if(producesHandle)
+      {
+        return "sm66UnknownHandleProducer";
+      }
+    }
+  }
+  bindings = std::move(declared);
+  return NULL;
+}
+
+const char *Program::GetReplayFiniteRootBindings(rdcarray<ReplayRootBinding> &bindings) const
+{
+  bindings.clear();
+  if(!m_ReplayParseComplete)
+    return "sm66IncompleteExecutableParse";
+  if(m_Major != 6 || m_Minor != 6 ||
+     (m_Type != DXBC::ShaderType::Vertex && m_Type != DXBC::ShaderType::Pixel &&
+      m_Type != DXBC::ShaderType::Compute))
+    return "sm66UnsupportedModelOrStage";
+  uint32_t entryMetadataCount = 0, resourceMetadataCount = 0;
+  for(const NamedMetadata *metadata : m_NamedMeta)
+  {
+    entryMetadataCount += metadata->name == "dx.entryPoints" ? 1U : 0U;
+    resourceMetadataCount += metadata->name == "dx.resources" ? 1U : 0U;
+  }
+  if(entryMetadataCount > 1 || resourceMetadataCount > 1)
+    return "sm66AmbiguousResourceMetadata";
+  if(!m_Aliases.empty() || m_directHeapAccessCount != 0)
+    return "sm66AliasedOrDirectHeapHandle";
+  return ReplayFiniteRootCalls(m_Functions, m_GlobalVars, GetMetadataByName("dx.entryPoints"),
+                               GetMetadataByName("dx.resources"), bindings);
+}
+
+#if ENABLED(ENABLE_UNIT_TESTS)
+TEST_CASE("DXIL finite root proof rejects executable records omitted by the parser",
+          "[dxil][replay][root-bindings]")
+{
+  using namespace LLVMBC;
+  for(uint32_t unknownAt = 0; unknownAt < 5; unknownAt++)
+  {
+    bytebuf bitcode;
+    {
+      BitcodeWriter writer(bitcode);
+      BitcodeWriter::Config config = {};
+      config.numTypes = 2;
+      config.numGlobalValues = 1;
+      config.maxGlobalType = 1;
+      writer.ConfigureSizes(config);
+      writer.BeginBlock(KnownBlock::MODULE_BLOCK);
+      writer.Record(ModuleRecord::VERSION, 1U);
+      writer.ModuleBlockInfo();
+      writer.BeginBlock(KnownBlock::TYPE_BLOCK);
+      writer.Record(TypeRecord::NUMENTRY, 2U);
+      writer.Record(TypeRecord::VOID);
+      writer.Record(TypeRecord::FUNCTION, rdcarray<uint64_t>({0, 0}));
+      writer.EndBlock();
+      writer.Record(ModuleRecord::FUNCTION, rdcarray<uint64_t>({1, 0, 0, 0, 0, 0}));
+      if(unknownAt == 1)
+        writer.Record(0x7fffU);
+      if(unknownAt == 2)
+      {
+        writer.BeginBlock(KnownBlock::CONSTANTS_BLOCK);
+        writer.Record(0x7fffU);
+        writer.EndBlock();
+      }
+      writer.BeginBlock(KnownBlock::FUNCTION_BLOCK);
+      writer.Record(FunctionRecord::DECLAREBLOCKS, 1U);
+      if(unknownAt == 3)
+        writer.Record(0x7fffU);
+      writer.Record(FunctionRecord::INST_RET);
+      writer.EndBlock();
+      writer.EndBlock();
+    }
+    if(unknownAt == 4)
+    {
+      // Remove the MODULE END_BLOCK word and make its declared size match the shortened input.
+      // BitReader returns zero at EOF, which resembles END_BLOCK, and snaps to the exact end;
+      // only its sticky error distinguishes this from a fully consumed valid module.
+      REQUIRE(bitcode.size() > 16);
+      bitcode.resize(bitcode.size() - sizeof(uint32_t));
+      const uint32_t rootLength = uint32_t((bitcode.size() - 12) / sizeof(uint32_t));
+      memcpy(bitcode.data() + 8, &rootLength, sizeof(rootLength));
+    }
+    ProgramHeader header = {};
+    header.ProgramVersion = 0x66;
+    header.ProgramType = uint16_t(DXBC::ShaderType::Compute);
+    header.SizeInUint32 = uint32_t((sizeof(header) + bitcode.size()) / sizeof(uint32_t));
+    header.DxilMagic = MAKE_FOURCC('D', 'X', 'I', 'L');
+    header.DxilVersion = 0x106;
+    header.BitcodeOffset = uint32_t(sizeof(header) - offsetof(ProgramHeader, DxilMagic));
+    header.BitcodeSize = uint32_t(bitcode.size());
+    bytebuf executable;
+    executable.assign((const byte *)&header, sizeof(header));
+    executable.append(bitcode);
+    REQUIRE(Program::Valid(executable.data(), executable.size()));
+    Program program(executable.data(), executable.size());
+    rdcarray<ReplayRootBinding> bindings;
+    const char *reason = program.GetReplayFiniteRootBindings(bindings);
+    REQUIRE(reason != NULL);
+    CHECK(rdcstr(reason) == (unknownAt ? "sm66IncompleteExecutableParse" :
+                                      "sm66IncompleteEntryPoint"));
+    CHECK(bindings.empty());
+  }
+}
+
+// These are the actual parsed IR node classes consumed by the production analysis, not a list
+// of pre-labelled safe/unsafe booleans. Metadata and ResBind constants are deliberately separate.
+struct ReplayFiniteRootIRFixture
+{
+  BumpAllocator allocation;
+  Type i1, i8, i32, voidType, handleType, bindType, propsType;
+  Type entryType, createType, annotateType, storeType;
+  Constant op217, op216, op69, lower, upper, space, resourceClass, index, nonUniform, zero, mask;
+  Constant properties0, properties1, resBind, properties;
+  Constant metaID, metaSpace, metaFirst, metaCount;
+  Metadata idMD, spaceMD, firstMD, countMD, varMD, nameMD;
+  Metadata record, list, resources, global, entryValue, entryName, entry, entries;
+  Function entryFunction, createFunction, annotateFunction, storeFunction;
+  Instruction create, annotate, store, dynamicIndex;
+  rdcarray<Function *> functions;
+  rdcarray<GlobalVar *> globals;
+
+  static void IntegerType(Type &type, uint32_t width)
+  {
+    type.type = Type::Scalar;
+    type.scalarType = Type::Int;
+    type.bitWidth = width;
+  }
+  static void UInt(Constant &constant, const Type &type, uint32_t value)
+  {
+    constant.type = &type;
+    constant.setValue(value);
+  }
+  static void MetadataInteger(Metadata &metadata, Constant &constant)
+  {
+    metadata.isConstant = true;
+    metadata.value = &constant;
+  }
+  void FunctionType(Type &type, const Type &result, rdcarray<const Type *> parameters)
+  {
+    type.type = Type::Function;
+    type.inner = &result;
+    type.members = std::move(parameters);
+  }
+  void Call(Instruction &instruction, Function &function, rdcarray<Value *> arguments)
+  {
+    instruction.op = Operation::Call;
+    instruction.type = function.type->inner;
+    instruction.extra(allocation).funcCall = &function;
+    instruction.args = std::move(arguments);
+  }
+  ReplayFiniteRootIRFixture() : allocation(32768)
+  {
+    IntegerType(i1, 1);
+    IntegerType(i8, 8);
+    IntegerType(i32, 32);
+    voidType.type = Type::Scalar;
+    voidType.scalarType = Type::Void;
+    handleType.type = bindType.type = propsType.type = Type::Struct;
+    handleType.name = "dx.types.Handle";
+    bindType.name = "dx.types.ResBind";
+    bindType.members = {&i32, &i32, &i32, &i8};
+    propsType.name = "dx.types.ResourceProperties";
+    propsType.members = {&i32, &i32};
+    UInt(op217, i32, 217);
+    UInt(op216, i32, 216);
+    UInt(op69, i32, 69);
+    UInt(lower, i32, 4);
+    UInt(upper, i32, 11);
+    UInt(space, i32, 7);
+    UInt(resourceClass, i8, uint32_t(ResourceClass::UAV));
+    UInt(index, i32, 4);
+    UInt(nonUniform, i1, 1);
+    UInt(zero, i32, 0);
+    UInt(mask, i8, 15);
+    UInt(properties0, i32, (1U << 12) | uint32_t(ResourceKind::TypedBuffer));
+    UInt(properties1, i32, uint32_t(ComponentType::U32) | (1U << 8));
+    resBind.type = &bindType;
+    resBind.setCompound(allocation, {&lower, &upper, &space, &resourceClass});
+    properties.type = &propsType;
+    properties.setCompound(allocation, {&properties0, &properties1});
+    UInt(metaID, i32, 0);
+    UInt(metaSpace, i32, 7);
+    UInt(metaFirst, i32, 4);
+    UInt(metaCount, i32, 8);
+    MetadataInteger(idMD, metaID);
+    MetadataInteger(spaceMD, metaSpace);
+    MetadataInteger(firstMD, metaFirst);
+    MetadataInteger(countMD, metaCount);
+    nameMD.isString = true;
+    nameMD.str = "output";
+    record.children = {&idMD, &varMD, &nameMD, &spaceMD, &firstMD, &countMD,
+                        NULL, NULL, NULL, NULL, NULL};
+    list.children = {&record};
+    resources.children = {NULL, &list, NULL, NULL};
+    global.children = {&resources};
+    FunctionType(entryType, voidType, {});
+    FunctionType(createType, handleType, {&i32, &bindType, &i32, &i1});
+    FunctionType(annotateType, handleType, {&i32, &handleType, &propsType});
+    FunctionType(storeType, voidType,
+                 {&i32, &handleType, &i32, &i32, &i32, &i32, &i32, &i32, &i8});
+    entryFunction.name = "main";
+    entryFunction.type = &entryType;
+    createFunction.name = "dx.op.createHandleFromBinding";
+    createFunction.type = &createType;
+    createFunction.external = true;
+    annotateFunction.name = "dx.op.annotateHandle";
+    annotateFunction.type = &annotateType;
+    annotateFunction.external = true;
+    storeFunction.name = "dx.op.bufferStore.i32";
+    storeFunction.type = &storeType;
+    storeFunction.external = true;
+    Call(create, createFunction, {&op217, &resBind, &index, &nonUniform});
+    Call(annotate, annotateFunction, {&op216, &create, &properties});
+    Call(store, storeFunction, {&op69, &annotate, &index, &zero, &zero, &zero, &zero, &zero, &mask});
+    entryFunction.instructions = {&create, &annotate, &store};
+    functions = {&entryFunction, &createFunction, &annotateFunction, &storeFunction};
+    entryValue.value = &entryFunction;
+    entryName.isString = true;
+    entryName.str = "main";
+    entry.children = {&entryValue, &entryName, NULL, &resources, NULL};
+    entries.children = {&entry};
+    // A dynamically computed scalar index is allowed; the proof still retains all 8 UAVs.
+    dynamicIndex.type = &i32;
+    dynamicIndex.op = Operation::Add;
+    dynamicIndex.args = {&index, &zero};
+  }
+  ~ReplayFiniteRootIRFixture()
+  {
+    // Constant compound arrays and call extras live in the bump arena; release their owned
+    // members before freeing that arena, just as normal stack IR nodes release their arrays.
+    using Members = rdcarray<Value *>;
+    using Extra = Instruction::ExtraInstructionInfo;
+    const_cast<Members &>(resBind.getMembers()).~Members();
+    const_cast<Members &>(properties.getMembers()).~Members();
+    create.extra(allocation).~Extra();
+    annotate.extra(allocation).~Extra();
+    store.extra(allocation).~Extra();
+  }
+  const char *Analyse(rdcarray<ReplayRootBinding> &bindings)
+  {
+    return ReplayFiniteRootCalls(functions, globals, &entries, &global, bindings);
+  }
+};
+
+TEST_CASE("DXIL finite root proof uses real handle IR and complete metadata ranges",
+          "[dxil][replay][root-bindings]")
+{
+  ReplayFiniteRootIRFixture fixture;
+  rdcarray<ReplayRootBinding> bindings;
+  REQUIRE(fixture.Analyse(bindings) == NULL);
+  REQUIRE(bindings.size() == 1);
+  CHECK(bindings[0].resourceClass == ResourceClass::UAV);
+  CHECK(bindings[0].first == 4);
+  CHECK(bindings[0].space == 7);
+  CHECK(bindings[0].count == 8);
+  fixture.entryFunction.instructions.insert(0, &fixture.dynamicIndex);
+  fixture.create.args[2] = &fixture.dynamicIndex;
+  REQUIRE(fixture.Analyse(bindings) == NULL);
+  REQUIRE(bindings.size() == 1);
+  CHECK(bindings[0].count == 8);
+  fixture.metaFirst.setValue(5U);
+  CHECK(fixture.Analyse(bindings) != NULL);
+  CHECK(bindings.empty());
+  fixture.metaFirst.setValue(4U);
+  fixture.metaSpace.setValue(8U);
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.metaSpace.setValue(7U);
+  fixture.metaCount.setValue(7U);
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.metaCount.setValue(UINT_MAX);
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.metaCount.setValue(8U);
+  fixture.upper.setValue(UINT_MAX);
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.upper.setValue(11U);
+  fixture.resourceClass.setValue(uint32_t(ResourceClass::SRV));
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.resourceClass.setValue(uint32_t(ResourceClass::UAV));
+  fixture.resources.children[1] = NULL;
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.resources.children[1] = &fixture.list;
+  fixture.entry.children[3] = NULL;
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.entry.children[3] = &fixture.resources;
+  fixture.global.children.clear();
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.global.children = {&fixture.resources};
+  REQUIRE(fixture.Analyse(bindings) == NULL);
+}
+
+TEST_CASE("DXIL finite root proof rejects heap library and forged handle sources",
+          "[dxil][replay][root-bindings]")
+{
+  ReplayFiniteRootIRFixture fixture;
+  rdcarray<ReplayRootBinding> bindings;
+  for(uint32_t opcode : {218U, 160U, 57U, 999U})
+  {
+    fixture.op217.setValue(opcode);
+    CHECK(fixture.Analyse(bindings) != NULL);
+    CHECK(bindings.empty());
+  }
+  fixture.op217.setValue(217U);
+  fixture.createFunction.name = "dx.op.unknownHandle";
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.createFunction.name = "unknownExternal";
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.createFunction.name = "dx.op.createHandleFromBinding";
+  fixture.create.op = Operation::Phi;
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.create.op = Operation::Load;
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.create.op = Operation::Call;
+  Constant forged;
+  forged.type = &fixture.handleType;
+  forged.setNULL(true);
+  fixture.annotate.args[1] = &forged;
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.annotate.args[1] = &fixture.create;
+  fixture.properties0.setValue(uint32_t(ResourceKind::TypedBuffer));
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.properties0.setValue((1U << 12) | uint32_t(ResourceKind::TypedBuffer));
+  fixture.store.args[1] = &forged;
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.store.args[1] = &fixture.annotate;
+  fixture.entryType.members = {&fixture.handleType};
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.entryType.members.clear();
+  fixture.entryType.inner = &fixture.handleType;
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.entryType.inner = &fixture.voidType;
+  GlobalVar handleGlobal;
+  handleGlobal.type = &fixture.handleType;
+  fixture.globals = {&handleGlobal};
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.globals.clear();
+  fixture.lower.setUndef(true);
+  CHECK(fixture.Analyse(bindings) != NULL);
+  fixture.lower.setUndef(false);
+  REQUIRE(fixture.Analyse(bindings) == NULL);
+}
+#endif
+
 rdcstr Program::GetDebugStatus()
 {
   if((m_Type != DXBC::ShaderType::Vertex) && (m_Type != DXBC::ShaderType::Compute) &&
@@ -1875,7 +2475,7 @@ rdcstr Program::GetDebugStatus()
               case DXOp::TextureGatherRaw:
                 // Gather raw elements from 4 texels with no type conversions (SRV type is constrained)
 
-              // SM 6.8 : when SM6.8 is supporting by RenderDoc
+              // SM 6.8
               case DXOp::StartVertexLocation:
                 // SV_BaseVertexLocation
                 // BaseVertexLocation from DrawIndexedInstanced or StartVertexLocation from DrawInstanced
@@ -1884,6 +2484,10 @@ rdcstr Program::GetDebugStatus()
                 // StartInstanceLocation from Draw*Instanced
               case DXOp::BarrierByMemoryType:
               case DXOp::BarrierByMemoryHandle:
+
+              // SM 6.9 - could be used with normal vectors
+              case DXOp::RawBufferVectorLoad:
+              case DXOp::RawBufferVectorStore:
 
               // No plans to implement
 
@@ -1911,6 +2515,11 @@ rdcstr Program::GetDebugStatus()
               case DXOp::TempRegStore:
               case DXOp::MinPrecXRegLoad:
               case DXOp::MinPrecXRegStore:
+
+              // long vectors
+              case DXOp::VectorReduceAnd:
+              case DXOp::VectorReduceOr:
+              case DXOp::FDot:
 
               // Mesh Shaders
               case DXOp::SetMeshOutputCounts:
@@ -2005,6 +2614,35 @@ rdcstr Program::GetDebugStatus()
               case DXOp::RayQuery_CandidateInstanceContributionToHitGroupIndex:
               case DXOp::RayQuery_CommittedInstanceContributionToHitGroupIndex:
               case DXOp::GeometryIndex:
+              case DXOp::AllocateRayQuery2:
+              case DXOp::HitObject_TraceRay:
+              case DXOp::HitObject_FromRayQuery:
+              case DXOp::HitObject_FromRayQueryWithAttrs:
+              case DXOp::HitObject_MakeMiss:
+              case DXOp::HitObject_MakeNop:
+              case DXOp::HitObject_Invoke:
+              case DXOp::MaybeReorderThread:
+              case DXOp::HitObject_IsMiss:
+              case DXOp::HitObject_IsHit:
+              case DXOp::HitObject_IsNop:
+              case DXOp::HitObject_RayFlags:
+              case DXOp::HitObject_RayTMin:
+              case DXOp::HitObject_RayTCurrent:
+              case DXOp::HitObject_WorldRayOrigin:
+              case DXOp::HitObject_WorldRayDirection:
+              case DXOp::HitObject_ObjectRayOrigin:
+              case DXOp::HitObject_ObjectRayDirection:
+              case DXOp::HitObject_ObjectToWorld3x4:
+              case DXOp::HitObject_WorldToObject3x4:
+              case DXOp::HitObject_GeometryIndex:
+              case DXOp::HitObject_InstanceIndex:
+              case DXOp::HitObject_InstanceID:
+              case DXOp::HitObject_PrimitiveIndex:
+              case DXOp::HitObject_HitKind:
+              case DXOp::HitObject_ShaderTableIndex:
+              case DXOp::HitObject_SetShaderTableIndex:
+              case DXOp::HitObject_LoadLocalRootTableConstant:
+              case DXOp::HitObject_Attributes:
 
               // Workgraphs
               case DXOp::AllocateNodeOutputRecords:
@@ -2048,6 +2686,34 @@ rdcstr Program::GetDebugStatus()
           break;
         }
         default: break;
+      }
+    }
+  }
+
+  // Check the reflection for unbounded CBV resources
+  DXMeta dx(m_NamedMeta);
+  if(dx.resources)
+  {
+    RDCASSERTEQUAL(dx.resources->children.size(), 1);
+
+    const Metadata *resList = dx.resources->children[0];
+    RDCASSERTEQUAL(resList->children.size(), 4);
+
+    const Metadata *CBVs = resList->children[2];
+    if(CBVs)
+    {
+      for(const Metadata *r : CBVs->children)
+      {
+        uint32_t bindCount = getival<uint32_t>(r->children[(size_t)ResField::RegCount]);
+        if(bindCount == UINT32_MAX)
+        {
+          const rdcstr &name = r->children[(size_t)ResField::Name]->str;
+          uint32_t space = getival<uint32_t>(r->children[(size_t)ResField::Space]);
+          uint32_t regBase = getival<uint32_t>(r->children[(size_t)ResField::RegBase]);
+          return StringFormat::Fmt(
+              "Unsupported unbounded ConstantBuffer array '%s' Space:%d Register:%d", name.c_str(),
+              space, regBase);
+        }
       }
     }
   }

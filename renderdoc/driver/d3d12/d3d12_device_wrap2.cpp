@@ -26,18 +26,21 @@
 #include "core/settings.h"
 #include "driver/dxgi/dxgi_common.h"
 #include "driver/ihv/nv/nv_aftermath.h"
+#include "d3d12_commit_audit.inl"
 #include "d3d12_resources.h"
 
 RDOC_EXTERN_CONFIG(bool, Replay_Debug_SingleThreadedCompilation);
+RDOC_EXTERN_CONFIG(bool, D3D12_Hack_SuppressAGSRequirement);
 
 static RDResult DeferredPipelineCompile(ID3D12Device2 *device2,
                                         const D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC &Descriptor,
                                         WrappedID3D12PipelineState *wrappedPipe)
 {
+  D3D12CommitAudit compileAudit("pipelineCompile", 0, 0, 0, GetResID(wrappedPipe));
   D3D12_PACKED_PIPELINE_STATE_STREAM_DESC unwrappedDesc(Descriptor);
   unwrappedDesc.Unwrap();
 
-  ID3D12PipelineState *realPipe;
+  ID3D12PipelineState *realPipe = NULL;
   HRESULT hr = device2->CreatePipelineState(unwrappedDesc.AsDescStream(),
                                             __uuidof(ID3D12PipelineState), (void **)&realPipe);
 
@@ -329,15 +332,21 @@ HRESULT WrappedID3D12Device::CreatePipelineState(const D3D12_PIPELINE_STATE_STRE
            UsesExtensionUAV(expandedDesc.AS, reg, space) ||
            UsesExtensionUAV(expandedDesc.MS, reg, space))
         {
-          // don't set initparams until we've seen at least one shader actually created using the
-          // extensions.
-          m_InitParams.VendorExtensions = m_VendorEXT;
+          const bool suppressAGS = (m_VendorEXT == GPUVendor::AMD || m_VendorEXT == GPUVendor::Samsung) &&
+                                   D3D12_Hack_SuppressAGSRequirement();
 
-          // if this shader uses the UAV slot registered for vendor extensions, serialise that out
-          // too
-          SCOPED_SERIALISE_CHUNK(D3D12Chunk::SetShaderExtUAV);
-          Serialise_SetShaderExtUAV(ser, m_VendorEXT, reg, space, true);
-          vendorChunk = scope.Get();
+          if(!suppressAGS)
+          {
+            // don't set initparams until we've seen at least one shader actually created using the
+            // extensions.
+            m_InitParams.VendorExtensions = m_VendorEXT;
+
+            // if this shader uses the UAV slot registered for vendor extensions, serialise that out
+            // too
+            SCOPED_SERIALISE_CHUNK(D3D12Chunk::SetShaderExtUAV);
+            Serialise_SetShaderExtUAV(ser, m_VendorEXT, reg, space, true);
+            vendorChunk = scope.Get();
+          }
         }
       }
 

@@ -56,9 +56,18 @@ Q_DECLARE_METATYPE(GLVBIBTag);
 struct GLReadOnlyTag
 {
   GLReadOnlyTag() = default;
-  GLReadOnlyTag(uint32_t reg, ResourceId id) : reg(reg), ID(id) {}
+  GLReadOnlyTag(uint32_t reg, ResourceId id) : reg(reg), ID(id)
+  {
+    descriptor.resource = id;
+  }
+  GLReadOnlyTag(uint32_t reg, const Descriptor &desc)
+      : reg(reg), ID(desc.resource), descriptor(desc), hasDescriptor(true)
+  {
+  }
   uint32_t reg = 0;
   ResourceId ID;
+  Descriptor descriptor;
+  bool hasDescriptor = false;
 };
 
 Q_DECLARE_METATYPE(GLReadOnlyTag);
@@ -70,6 +79,19 @@ struct GLReadWriteTag
                  uint64_t offs, uint64_t sz)
       : readWriteType(readWriteType), rwIndex(index), reg(reg), ID(id), offset(offs), size(sz)
   {
+    descriptor.resource = id;
+  }
+  GLReadWriteTag(GLReadWriteType readWriteType, uint32_t index, uint32_t reg,
+                 const Descriptor &desc, uint64_t offs, uint64_t sz)
+      : readWriteType(readWriteType),
+        rwIndex(index),
+        reg(reg),
+        ID(desc.resource),
+        offset(offs),
+        size(sz),
+        descriptor(desc),
+        hasDescriptor(true)
+  {
   }
   GLReadWriteType readWriteType = GLReadWriteType::Atomic;
   uint32_t rwIndex = 0;
@@ -77,6 +99,8 @@ struct GLReadWriteTag
   ResourceId ID;
   uint64_t offset = 0;
   uint64_t size = 0;
+  Descriptor descriptor;
+  bool hasDescriptor = false;
 };
 
 Q_DECLARE_METATYPE(GLReadWriteTag);
@@ -595,6 +619,52 @@ ResourceId GLPipelineStateViewer::GetResource(RDTreeWidgetItem *item)
   return ResourceId();
 }
 
+bool GLPipelineStateViewer::GetTextureHistoryDetails(RDTreeWidgetItem *item,
+                                                     Subresource &subresource,
+                                                     CompType &typeCast)
+{
+  subresource = Subresource();
+
+  ResourceId resource = GetResource(item);
+  TextureDescription *tex = m_Ctx.GetTexture(resource);
+  if(tex == NULL)
+    return false;
+
+  typeCast = tex->format.compType;
+
+  QVariant tag = item->tag();
+  Descriptor descriptor;
+  bool hasDescriptor = false;
+  if(tag.canConvert<GLReadOnlyTag>())
+  {
+    const GLReadOnlyTag readOnly = tag.value<GLReadOnlyTag>();
+    if(readOnly.hasDescriptor)
+    {
+      descriptor = readOnly.descriptor;
+      hasDescriptor = true;
+    }
+  }
+  else if(tag.canConvert<GLReadWriteTag>())
+  {
+    const GLReadWriteTag readWrite = tag.value<GLReadWriteTag>();
+    if(readWrite.hasDescriptor)
+    {
+      descriptor = readWrite.descriptor;
+      hasDescriptor = true;
+    }
+  }
+
+  if(hasDescriptor && descriptor.resource == resource)
+  {
+    subresource.mip = descriptor.firstMip;
+    subresource.slice = descriptor.firstSlice;
+    typeCast = descriptor.format.compType;
+  }
+
+  subresource.sample = tex->msSamp > 1 ? TextureDisplay::ResolveSamples : 0;
+  return true;
+}
+
 void GLPipelineStateViewer::on_showUnused_toggled(bool checked)
 {
   setState();
@@ -795,7 +865,7 @@ void GLPipelineStateViewer::addImageSamplerRow(const Descriptor &descriptor,
           setViewDetails(node, tex, descriptor.firstMip, descriptor.numMips, 0, ~0U, texCompleteness);
       }
 
-      node->setTag(QVariant::fromValue(GLReadOnlyTag(reg, descriptor.resource)));
+      node->setTag(QVariant::fromValue(GLReadOnlyTag(reg, descriptor)));
 
       if(!filledSlot)
         setEmptyRow(node);
@@ -884,7 +954,7 @@ void GLPipelineStateViewer::addImageSamplerRow(const Descriptor &descriptor,
           samplerDescriptor.mipBias,
       });
 
-      node->setTag(QVariant::fromValue(GLReadOnlyTag(reg, descriptor.resource)));
+      node->setTag(QVariant::fromValue(GLReadOnlyTag(reg, descriptor)));
 
       if(!filledSlot)
         setEmptyRow(node);
@@ -1104,7 +1174,7 @@ void GLPipelineStateViewer::addReadWriteRow(const Descriptor &descriptor, uint32
         {binding, slotname, descriptor.resource, dimensions, format, access, QString()});
 
     node->setTag(QVariant::fromValue(
-        GLReadWriteTag(readWriteType, index, reg, descriptor.resource, offset, length)));
+        GLReadWriteTag(readWriteType, index, reg, descriptor, offset, length)));
 
     if(tex)
       setViewDetails(node, tex, descriptor.firstMip, descriptor.numMips, descriptor.firstSlice,
@@ -2338,7 +2408,7 @@ void GLPipelineStateViewer::setState()
         {
           if(r)
             setViewDetails(node, tex, r->firstMip, 1, r->firstSlice, r->numSlices);
-          node->setTag(QVariant::fromValue(GLReadOnlyTag(0, p)));
+          node->setTag(QVariant::fromValue(GLReadOnlyTag(0, *r)));
         }
 
         if(p == ResourceId())
@@ -2430,7 +2500,10 @@ void GLPipelineStateViewer::setState()
         if(tex)
         {
           setViewDetails(node, tex, mip, 1, slice, numSlices);
-          node->setTag(QVariant::fromValue(GLReadOnlyTag(0, ds)));
+          const Descriptor &descriptor =
+              dsIdx == 0 ? state.framebuffer.drawFBO.depthAttachment
+                         : state.framebuffer.drawFBO.stencilAttachment;
+          node->setTag(QVariant::fromValue(GLReadOnlyTag(0, descriptor)));
         }
 
         if(ds == ResourceId())
@@ -4036,6 +4109,12 @@ void GLPipelineStateViewer::computeDebugSelector_beginDebug(const rdcfixedarray<
   if(!shaderDetails)
     return;
 
+  // The progress dialog can publish a newer event while this debug request is running.
+  // Retain the reflection used to start the request until the viewer has taken its own copy.
+  const ShaderReflection shaderSnapshot(*shaderDetails);
+  shaderDetails = &shaderSnapshot;
+  const ResourceId pipeline = m_Ctx.CurPipelineState().GetComputePipelineObject();
+
   struct threadSelect
   {
     rdcfixedarray<uint32_t, 3> g;
@@ -4087,7 +4166,7 @@ void GLPipelineStateViewer::computeDebugSelector_beginDebug(const rdcfixedarray<
 
   // viewer takes ownership of the trace
   IShaderViewer *s = m_Ctx.DebugShader(
-      shaderDetails, m_Ctx.CurPipelineState().GetComputePipelineObject(), trace, debugContext);
+      shaderDetails, pipeline, trace, debugContext);
 
   m_Ctx.AddDockWindow(s->Widget(), DockReference::AddTo, this);
 }

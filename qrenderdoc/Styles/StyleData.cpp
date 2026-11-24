@@ -30,23 +30,35 @@
 
 namespace StyleData
 {
+TranslatableString::operator QString() const
+{
+  return QApplication::translate("RDStyle", sourceText);
+}
+
 const ThemeDescriptor availStyles[] = {
     ThemeDescriptor(
-        lit("RDLight"), QApplication::translate("RDStyle", "Light"),
-        QApplication::translate(
+        lit("RDLight"), QT_TRANSLATE_NOOP("RDStyle", "Light"),
+        QT_TRANSLATE_NOOP(
             "RDStyle", "Light: Cross-platform custom RenderDoc dark theme (black-on-white)."),
         []() { return new RDStyle(RDStyle::Light); }),
 
     ThemeDescriptor(
-        lit("RDDark"), QApplication::translate("RDStyle", "Dark"),
-        QApplication::translate(
+        lit("RDDark"), QT_TRANSLATE_NOOP("RDStyle", "Dark"),
+        QT_TRANSLATE_NOOP(
             "RDStyle", "Dark: Cross-platform custom RenderDoc dark theme (white-on-black)."),
         []() { return new RDStyle(RDStyle::Dark); }),
 
     ThemeDescriptor(
-        lit("Native"), QApplication::translate("RDStyle", "Native"),
-        QApplication::translate("RDStyle",
-                                "Native: uses the built-in Qt native widgets for your platform."),
+        lit("ultra"), QT_TRANSLATE_NOOP("RDStyle", "Black"),    // i18n-ignore: retain the persisted theme ID for existing UI.config files
+        QT_TRANSLATE_NOOP(
+            "RDStyle",
+            "Black: Unity-inspired dark theme with neutral greys and blue highlights."),
+        []() { return new RDStyle(RDStyle::Ultra); }),
+
+    ThemeDescriptor(
+        lit("Native"), QT_TRANSLATE_NOOP("RDStyle", "Native"),
+        QT_TRANSLATE_NOOP("RDStyle",
+                          "Native: uses the built-in Qt native widgets for your platform."),
         []() { return new RDTweakedNativeStyle(NULL); }),
 };
 

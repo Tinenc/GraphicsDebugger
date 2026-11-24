@@ -224,8 +224,21 @@ void GLReplay::FlipOutputWindow(uint64_t id)
                              outw.BlitData.backbuffer, 0);
   drv.glReadBuffer(eGL_COLOR_ATTACHMENT0);
 
+  // The internal sRGB backbuffer already contains the display-encoded pixels. This final copy
+  // must preserve those bytes. In particular, an OpenGLES default framebuffer can have a linear
+  // colour encoding even when WGL selected an sRGB-capable pixel format: enabling conversion here
+  // decodes the source without a matching encode and makes the native window darker than readback
+  // and headless thumbnails. Restore this context's state after the presentation-only blit.
+  const bool srgbEnabled =
+      HasExt[EXT_framebuffer_sRGB] && GL.glIsEnabled(eGL_FRAMEBUFFER_SRGB) != GL_FALSE;
+  if(srgbEnabled)
+    drv.glDisable(eGL_FRAMEBUFFER_SRGB);
+
   drv.glBlitFramebuffer(0, 0, outw.width, outw.height, 0, 0, outw.width, outw.height,
                         GL_COLOR_BUFFER_BIT, eGL_NEAREST);
+
+  if(srgbEnabled)
+    drv.glEnable(eGL_FRAMEBUFFER_SRGB);
 
   SwapBuffers(&outw);
 }

@@ -26,6 +26,7 @@
 #include <QFile>
 #include <QStandardPaths>
 #include "Code/QRDUtils.h"
+#include "Code/BackgroundProcess.h"
 #include "QRDInterface.h"
 
 static const QString glsl_stage4[arraydim<ShaderStage>()] = {
@@ -116,6 +117,7 @@ static ShaderToolOutput RunTool(const ShaderProcessingTool &tool, QWidget *windo
 
   QByteArray stdout_data;
   QProcess process;
+  ConfigureBackgroundProcess(&process);
 
   QThread *mainThread = QThread::currentThread();
 

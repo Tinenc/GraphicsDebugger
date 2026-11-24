@@ -51,6 +51,88 @@ struct ButtonTag
 
 Q_DECLARE_METATYPE(ButtonTag);
 
+static QString DescriptorViewerTr(const char *source)
+{
+  // Keep this catalogue beside the non-QObject item model. lupdate cannot infer a reliable runtime
+  // context from inherited QObject::tr() calls in this class, while this explicit context remains
+  // stable if the model is renamed or refactored.
+  static const char *const registeredStrings[] = {
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Index"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Contents"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Type"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Uniform Buffer"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Storage Buffer"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Texel Buffer"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Storage Texel Buffer"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Acceleration Structure"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Sampled Image"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Combined Image/Sampler"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Storage Image"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Sampler"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Uninitialised"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Constant Buffer"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Shader Resource View"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Unordered Resource View"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Buffer"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Byte Offset"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Byte Size"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Flags"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Format"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Element Size"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Counter Buffer"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Counter Byte Offset"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Counter Value"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Show Contents"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Texture Type"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Texture"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Min LOD"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Slice Range"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Mip Range"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Swizzle"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "View"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Immutable"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "U Addressing"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "V Addressing"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "W Addressing"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Minify"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Magnify"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Mip"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Filter"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "LOD Range"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Mip Bias"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Seamless Cubemaps"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Unnormalised"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "sRGB Border"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "yCbCr Sampling"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", ", Chroma %1 [%2,%3]"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", " Explicit"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "N/A"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Parameters"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Static Samplers"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Heap %1"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Parameter %1"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Static Sampler %1"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Visibility"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Register Space"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Register"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Data (Decimal)"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Data (Hexadecimal)"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Data (Float)"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Range %1"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Heap"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Table Offset"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Base Register"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Range Type"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Descriptor Count"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Index in heap"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Descriptor %1"),
+      QT_TRANSLATE_NOOP("DescriptorViewer", "Shader Mask"),
+  };
+  Q_UNUSED(registeredStrings);
+
+  return QCoreApplication::translate("DescriptorViewer", source);
+}
+
 class DescriptorItemModel : public QAbstractItemModel
 {
 public:
@@ -444,9 +526,9 @@ public:
     if(orientation == Qt::Horizontal && role == Qt::DisplayRole)
     {
       if(section == 0)
-        return tr("Index");
+        return DescriptorViewerTr("Index");
       else if(section == 1)
-        return tr("Contents");
+        return DescriptorViewerTr("Contents");
     }
 
     return QVariant();
@@ -524,40 +606,45 @@ public:
     if(row == 0)
     {
       if(col == 0)
-        return lit("Type");
+        return DescriptorViewerTr("Type");
 
       if(m_API == GraphicsAPI::Vulkan)
       {
         switch(desc.type)
         {
-          case DescriptorType::ConstantBuffer: return lit("Uniform Buffer");
+          case DescriptorType::ConstantBuffer: return DescriptorViewerTr("Uniform Buffer");
           case DescriptorType::Buffer:    // no such type on vulkan
-          case DescriptorType::ReadWriteBuffer: return lit("Storage Buffer");
-          case DescriptorType::TypedBuffer: return lit("Texel Buffer");
-          case DescriptorType::ReadWriteTypedBuffer: return lit("Storage Texel Buffer");
-          case DescriptorType::AccelerationStructure: return lit("Acceleration Structure");
-          case DescriptorType::Image: return lit("Sampled Image");
-          case DescriptorType::ImageSampler: return lit("Combined Image/Sampler");
-          case DescriptorType::ReadWriteImage: return lit("Storage Image");
-          case DescriptorType::Sampler: return lit("Sampler");
-          case DescriptorType::Unknown: return lit("Uninitialised");
+          case DescriptorType::ReadWriteBuffer: return DescriptorViewerTr("Storage Buffer");
+          case DescriptorType::TypedBuffer: return DescriptorViewerTr("Texel Buffer");
+          case DescriptorType::ReadWriteTypedBuffer:
+            return DescriptorViewerTr("Storage Texel Buffer");
+          case DescriptorType::AccelerationStructure:
+            return DescriptorViewerTr("Acceleration Structure");
+          case DescriptorType::Image: return DescriptorViewerTr("Sampled Image");
+          case DescriptorType::ImageSampler:
+            return DescriptorViewerTr("Combined Image/Sampler");
+          case DescriptorType::ReadWriteImage: return DescriptorViewerTr("Storage Image");
+          case DescriptorType::Sampler: return DescriptorViewerTr("Sampler");
+          case DescriptorType::Unknown: return DescriptorViewerTr("Uninitialised");
         }
       }
       else
       {
         switch(desc.type)
         {
-          case DescriptorType::ConstantBuffer: return lit("Constant Buffer");
+          case DescriptorType::ConstantBuffer: return DescriptorViewerTr("Constant Buffer");
           case DescriptorType::ImageSampler:    // no such type on D3D12
           case DescriptorType::Buffer:
           case DescriptorType::Image:
           case DescriptorType::TypedBuffer:
-          case DescriptorType::AccelerationStructure: return lit("Shader Resource View");
+          case DescriptorType::AccelerationStructure:
+            return DescriptorViewerTr("Shader Resource View");
           case DescriptorType::ReadWriteBuffer:
           case DescriptorType::ReadWriteTypedBuffer:
-          case DescriptorType::ReadWriteImage: return lit("Unordered Resource View");
-          case DescriptorType::Sampler: return lit("Sampler");
-          case DescriptorType::Unknown: return lit("Uninitialised");
+          case DescriptorType::ReadWriteImage:
+            return DescriptorViewerTr("Unordered Resource View");
+          case DescriptorType::Sampler: return DescriptorViewerTr("Sampler");
+          case DescriptorType::Unknown: return DescriptorViewerTr("Uninitialised");
         }
       }
 
@@ -573,14 +660,14 @@ public:
       case DescriptorType::ReadWriteTypedBuffer:
       {
         if(row == 1)
-          return col == 0 ? lit("Buffer") : QVariant::fromValue(desc.resource);
+          return col == 0 ? DescriptorViewerTr("Buffer") : QVariant::fromValue(desc.resource);
 
         if(row == 2)
-          return col == 0 ? lit("Byte Offset")
+          return col == 0 ? DescriptorViewerTr("Byte Offset")
                           : Formatter::HumanFormat(desc.byteOffset, Formatter::OffsetSize);
 
         if(row == 3)
-          return col == 0 ? lit("Byte Size")
+          return col == 0 ? DescriptorViewerTr("Byte Size")
                           : Formatter::HumanFormat(desc.byteSize, Formatter::OffsetSize);
 
         row -= 4;
@@ -588,7 +675,7 @@ public:
         if(desc.flags != DescriptorFlags::NoFlags)
         {
           if(row == 0)
-            return col == 0 ? lit("Flags") : ToQStr(desc.flags);
+            return col == 0 ? DescriptorViewerTr("Flags") : ToQStr(desc.flags);
           row--;
         }
 
@@ -597,13 +684,13 @@ public:
            desc.type == DescriptorType::ReadWriteTypedBuffer)
         {
           if(row == 0)
-            return col == 0 ? lit("Format") : QString(desc.format.Name());
+            return col == 0 ? DescriptorViewerTr("Format") : QString(desc.format.Name());
           row--;
         }
         else if(desc.elementByteSize != 0)
         {
           if(row == 0)
-            return col == 0 ? lit("Element Size")
+            return col == 0 ? DescriptorViewerTr("Element Size")
                             : Formatter::HumanFormat(desc.elementByteSize, Formatter::OffsetSize);
           row--;
         }
@@ -612,30 +699,34 @@ public:
         if(desc.secondary != ResourceId())
         {
           if(row == 0)
-            return col == 0 ? lit("Counter Buffer") : QVariant::fromValue(desc.secondary);
+            return col == 0 ? DescriptorViewerTr("Counter Buffer")
+                            : QVariant::fromValue(desc.secondary);
 
           if(row == 1)
-            return col == 0 ? lit("Counter Byte Offset")
+            return col == 0 ? DescriptorViewerTr("Counter Byte Offset")
                             : Formatter::HumanFormat(desc.counterByteOffset, Formatter::OffsetSize);
 
           if(row == 2)
-            return col == 0 ? lit("Counter Value") : Formatter::Format(desc.bufferStructCount);
+            return col == 0 ? DescriptorViewerTr("Counter Value")
+                            : Formatter::Format(desc.bufferStructCount);
 
           row -= 3;
         }
 
         if(row == 0)
-          return col == 0 ? lit("Show Contents") : QVariant::fromValue(ButtonTag(true, desc));
+          return col == 0 ? DescriptorViewerTr("Show Contents")
+                          : QVariant::fromValue(ButtonTag(true, desc));
 
         break;
       }
       case DescriptorType::AccelerationStructure:
       {
         if(row == 1)
-          return col == 0 ? lit("Acceleration Structure") : QVariant::fromValue(desc.resource);
+          return col == 0 ? DescriptorViewerTr("Acceleration Structure")
+                          : QVariant::fromValue(desc.resource);
 
         if(row == 2)
-          return col == 0 ? lit("Byte Size")
+          return col == 0 ? DescriptorViewerTr("Byte Size")
                           : Formatter::HumanFormat(desc.byteSize, Formatter::OffsetSize);
 
         break;
@@ -645,23 +736,24 @@ public:
       case DescriptorType::ReadWriteImage:
       {
         if(row == 1)
-          return col == 0 ? lit("Texture Type") : ToQStr(desc.textureType);
+          return col == 0 ? DescriptorViewerTr("Texture Type")
+                          : ToQDisplayStr(desc.textureType);
 
         if(row == 2)
-          return col == 0 ? lit("Texture") : QVariant::fromValue(desc.resource);
+          return col == 0 ? DescriptorViewerTr("Texture") : QVariant::fromValue(desc.resource);
 
         if(row == 3)
-          return col == 0 ? lit("Format") : QString(desc.format.Name());
+          return col == 0 ? DescriptorViewerTr("Format") : QString(desc.format.Name());
 
         if(row == 4)
-          return col == 0 ? lit("Min LOD") : Formatter::Format(desc.minLODClamp);
+          return col == 0 ? DescriptorViewerTr("Min LOD") : Formatter::Format(desc.minLODClamp);
 
         row -= 5;
 
         // first/num slices
         if(row == 0)
           return col == 0
-                     ? lit("Slice Range")
+                     ? DescriptorViewerTr("Slice Range")
                      : QFormatStr("%1 - %2")
                            .arg(desc.firstSlice)
                            .arg(desc.numSlices == UINT16_MAX ? desc.numSlices
@@ -669,7 +761,7 @@ public:
 
         // first/num mips
         if(row == 1)
-          return col == 0 ? lit("Mip Range")
+          return col == 0 ? DescriptorViewerTr("Mip Range")
                           : QFormatStr("%1 - %2")
                                 .arg(desc.firstMip)
                                 .arg(desc.numMips == UINT8_MAX ? desc.numMips
@@ -677,7 +769,7 @@ public:
 
         // swizzle
         if(row == 2)
-          return col == 0 ? lit("Swizzle")
+          return col == 0 ? DescriptorViewerTr("Swizzle")
                           : QFormatStr("%1%2%3%4")
                                 .arg(ToQStr(desc.swizzle.red))
                                 .arg(ToQStr(desc.swizzle.green))
@@ -689,19 +781,20 @@ public:
         if(desc.flags != DescriptorFlags::NoFlags)
         {
           if(row == 0)
-            return col == 0 ? lit("Flags") : ToQStr(desc.flags);
+            return col == 0 ? DescriptorViewerTr("Flags") : ToQStr(desc.flags);
           row--;
         }
 
         if(desc.view != ResourceId())
         {
           if(row == 0)
-            return col == 0 ? lit("View") : QVariant::fromValue(desc.view);
+            return col == 0 ? DescriptorViewerTr("View") : QVariant::fromValue(desc.view);
           row--;
         }
 
         if(row == 0)
-          return col == 0 ? lit("Show Contents") : QVariant::fromValue(ButtonTag(false, desc));
+          return col == 0 ? DescriptorViewerTr("Show Contents")
+                          : QVariant::fromValue(ButtonTag(false, desc));
 
         break;
       }
@@ -750,7 +843,7 @@ public:
 
   QString filter(FilterMode mode, float aniso) const
   {
-    QString ret = ToQStr(mode);
+    QString ret = ToQDisplayStr(mode);
     if(mode == FilterMode::Anisotropic)
       ret += QFormatStr(" %1x").arg(aniso);
     return ret;
@@ -758,9 +851,9 @@ public:
 
   QString filter(FilterFunction func, CompareFunction compare) const
   {
-    QString ret = ToQStr(func);
+    QString ret = ToQDisplayStr(func);
     if(func == FilterFunction::Comparison)
-      ret += QFormatStr(" %1").arg(ToStr(compare));
+      ret += QFormatStr(" %1").arg(ToQDisplayStr(compare));
     return ret;
   }
 
@@ -772,38 +865,46 @@ public:
     else
     {
       if(row == 0)
-        return col == 0 ? lit("Type") : ToQStr(desc.type);
+        return col == 0 ? DescriptorViewerTr("Type") : ToQDisplayStr(desc.type);
       row--;
     }
 
     if(m_Ctx.APIProps().pipelineType == GraphicsAPI::Vulkan)
     {
       if(row == 0)
-        return col == 0 ? lit("Immutable") : Formatter::Format(desc.creationTimeConstant);
+        return col == 0 ? DescriptorViewerTr("Immutable")
+                        : Formatter::Format(desc.creationTimeConstant);
 
       row--;
     }
 
     if(row == 0)
-      return col == 0 ? lit("U Addressing") : ToQStr(desc.addressU);
+      return col == 0 ? DescriptorViewerTr("U Addressing")
+                      : ToQDisplayStr(desc.addressU, m_API);
 
     if(row == 1)
-      return col == 0 ? lit("V Addressing") : ToQStr(desc.addressV);
+      return col == 0 ? DescriptorViewerTr("V Addressing")
+                      : ToQDisplayStr(desc.addressV, m_API);
 
     if(row == 2)
-      return col == 0 ? lit("W Addressing") : ToQStr(desc.addressW);
+      return col == 0 ? DescriptorViewerTr("W Addressing")
+                      : ToQDisplayStr(desc.addressW, m_API);
 
     if(row == 3)
-      return col == 0 ? lit("Minify") : filter(desc.filter.minify, desc.maxAnisotropy);
+      return col == 0 ? DescriptorViewerTr("Minify")
+                      : filter(desc.filter.minify, desc.maxAnisotropy);
 
     if(row == 4)
-      return col == 0 ? lit("Magnify") : filter(desc.filter.magnify, desc.maxAnisotropy);
+      return col == 0 ? DescriptorViewerTr("Magnify")
+                      : filter(desc.filter.magnify, desc.maxAnisotropy);
 
     if(row == 5)
-      return col == 0 ? lit("Mip") : filter(desc.filter.mip, desc.maxAnisotropy);
+      return col == 0 ? DescriptorViewerTr("Mip")
+                      : filter(desc.filter.mip, desc.maxAnisotropy);
 
     if(row == 6)
-      return col == 0 ? lit("Filter") : filter(desc.filter.filter, desc.compareFunction);
+      return col == 0 ? DescriptorViewerTr("Filter")
+                      : filter(desc.filter.filter, desc.compareFunction);
 
     if(row == 7)
     {
@@ -820,30 +921,33 @@ public:
       if(desc.maxLOD == 1000.0)
         maxLOD = lit("VK_LOD_CLAMP_NONE");
 
-      return col == 0 ? lit("LOD Range") : QFormatStr("%1 - %2").arg(minLOD).arg(maxLOD);
+      return col == 0 ? DescriptorViewerTr("LOD Range")
+                      : QFormatStr("%1 - %2").arg(minLOD).arg(maxLOD);
     }
 
     if(row == 8)
-      return col == 0 ? lit("Mip Bias") : Formatter::Format(desc.mipBias);
+      return col == 0 ? DescriptorViewerTr("Mip Bias") : Formatter::Format(desc.mipBias);
 
     if(m_Ctx.APIProps().pipelineType == GraphicsAPI::Vulkan)
     {
       if(row == 9)
-        return col == 0 ? lit("Sampler") : QVariant::fromValue(desc.object);
+        return col == 0 ? DescriptorViewerTr("Sampler") : QVariant::fromValue(desc.object);
 
       if(row == 10)
-        return col == 0 ? lit("Seamless Cubemaps") : Formatter::Format(desc.seamlessCubemaps);
+        return col == 0 ? DescriptorViewerTr("Seamless Cubemaps")
+                        : Formatter::Format(desc.seamlessCubemaps);
 
       if(row == 11)
-        return col == 0 ? lit("Unnormalised") : Formatter::Format(desc.unnormalized);
+        return col == 0 ? DescriptorViewerTr("Unnormalised")
+                        : Formatter::Format(desc.unnormalized);
 
       if(row == 12)
-        return col == 0 ? lit("sRGB Border") : Formatter::Format(desc.srgbBorder);
+        return col == 0 ? DescriptorViewerTr("sRGB Border") : Formatter::Format(desc.srgbBorder);
 
       if(row == 13)
       {
         if(col == 0)
-          return lit("yCbCr Sampling");
+          return DescriptorViewerTr("yCbCr Sampling");
 
         QString data;
 
@@ -851,19 +955,21 @@ public:
         {
           data = m_Ctx.GetResourceName(desc.ycbcrSampler);
 
-          data += QFormatStr(", %1 %2").arg(ToQStr(desc.ycbcrModel)).arg(ToQStr(desc.ycbcrRange));
+          data += QFormatStr(", %1 %2")
+                      .arg(ToQDisplayStr(desc.ycbcrModel))
+                      .arg(ToQDisplayStr(desc.ycbcrRange));
 
-          data += tr(", Chroma %1 [%2,%3]")
-                      .arg(ToQStr(desc.chromaFilter))
-                      .arg(ToQStr(desc.xChromaOffset))
-                      .arg(ToQStr(desc.yChromaOffset));
+          data += DescriptorViewerTr(", Chroma %1 [%2,%3]")
+                      .arg(ToQDisplayStr(desc.chromaFilter))
+                      .arg(ToQDisplayStr(desc.xChromaOffset))
+                      .arg(ToQDisplayStr(desc.yChromaOffset));
 
           if(desc.forceExplicitReconstruction)
-            data += tr(" Explicit");
+            data += DescriptorViewerTr(" Explicit");
         }
         else
         {
-          data = lit("N/A");
+          data = DescriptorViewerTr("N/A");
         }
 
         return data;
@@ -893,12 +999,13 @@ public:
           if(col == 0)
           {
             if(row == ParametersRootNode)
-              return lit("Parameters");
+              return DescriptorViewerTr("Parameters");
             if(row == StaticSamplersRootNode)
-              return lit("Static Samplers");
+              return DescriptorViewerTr("Static Samplers");
 
             QVariant ret =
-                QFormatStr("Heap %1").arg(ToQStr(m_View.m_D3D12Heaps[row - FirstHeapRootNode]));
+                DescriptorViewerTr("Heap %1")
+                    .arg(ToQStr(m_View.m_D3D12Heaps[row - FirstHeapRootNode]));
             RichResourceTextInitialise(ret, &m_Ctx, false);
             return ret;
           }
@@ -912,14 +1019,14 @@ public:
         if(id == ParameterFlag)
         {
           if(col == 0)
-            return QFormatStr("Parameter %1").arg(row);
+            return DescriptorViewerTr("Parameter %1").arg(row);
           return QVariant();
         }
 
         if(id == StaticSamplerData)
         {
           if(col == 0)
-            return QFormatStr("Static Sampler %1").arg(row);
+            return DescriptorViewerTr("Static Sampler %1").arg(row);
           return QVariant();
         }
 
@@ -938,13 +1045,14 @@ public:
             return data(samp.descriptor, row - StaticSamplerFixedRowCount, col);
 
           if(row == 0)
-            return col == 0 ? lit("Visibility") : ToQStr(samp.visibility);
+            return col == 0 ? DescriptorViewerTr("Visibility")
+                            : ToQDisplayStr(samp.visibility, m_API);
 
           if(row == 1)
-            return col == 0 ? lit("Register Space") : Formatter::Format(samp.space);
+            return col == 0 ? DescriptorViewerTr("Register Space") : Formatter::Format(samp.space);
 
           if(row == 2)
-            return col == 0 ? lit("Register") : Formatter::Format(samp.reg);
+            return col == 0 ? DescriptorViewerTr("Register") : Formatter::Format(samp.reg);
 
           return QVariant();
         }
@@ -957,7 +1065,8 @@ public:
         if(!param.constants.empty())
         {
           if(row == 0)
-            return col == 0 ? lit("Visibility") : ToQStr(param.visibility);
+            return col == 0 ? DescriptorViewerTr("Visibility")
+                            : ToQDisplayStr(param.visibility, m_API);
 
           rdcarray<uint32_t> words;
           words.resize(param.constants.byteSize() >> 2);
@@ -966,11 +1075,11 @@ public:
           if(col == 0)
           {
             if(row == 1)
-              return lit("Data (Decimal)");
+              return DescriptorViewerTr("Data (Decimal)");
             if(row == 2)
-              return lit("Data (Hexadecimal)");
+              return DescriptorViewerTr("Data (Hexadecimal)");
             if(row == 3)
-              return lit("Data (Float)");
+              return DescriptorViewerTr("Data (Float)");
           }
 
           QString data;
@@ -995,13 +1104,15 @@ public:
             return data(param.descriptor, row - DescParameterFixedRowCount, col);
 
           if(row == 0)
-            return col == 0 ? lit("Visibility") : ToQStr(param.visibility);
+            return col == 0 ? DescriptorViewerTr("Visibility")
+                            : ToQDisplayStr(param.visibility, m_API);
 
           if(row == 1)
-            return col == 0 ? lit("Register Space") : Formatter::Format(param.space);
+            return col == 0 ? DescriptorViewerTr("Register Space")
+                            : Formatter::Format(param.space);
 
           if(row == 2)
-            return col == 0 ? lit("Register") : Formatter::Format(param.reg);
+            return col == 0 ? DescriptorViewerTr("Register") : Formatter::Format(param.reg);
 
           return QVariant();
         }
@@ -1011,18 +1122,19 @@ public:
           if(row >= TableParameterFixedRowCount)
           {
             if(col == 0)
-              return QFormatStr("Range %1").arg(row - TableParameterFixedRowCount);
+              return DescriptorViewerTr("Range %1").arg(row - TableParameterFixedRowCount);
             return QVariant();
           }
 
           if(row == 0)
-            return col == 0 ? lit("Visibility") : ToQStr(param.visibility);
+            return col == 0 ? DescriptorViewerTr("Visibility")
+                            : ToQDisplayStr(param.visibility, m_API);
 
           if(row == 1)
-            return col == 0 ? lit("Heap") : QVariant::fromValue(param.heap);
+            return col == 0 ? DescriptorViewerTr("Heap") : QVariant::fromValue(param.heap);
 
           if(row == 2)
-            return col == 0 ? lit("Table Offset") : ToQStr(param.heapByteOffset);
+            return col == 0 ? DescriptorViewerTr("Table Offset") : ToQStr(param.heapByteOffset);
 
           return QVariant();
         }
@@ -1039,9 +1151,10 @@ public:
               if(m_View.m_Descriptors.empty())
               {
                 if(row == RangeFixedRowCount)
-                  return col == 0 ? lit("Register Space") : ToQStr(range.space);
+                  return col == 0 ? DescriptorViewerTr("Register Space") : ToQStr(range.space);
 
-                return col == 0 ? lit("Base Register") : ToQStr(range.baseRegister);
+                return col == 0 ? DescriptorViewerTr("Base Register")
+                                : ToQStr(range.baseRegister);
               }
 
               // otherwise we name all the descriptors
@@ -1067,12 +1180,12 @@ public:
           if(row == 0)
           {
             if(col == 0)
-              return lit("Range Type");
+              return DescriptorViewerTr("Range Type");
 
             if(range.category == DescriptorCategory::Sampler)
-              return lit("Sampler");
+              return DescriptorViewerTr("Sampler");
             if(range.category == DescriptorCategory::ConstantBlock)
-              return lit("Constant Buffer");
+              return DescriptorViewerTr("Constant Buffer");
             if(range.category == DescriptorCategory::ReadOnlyResource)
               return lit("SRV");
             if(range.category == DescriptorCategory::ReadWriteResource)
@@ -1084,7 +1197,7 @@ public:
           if(row == 1)
           {
             if(col == 0)
-              return lit("Table offset");
+              return DescriptorViewerTr("Table Offset");
 
             if(range.appended)
               return QFormatStr("D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND (%1)").arg(range.tableByteOffset);
@@ -1092,7 +1205,7 @@ public:
           }
 
           if(row == 2)
-            return col == 0 ? lit("Descriptor Count")
+            return col == 0 ? DescriptorViewerTr("Descriptor Count")
                             : Formatter::HumanFormat(range.count, Formatter::NoFlags);
 
           return QVariant();
@@ -1104,7 +1217,7 @@ public:
                                  decodedIndex.descriptor - 1];
 
         if(row == 0)
-          return col == 0 ? lit("Index in heap")
+          return col == 0 ? DescriptorViewerTr("Index in heap")
                           : Formatter::HumanFormat(param.heapByteOffset + range.tableByteOffset +
                                                        decodedIndex.descriptor - 1,
                                                    Formatter::NoFlags);
@@ -1122,7 +1235,7 @@ public:
           if(row < m_View.m_Locations.count())
             return m_View.m_Locations[row].logicalBindName;
           else
-            return QFormatStr("Descriptor %1").arg(row);
+            return DescriptorViewerTr("Descriptor %1").arg(row);
         }
 
         if(index.internalId() & DescriptorDataFlag)
@@ -1131,7 +1244,9 @@ public:
           if(descIndex < m_View.m_Locations.size())
           {
             if(row == 0)
-              return col == 0 ? lit("Shader Mask") : ToQStr(m_View.m_Locations[descIndex].stageMask);
+              return col == 0
+                         ? DescriptorViewerTr("Shader Mask")
+                         : ToQDisplayStr(m_View.m_Locations[descIndex].stageMask, m_API);
 
             row--;
           }
@@ -1337,8 +1452,8 @@ DescriptorViewer::DescriptorViewer(ICaptureContext &ctx, QWidget *parent)
 
       if(tag.descriptor.type == DescriptorType::TypedBuffer ||
          tag.descriptor.type == DescriptorType::ReadWriteTypedBuffer)
-        format = BufferFormatter::GetBufferFormatString(Packing::C, ResourceId(), ShaderResource(),
-                                                        tag.descriptor.format);
+        format = BufferFormatter::GetBufferFormatString(PackingRules::C(), ResourceId(),
+                                                        ShaderResource(), tag.descriptor.format);
 
       IBufferViewer *viewer = m_Ctx.ViewBuffer(tag.descriptor.byteOffset, tag.descriptor.byteSize,
                                                tag.descriptor.resource, format);

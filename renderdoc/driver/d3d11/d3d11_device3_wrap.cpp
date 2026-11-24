@@ -734,16 +734,9 @@ bool WrappedID3D11Device::Serialise_CreateRasterizerState2(
     }
     else
     {
-      if(GetResourceManager()->HasWrapper(ret))
-      {
-        ret->Release();
-        ret = (ID3D11RasterizerState2 *)GetResourceManager()->GetWrapper(ret);
-        ret->AddRef();
-      }
-      else
-      {
-        ret = new WrappedID3D11RasterizerState2(pState, ret, this);
-      }
+      GetResourceManager()->OverrideWrapper(ret);
+
+      ret = new WrappedID3D11RasterizerState2(pState, ret, this);
     }
 
     AddResource(pState, ResourceType::StateObject, "Rasterizer State");

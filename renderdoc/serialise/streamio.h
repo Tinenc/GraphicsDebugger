@@ -109,6 +109,9 @@ public:
 
   inline uint64_t GetOffset() { return m_BufferHead - m_BufferBase + m_ReadOffset; }
   inline uint64_t GetSize() { return m_InputSize; }
+  // Read-only accounting of already retained CPU storage; never fills or advances the stream.
+  const byte *GetBufferDataForMemoryAudit() const { return m_BufferBase; }
+  uint64_t GetBufferSizeForMemoryAudit() const { return m_BufferSize; }
   inline bool AtEnd()
   {
     if(m_Dummy)

@@ -1,0 +1,107 @@
+{
+  "schema": "renderdoc-ultra-shader-toolchain-verification/v1",
+  "schemaVersion": 1,
+  "generatedUtc": "2026-08-28T17:02:33.9091204Z",
+  "platform": "windows-x64",
+  "assurance": "process-container-and-format-smoke-only",
+  "semanticEquivalenceVerified": false,
+  "replayAbiValidated": false,
+  "tools": [
+    {
+      "id": "windows-sdk-dxc",
+      "source": "Windows SDK 10.0.26100.0",
+      "version": "dxcompiler 1.7.2308.16 (52da17e29)",
+      "files": {
+        "dxc.exe": "7e504018182c89b8f47a63836b4002e901c196fc9495ebc224a9293706bb6cd9",
+        "dxcompiler.dll": "6d9b5f853c2bafa948ad4c47db60e4f82d9a823b06ee6f92a5d4500c24f02248",
+        "dxil.dll": "757e391c7d3bedb59dad01e79a9f6210a4299b3ce117b61b18f41203c852f39e"
+      }
+    },
+    {
+      "id": "windows-sdk-fxc",
+      "source": "Windows SDK 10.0.26100.0",
+      "files": {
+        "fxc.exe": "a5cc32564a657c19244e406a0648f0ed952472eabd3b0ca27b12b9c817f81f64",
+        "d3dcompiler_47.dll": "9f4e7aa83cfe86df0e3887f66f558aff11d28c0b97c2df54fa57559b355889fe"
+      }
+    },
+    {
+      "id": "glslang",
+      "source": "https://github.com/KhronosGroup/glslang",
+      "tag": "vulkan-sdk-1.4.357.0 / 16.4.0",
+      "commit": "168d452a4f460d24b588fed08477a81c44ee27a1",
+      "files": {
+        "glslang.exe": "51b4920d586cfb06a032a1969968c5be5cfb627e7295f3ab692c1d37928c3052"
+      }
+    },
+    {
+      "id": "spirv-cross",
+      "source": "https://github.com/KhronosGroup/SPIRV-Cross",
+      "tag": "vulkan-sdk-1.4.357.0",
+      "commit": "6c09849fe88c48eaed08413aa022aaa136a3a057",
+      "files": {
+        "spirv-cross.exe": "b7e264bbf82e31a4bd783fa2d55104cd295ebca4e4cf364929a38ba703930583"
+      }
+    },
+    {
+      "id": "spirv-tools",
+      "source": "https://github.com/KhronosGroup/SPIRV-Tools",
+      "tag": "vulkan-sdk-1.4.357.0 / v2026.3",
+      "commit": "9a49b0883b9b635689a85b5647dbfcb223268151",
+      "headersCommit": "29981f65241605e08b0ede4cfeb999fe3b723c6a",
+      "files": {
+        "spirv-as.exe": "1704c4df915cea0dd1f038cb7a7313261c844727cbed24ae4e0d0fb86db38314",
+        "spirv-dis.exe": "bf99a6fe718e3c0da87edf86204e7bb870eea7f3225afd3044cfd666eabcfd8b",
+        "spirv-val.exe": "770fc78fbcfbceae808dee23065347173a0313896267a6d961a3bf9c7b3f6668"
+      }
+    },
+    {
+      "id": "3dmigoto-cmd-decompiler",
+      "source": "https://github.com/bo3b/3Dmigoto/releases/tag/1.3.16",
+      "tag": "1.3.16",
+      "commit": "cbc4993ca67b6d639e06c578d4e3dc8b3780243f",
+      "releaseArchiveSha256": "5e72e067dfcb15c36f106efa74d805055eec5314dc84b8fca8e65d835683a1b2",
+      "files": {
+        "community-hlsl-decompiler/cmd_Decompiler.exe": "67582ced9261b8fb23a50cee09c788c821d0524d40264721369b410d5321dab8",
+        "community-hlsl-decompiler/D3DCompiler_46.dll": "60f76ec7169397c425023d5927a3c3c34599fa329814053cace6171e20adb353"
+      }
+    },
+    {
+      "id": "renodx-decompiler",
+      "source": "https://github.com/clshortfuse/renodx",
+      "commit": "8d360960a8bdeccada1a1babf7f02215c15c82e8",
+      "files": {
+        "decomp.exe": "f6611ed01896d76fd8f837a863da9d1a3b007996f49f427a82b74af9a8931b07"
+      },
+      "knownObservedFailure": "A compute shader using dx.op.bufferStore.f32 was rejected as an unknown call; bounded recovery must select another registered route or native DXIL IR."
+    },
+    {
+      "id": "dxil-spirv",
+      "source": "https://github.com/HansKristian-Work/dxil-spirv",
+      "commit": "1b949ec2bed58cc1133e10e31211c9865b9b3821",
+      "submodules": {
+        "dxbc-spirv": "37a97745bddaf56d717253b0e4565904ce5eb06c",
+        "SPIRV-Cross": "4b7bcb7e5cf71015b3299088d22004bfe4e13a5e",
+        "SPIRV-Tools": "199cb207b911501ddd76dcddf100a6e21c15ef23",
+        "SPIRV-Headers": "c63848ecf2200425511319fd8bf2c17b751e501e"
+      },
+      "files": {
+        "dxil-spirv.exe": "cc61aea2b88fc8d18d1b25bb5229c93a808886b5b350c64e3426f06f0f159072",
+        "dxil-spirv-c-shared.dll": "bb285dc4156146f81165b219a7593bb82b6e6322feae9f3bdea3e8b2bfffbbba"
+      }
+    }
+  ],
+  "verifiedRoundTrips": [
+    "DXBC ps_5_0 -> reconstructed HLSL -> FXC -> DXBC",
+    "DXBC ps_5_0 -> 3DMigoto instruction assembly -> assembled DXBC",
+    "DXIL ps_6_0 -> RenoDX reconstructed HLSL -> DXC -> DXIL",
+    "DXIL ps_6_0 -> dxil-spirv -> SPIRV-Cross HLSL -> DXC -> DXIL",
+    "DXIL ps_6_0 -> DXC textual IR -> IDxcAssembler -> DXIL",
+    "DXIL lib_6_3 RayMain/MissMain -> DXC textual IR -> IDxcAssembler -> DXIL",
+    "Vulkan fragment -> GLSL and SPIR-V assembly -> validated SPIR-V",
+    "Vulkan compute -> GLSL and SPIR-V assembly -> validated SPIR-V",
+    "Vulkan raygen -> GLSL and SPIR-V assembly -> validated SPIR-V",
+    "OpenGL fragment -> GLSL and OpenGL SPIR-V assembly -> spirv-val --target-env opengl4.5"
+  ],
+  "boundary": "A successful round trip proves only that fixed processes ran and emitted the declared formats. Fresh capture-bound reflection and backend pipeline validation remain mandatory before conventional replay replacement. Ray/Library replacement remains blocked until an exact state-object/export/SBT transaction exists."
+}

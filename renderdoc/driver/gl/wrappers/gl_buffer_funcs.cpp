@@ -225,6 +225,7 @@ bool WrappedOpenGL::Serialise_glBindBuffer(SerialiserType &ser, GLenum target, G
 
       m_Buffers[GetResourceManager()->GetResID(buffer)].curType = target;
       m_Buffers[GetResourceManager()->GetResID(buffer)].creationFlags |= MakeBufferCategory(target);
+      TrackReplayPatchBinding(buffer, target);
 
       if(IsLoading(m_State) && m_CurEventID == 0)
         GL.glBindBuffer(target, prevbuf);
@@ -451,6 +452,9 @@ bool WrappedOpenGL::Serialise_glNamedBufferStorageEXT(SerialiserType &ser, GLuin
     GL.glNamedBufferStorageEXT(buffer.name, (GLsizeiptr)bytesize, data, flags);
 
     m_Buffers[GetResourceManager()->GetResID(buffer)].size = bytesize;
+    BufferData &patchInfo = m_Buffers[GetResourceManager()->GetResID(buffer)];
+    patchInfo.replayPatchMinSize = RDCMIN(patchInfo.replayPatchMinSize, bytesize);
+    patchInfo.replayPatchUnsafe |= (flags & eGL_SPARSE_STORAGE_BIT_ARB) != 0;
 
     AddResourceInitChunk(buffer);
   }
@@ -619,6 +623,8 @@ bool WrappedOpenGL::Serialise_glNamedBufferDataEXT(SerialiserType &ser, GLuint b
 
     if(IsLoading(m_State) && m_CurEventID > 0)
       m_ResourceUses[id].push_back(EventUsage(m_CurEventID, ResourceUsage::CPUWrite));
+
+    m_Buffers[id].replayPatchMinSize = RDCMIN(m_Buffers[id].replayPatchMinSize, bytesize);
 
     AddResourceInitChunk(buffer);
   }
@@ -967,6 +973,7 @@ bool WrappedOpenGL::Serialise_glNamedBufferSubDataEXT(SerialiserType &ser, GLuin
       m_ResourceUses[GetResourceManager()->GetResID(buffer)].push_back(
           EventUsage(m_CurEventID, ResourceUsage::CPUWrite));
 
+    TrackReplayCheckpointBufferWrite(buffer);
     GL.glNamedBufferSubDataEXT(buffer.name, (GLintptr)offset, (GLsizeiptr)bytesize, data);
 
     AddResourceInitChunk(buffer);
@@ -1103,6 +1110,7 @@ bool WrappedOpenGL::Serialise_glNamedCopyBufferSubDataEXT(SerialiserType &ser,
 
   if(IsReplayingAndReading())
   {
+    TrackReplayCheckpointBufferWrite(writeBuffer);
     GL.glNamedCopyBufferSubDataEXT(readBuffer.name, writeBuffer.name, (GLintptr)readOffset,
                                    (GLintptr)writeOffset, (GLsizeiptr)size);
 
@@ -1293,6 +1301,7 @@ bool WrappedOpenGL::Serialise_glBindBufferBase(SerialiserType &ser, GLenum targe
   if(IsReplayingAndReading())
   {
     GL.glBindBufferBase(target, index, buffer.name);
+    TrackReplayPatchBinding(buffer, target);
 
     AddResourceInitChunk(buffer);
   }
@@ -1436,6 +1445,7 @@ bool WrappedOpenGL::Serialise_glBindBufferRange(SerialiserType &ser, GLenum targ
   if(IsReplayingAndReading())
   {
     GL.glBindBufferRange(target, index, buffer.name, (GLintptr)offset, (GLsizeiptr)size);
+    TrackReplayPatchBinding(buffer, target);
 
     AddResourceInitChunk(buffer);
   }
@@ -1594,6 +1604,7 @@ bool WrappedOpenGL::Serialise_glBindBuffersBase(SerialiserType &ser, GLenum targ
     {
       bufs.push_back(buffers[i].name);
 
+      TrackReplayPatchBinding(buffers[i], target);
       AddResourceInitChunk(buffers[i]);
     }
 
@@ -1797,6 +1808,7 @@ bool WrappedOpenGL::Serialise_glBindBuffersRange(SerialiserType &ser, GLenum tar
       {
         bufs.push_back(buffers[i].name);
 
+        TrackReplayPatchBinding(buffers[i], target);
         AddResourceInitChunk(buffers[i]);
       }
     }
@@ -2254,7 +2266,7 @@ void WrappedOpenGL::glInvalidateBufferSubData(GLuint buffer, GLintptr offset, GL
  *
  *
  *
- * Persistant maps:
+ * Persistent maps:
  *
  * The above process handles "normal" maps that happen between other GL commands that use the buffer
  * contents. Maps that are persistent need to be handled carefully since there are other knock-ons
@@ -3246,6 +3258,7 @@ bool WrappedOpenGL::Serialise_glTransformFeedbackBufferBase(SerialiserType &ser,
     // is necessary since these functions can be serialised even if ARB_dsa was not used originally,
     // and we need to support this case.
     GL.glTransformFeedbackBufferBase(xfb.name, index, buffer.name);
+    TrackReplayPatchBinding(buffer, eGL_TRANSFORM_FEEDBACK_BUFFER);
 
     AddResourceInitChunk(xfb);
   }
@@ -3303,6 +3316,7 @@ bool WrappedOpenGL::Serialise_glTransformFeedbackBufferRange(SerialiserType &ser
     // is necessary since these functions can be serialised even if ARB_dsa was not used originally,
     // and we need to support this case.
     GL.glTransformFeedbackBufferRange(xfb.name, index, buffer.name, (GLintptr)offset, (GLsizei)size);
+    TrackReplayPatchBinding(buffer, eGL_TRANSFORM_FEEDBACK_BUFFER);
 
     AddResourceInitChunk(xfb);
   }

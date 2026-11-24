@@ -570,6 +570,7 @@ rdcarray<CounterResult> GLReplay::FetchCountersARM(const rdcarray<GPUCounter> &c
 
 rdcarray<CounterResult> GLReplay::FetchCounters(const rdcarray<GPUCounter> &allCounters)
 {
+  TextureAnalysisScope textureAnalysis(*this);
   rdcarray<CounterResult> ret;
 
   if(allCounters.empty())

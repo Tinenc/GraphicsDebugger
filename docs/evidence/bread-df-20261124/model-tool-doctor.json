@@ -1,0 +1,91 @@
+{
+  "type": "complete",
+  "checks": [
+    {
+      "name": "python",
+      "status": "ok",
+      "detail": "3.12.13",
+      "messageId": "",
+      "messageArgs": []
+    },
+    {
+      "name": "profile",
+      "status": "ok",
+      "detail": "Codex / ChatGPT subscription / codex",
+      "messageId": "",
+      "messageArgs": []
+    },
+    {
+      "name": "model-context",
+      "status": "ok",
+      "detail": "200000 tokens (provider-managed-fallback)",
+      "messageId": "",
+      "messageArgs": []
+    },
+    {
+      "name": "agent-command",
+      "status": "ok",
+      "detail": "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\codex.cmd",
+      "messageId": "",
+      "messageArgs": []
+    },
+    {
+      "name": "codex-internal-tools",
+      "status": "ok",
+      "detail": "task-scoped Bread MCP with isolated Codex home; no persistent MCP registration is injected into CODEX_HOME: C:\\Users\\Administrator\\AppData\\Local\\ReplayLab\\codex\\codex",
+      "messageId": "",
+      "messageArgs": []
+    },
+    {
+      "name": "bread-mcp",
+      "status": "ok",
+      "detail": "C:\\Program Files\\GraphicsDebugger-DF研究\\x64\\BreadDevelopment\\replaylab\\BreadMCP.exe",
+      "messageId": "",
+      "messageArgs": []
+    },
+    {
+      "name": "skills",
+      "status": "ok",
+      "detail": "18 validated skill(s)",
+      "messageId": "",
+      "messageArgs": []
+    },
+    {
+      "name": "portable-capabilities",
+      "status": "ok",
+      "detail": "10 bundled plugins; missing: ",
+      "messageId": "connection.portable-ok",
+      "messageArgs": [
+        "10"
+      ]
+    },
+    {
+      "name": "qrenderdoc",
+      "status": "ok",
+      "detail": "1 live Bread bridge instance(s)",
+      "messageId": "",
+      "messageArgs": []
+    },
+    {
+      "name": "portable-tool-execution",
+      "status": "ok",
+      "detail": "DOCX, XLSX, PPTX and PDF tools executed successfully.",
+      "messageId": "connection.portable-execution-ok",
+      "messageArgs": []
+    },
+    {
+      "name": "bread-host-execution",
+      "status": "ok",
+      "detail": "First-party Host initialized and executed its read-only runtime status tool.",
+      "messageId": "connection.host-execution-ok",
+      "messageArgs": []
+    },
+    {
+      "name": "model-tool-execution",
+      "status": "ok",
+      "detail": "Model generated, called the test MCP tool and completed; receipt verified.",
+      "messageId": "connection.execution-ok",
+      "messageArgs": []
+    }
+  ]
+}

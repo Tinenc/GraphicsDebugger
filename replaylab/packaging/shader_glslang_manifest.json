@@ -1,0 +1,27 @@
+{
+  "schema": "bread-glslang-release/v1",
+  "platform": "linux-x64",
+  "release": "11.8.0+1.3.204.0-1",
+  "source": "https://packages.ubuntu.com/jammy/glslang-tools",
+  "upstream": "https://github.com/KhronosGroup/glslang",
+  "url": "https://archive.ubuntu.com/ubuntu/pool/universe/g/glslang/glslang-tools_11.8.0+1.3.204.0-1_amd64.deb",
+  "sha256": "f28d516d6d8bd2e6bf178084b21ec1bfef9a09c649b43a38503cc9cd30b4f191",
+  "files": {
+    "usr/bin/glslangValidator": "bin/glslangValidator",
+    "usr/share/doc/glslang-tools/copyright": "LICENSES.txt"
+  },
+  "fileSha256": {
+    "bin/glslangValidator": "7f952448e670a103ae2bd5739d67204409fd79663d80dc63a0d15b4b3f3438b8",
+    "LICENSES.txt": "c9b0641e1b752ec1ee888ecd1327d7b74120fcd12f3756544e7a268aeb6a3582"
+  },
+  "executable": "bin/glslangValidator",
+  "runtimeRequirements": {
+    "architecture": "x86-64",
+    "testedDistribution": "Ubuntu 22.04",
+    "minimumGlibc": "2.34",
+    "minimumGlibcxx": "3.4.29",
+    "neededSystemLibraries": ["libstdc++.so.6", "libm.so.6", "libc.so.6"],
+    "transitiveSystemLibraries": ["libgcc_s.so.1"],
+    "compilerLibraries": "glslang and SPIRV compiler/optimizer code is statically linked"
+  }
+}

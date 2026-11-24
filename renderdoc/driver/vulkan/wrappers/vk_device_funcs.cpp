@@ -31,6 +31,7 @@
 #include "api/replay/version.h"
 #include "core/settings.h"
 #include "driver/ihv/nv/nv_aftermath.h"
+#include "replay/replay_timing.h"
 #include "strings/string_utils.h"
 
 RDOC_CONFIG(
@@ -199,7 +200,7 @@ static void StripUnwantedExtensions(rdcarray<rdcstr> &Extensions)
        ext == "VK_EXT_present_mode_fifo_latest_ready" || ext == "VK_EXT_surface_maintenance1" ||
        ext == "VK_EXT_swapchain_maintenance1" || ext == "VK_KHR_surface_maintenance1" ||
        ext == "VK_KHR_swapchain_maintenance1" || ext == "VK_EXT_hdr_metadata" ||
-       ext == "VK_KHR_get_display_properties2")
+       ext == "VK_KHR_get_display_properties2" || ext == "VK_EXT_present_timing")
       return true;
 
     // remove fullscreen exclusive extension
@@ -213,7 +214,7 @@ static void StripUnwantedExtensions(rdcarray<rdcstr> &Extensions)
     // this is debug only, nothing to capture, so nothing to replay
     if(ext == "VK_EXT_tooling_info" || ext == "VK_EXT_private_data" ||
        ext == "VK_EXT_validation_features" || ext == "VK_EXT_validation_cache" ||
-       ext == "VK_EXT_validation_flags")
+       ext == "VK_EXT_validation_flags" || ext == "VK_EXT_layer_settings")
       return true;
 
     // these are debug only and will be added (if supported) as optional
@@ -584,6 +585,8 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
       (pCreateInfo->pApplicationInfo && pCreateInfo->pApplicationInfo->pApplicationName &&
        rdcstr(pCreateInfo->pApplicationInfo->pApplicationName) == "RenderDoc forced instance");
 
+  m_VulkanBridgeEligible = !internalInstance;
+
   VkLayerInstanceCreateInfo *layerCreateInfo = (VkLayerInstanceCreateInfo *)pCreateInfo->pNext;
 
   // step through the chain of pNext until we get to the link info
@@ -876,6 +879,21 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
       {
         availablePhysDeviceFunctions.insert(e.extensionName);
       }
+
+      for(uint32_t i = 0; i < modifiedCreateInfo.enabledLayerCount; i++)
+      {
+        ObjDisp(m_Instance)
+            ->EnumerateDeviceExtensionProperties(p, modifiedCreateInfo.ppEnabledLayerNames[i],
+                                                 &count, NULL);
+
+        exts.resize(count);
+        ObjDisp(m_Instance)->EnumerateDeviceExtensionProperties(p, NULL, &count, exts.data());
+
+        for(const VkExtensionProperties &e : exts)
+        {
+          availablePhysDeviceFunctions.insert(e.extensionName);
+        }
+      }
     }
     // we don't bother wrapping these, they're temporary handles
   }
@@ -892,6 +910,7 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
     record->instDevInfo->ext_##name = true;                                                \
   }
   CheckInstanceExts();
+  CheckDeviceExts();
 #undef CheckExt
 #define CheckExt(name, ver)                                               \
   if(!strcmp(modifiedCreateInfo.ppEnabledExtensionNames[i], "VK_" #name)) \
@@ -1031,6 +1050,7 @@ void WrappedVulkan::Shutdown()
     }
   }
 
+  ReleaseInitialUploadCache();
   FreeAllMemory(MemoryScope::InitialContents);
   FreeAllMemory(MemoryScope::InitialContentsFirstApplyOnly);
 
@@ -1057,6 +1077,7 @@ void WrappedVulkan::Shutdown()
   m_Replay->DestroyResources();
 
   m_IndirectBuffer.Destroy();
+  m_IndirectBufferCB.Destroy();
 
   // destroy debug manager and any objects it created
   SAFE_DELETE(m_DebugManager);
@@ -1109,6 +1130,12 @@ void WrappedVulkan::vkDestroyInstance(VkInstance instance, const VkAllocationCal
     return;
 
   RDCASSERT(m_Instance == instance);
+
+  if(m_VulkanBridgeRegistered)
+  {
+    RenderDoc::Inst().RemoveVulkanBridgeCapturer(this);
+    m_VulkanBridgeRegistered = false;
+  }
 
   if(ObjDisp(m_Instance)->DestroyDebugReportCallbackEXT && m_DbgReportCallback != VK_NULL_HANDLE)
     ObjDisp(m_Instance)->DestroyDebugReportCallbackEXT(Unwrap(m_Instance), m_DbgReportCallback, NULL);
@@ -1715,8 +1742,6 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
     uint32_t physicalDeviceIndex = GetPhysicalDeviceIndexFromHandle(Unwrap(physicalDevice));
     physicalDevice = m_PhysicalDevices[physicalDeviceIndex];
 
-    RDCLOG("Creating replay device from physical device %u", physicalDeviceIndex);
-
     ObjDisp(physicalDevice)
         ->GetPhysicalDeviceProperties(Unwrap(physicalDevice), &m_PhysicalDeviceData.props);
 
@@ -1731,6 +1756,9 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
 
     m_PhysicalDeviceData.driverInfo =
         VkDriverInfo(m_PhysicalDeviceData.props, m_PhysicalDeviceData.driverProps, true);
+
+    RDCLOG("Creating replay device from physical device at capture-time index %u (%s)",
+           physicalDeviceIndex, m_PhysicalDeviceData.props.deviceName);
 
     rdcarray<VkDeviceQueueGlobalPriorityCreateInfo *> queuePriorities;
 
@@ -2258,9 +2286,11 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
         RemoveNextStruct(&createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_2_FEATURES_KHR);
     present_exts |= RemoveNextStruct(
         &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR);
+    present_exts |=
+        RemoveNextStruct(&createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_TIMING_FEATURES_EXT);
     if(present_exts)
     {
-      RDCLOG("Removed VK_KHR_present_id/wait/latest_ready structs from vkCreateDevice pNext chain");
+      RDCLOG("Removed present-related structs from vkCreateDevice pNext chain");
     }
 
     VkPhysicalDeviceFeatures enabledFeatures = {0};
@@ -2392,13 +2422,17 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
 
         m_MultiView |= ext->multiview != VK_FALSE;
 
-        if(avail.multiviewGeometryShader)
-          ext->multiviewGeometryShader = true;
-        else
-          RDCWARN(
-              "multiviewGeometryShader = false, triangle size overlay with multiview unavailable");
+        if(m_MultiView)
+        {
+          if(avail.multiviewGeometryShader)
+            ext->multiviewGeometryShader = true;
+          else
+            RDCWARN(
+                "multiviewGeometryShader = false, triangle size overlay with multiview "
+                "unavailable");
 
-        m_MultiViewGeometryShaders |= ext->multiviewGeometryShader != VK_FALSE;
+          m_MultiViewGeometryShaders |= ext->multiviewGeometryShader != VK_FALSE;
+        }
       }
       END_PHYS_EXT_CHECK();
 
@@ -3536,6 +3570,22 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
+      BEGIN_PHYS_EXT_CHECK(
+          VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT,
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(rayTracingInvocationReorder);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(
+          VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV,
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV);
+      {
+        CHECK_PHYS_EXT_FEATURE(rayTracingInvocationReorder);
+      }
+      END_PHYS_EXT_CHECK();
+
       BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceMaintenance5Features,
                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES);
       {
@@ -3660,6 +3710,114 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       {
         CHECK_PHYS_EXT_FEATURE(multiviewPerViewViewports);
         m_MultiviewPerViewViewports |= ext->multiviewPerViewViewports != VK_FALSE;
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceCustomResolveFeaturesEXT,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_RESOLVE_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(customResolve);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceDiagnosticsConfigFeaturesNV,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DIAGNOSTICS_CONFIG_FEATURES_NV);
+      {
+        CHECK_PHYS_EXT_FEATURE(diagnosticsConfig);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceDepthBiasControlFeaturesEXT,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_CONTROL_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(depthBiasControl);
+        CHECK_PHYS_EXT_FEATURE(leastRepresentableValueForceUnormRepresentation);
+        CHECK_PHYS_EXT_FEATURE(floatRepresentation);
+        CHECK_PHYS_EXT_FEATURE(depthBiasExact);
+        m_DepthBiasControl = ext->depthBiasControl != VK_FALSE;
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceShaderConstantDataFeaturesKHR,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CONSTANT_DATA_FEATURES_KHR);
+      {
+        CHECK_PHYS_EXT_FEATURE(shaderConstantData);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceShaderAbortFeaturesKHR,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ABORT_FEATURES_KHR);
+      {
+        CHECK_PHYS_EXT_FEATURE(shaderAbort);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceShaderFmaFeaturesKHR,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FMA_FEATURES_KHR);
+      {
+        CHECK_PHYS_EXT_FEATURE(shaderFmaFloat16);
+        CHECK_PHYS_EXT_FEATURE(shaderFmaFloat32);
+        CHECK_PHYS_EXT_FEATURE(shaderFmaFloat64);
+
+        if(ext->shaderFmaFloat16)
+          m_PreciseFMAMask |= 16;
+        if(ext->shaderFmaFloat32)
+          m_PreciseFMAMask |= 32;
+        if(ext->shaderFmaFloat64)
+          m_PreciseFMAMask |= 64;
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(
+          VkPhysicalDeviceShaderSubgroupPartitionedFeaturesEXT,
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_PARTITIONED_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(shaderSubgroupPartitioned);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceShaderSplitBarrierFeaturesEXT,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SPLIT_BARRIER_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(shaderSplitBarrier);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceShader64BitIndexingFeaturesEXT,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_64_BIT_INDEXING_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(shader64BitIndexing);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceShaderTileImageFeaturesEXT,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_TILE_IMAGE_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(shaderTileImageColorReadAccess);
+        CHECK_PHYS_EXT_FEATURE(shaderTileImageDepthReadAccess);
+        CHECK_PHYS_EXT_FEATURE(shaderTileImageStencilReadAccess);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(
+          VkPhysicalDeviceZeroInitializeDeviceMemoryFeaturesEXT,
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ZERO_INITIALIZE_DEVICE_MEMORY_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(zeroInitializeDeviceMemory);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceImageSlicedViewOf3DFeaturesEXT,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_SLICED_VIEW_OF_3D_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(imageSlicedViewOf3D);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceExtendedFlagsFeaturesKHR,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_FLAGS_FEATURES_KHR);
+      {
+        CHECK_PHYS_EXT_FEATURE(extendedFlags);
       }
       END_PHYS_EXT_CHECK();
     }
@@ -5289,6 +5447,12 @@ VkResult WrappedVulkan::vkCreateDevice(VkPhysicalDevice physicalDevice,
     m_DebugManager = new VulkanDebugManager(this);
   }
 
+  if(m_VulkanBridgeEligible && !m_VulkanBridgeRegistered)
+  {
+    RenderDoc::Inst().AddVulkanBridgeCapturer(this);
+    m_VulkanBridgeRegistered = true;
+  }
+
   FirstFrame();
 
   return ret;
@@ -5298,6 +5462,12 @@ void WrappedVulkan::vkDestroyDevice(VkDevice device, const VkAllocationCallbacks
 {
   if(device == VK_NULL_HANDLE)
     return;
+
+  if(m_VulkanBridgeRegistered)
+  {
+    RenderDoc::Inst().RemoveVulkanBridgeCapturer(this);
+    m_VulkanBridgeRegistered = false;
+  }
 
   if(m_MemoryFreeThread)
   {
@@ -5421,6 +5591,7 @@ bool WrappedVulkan::Serialise_vkDeviceWaitIdle(SerialiserType &ser, VkDevice dev
 
   if(IsReplayingAndReading())
   {
+    ScopedReplayTimingSection timing(ReplayTimingSection::ExplicitWait);
     ObjDisp(device)->DeviceWaitIdle(Unwrap(device));
   }
 

@@ -1258,6 +1258,7 @@ bool WrappedOpenGL::Serialise_glCopyImageSubData(SerialiserType &ser, GLuint src
 
   if(IsReplayingAndReading())
   {
+    RecordReplayCheckpointTextureWrite(dstName);
     GL.glCopyImageSubData(srcName.name, srcTarget, srcLevel, srcX, srcY, srcZ, dstName.name,
                           dstTarget, dstLevel, dstX, dstY, dstZ, srcWidth, srcHeight, srcDepth);
 
@@ -6940,6 +6941,7 @@ bool WrappedOpenGL::Serialise_glTextureBufferRangeEXT(SerialiserType &ser, GLuin
 
   if(IsReplayingAndReading())
   {
+    TrackReplayPatchBinding(buffer, eGL_TEXTURE_BUFFER);
     ResourceId id = GetResourceManager()->GetResID(texture);
     if(IsLoading(m_State) && m_CurEventID == 0)
     {
@@ -7117,6 +7119,7 @@ bool WrappedOpenGL::Serialise_glTextureBufferEXT(SerialiserType &ser, GLuint tex
 
   if(IsReplayingAndReading())
   {
+    TrackReplayPatchBinding(buffer, eGL_TEXTURE_BUFFER);
     ResourceId id = GetResourceManager()->GetResID(texture);
     if(IsLoading(m_State) && m_CurEventID == 0)
     {
@@ -7370,6 +7373,28 @@ void WrappedOpenGL::glTextureFoveationParametersQCOM(GLuint texture, GLuint laye
       }
     }
   }
+}
+
+void WrappedOpenGL::glEGLImageTargetRenderbufferStorageOES(GLenum target, GLeglImageOES image)
+{
+  GL.glEGLImageTargetRenderbufferStorageOES(target, image);
+}
+
+void WrappedOpenGL::glEGLImageTargetTexStorageEXT(GLenum target, GLeglImageOES image,
+                                                  const GLint *attrib_list)
+{
+  GL.glEGLImageTargetTexStorageEXT(target, image, attrib_list);
+}
+
+void WrappedOpenGL::glEGLImageTargetTexture2DOES(GLenum target, GLeglImageOES image)
+{
+  GL.glEGLImageTargetTexture2DOES(target, image);
+}
+
+void WrappedOpenGL::glEGLImageTargetTextureStorageEXT(GLuint texture, GLeglImageOES image,
+                                                      const GLint *attrib_list)
+{
+  GL.glEGLImageTargetTextureStorageEXT(texture, image, attrib_list);
 }
 
 #pragma endregion

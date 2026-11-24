@@ -1,0 +1,153 @@
+{
+  "ok": true,
+  "checks": [
+    "fresh owned capture context",
+    "fixture has two draw events",
+    "annotation observation is a draw",
+    "brush enabled with capture",
+    "canvas appears in texture viewer",
+    "actions above the drawing canvas",
+    "history follows Fit across toolbar rows",
+    "actions are grouped on the upper right",
+    "toolbar controls fit within the canvas width",
+    "add waits for marks",
+    "Cancel has a red background",
+    "marks enable attachment",
+    "Add to conversation has a green background",
+    "navigation leaves frozen canvas visible",
+    "current EID changed after drawing",
+    "one visible marked image with hidden original",
+    "images retain drawing EID after navigation",
+    "brush resumes existing marks",
+    "update replaces pair instead of duplicating",
+    "chip reopens pinned snapshot after navigation",
+    "remove keeps annotation pair atomic",
+    "UV viewport toggle is available",
+    "live UV geometry contains captured triangle",
+    "UV channel selector populated",
+    "bound texture selector populated",
+    "captured texture loaded in UV viewport",
+    "texture channel control R",
+    "texture channel control G",
+    "texture channel control B",
+    "texture channel control A",
+    "single channel reflected by native control",
+    "Face selection tool available",
+    "Face selects captured UV component",
+    "Face selects exactly one component",
+    "Face UV selection highlights native 3D vertices",
+    "Point selection tool available",
+    "Point selects captured UV component",
+    "Point selects exactly one component",
+    "Point UV selection highlights native 3D vertices",
+    "Edge selection tool available",
+    "Edge selects captured UV component",
+    "Edge selects exactly one component",
+    "Edge UV selection highlights native 3D vertices",
+    "DCC controls and FOV are present",
+    "Maya navigation preset can be selected",
+    "FOV can be adjusted",
+    "mesh-gpu.png is a real nonempty snapshot",
+    "mesh-gpu.png contains visible geometry",
+    "uv-evidence.png is a real nonempty snapshot",
+    "uv-evidence.png contains visible geometry"
+  ],
+  "capture": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\bread-df-article-otmnc2my\\article_capture.rdc",
+  "canvasSize": [
+    591,
+    200
+  ],
+  "annotationEID": 14,
+  "currentEID": 13,
+  "attachmentNames": [
+    "预览附件：EID 14：渲染目标标注图",
+    "移除附件：EID 14：渲染目标标注图"
+  ],
+  "annotationPassed": true,
+  "renderTarget": "48",
+  "uvChannels": [
+    "NORMAL",
+    "TEXCOORD"
+  ],
+  "selectedUVChannel": "TEXCOORD",
+  "textureOptions": [
+    "无纹理",
+    "2D Texture 50"
+  ],
+  "cameraControls": [
+    "轨迹球",
+    "飞行相机"
+  ],
+  "cameraPresets": [
+    "Bread",
+    "3ds Max",
+    "Maya"
+  ],
+  "meshEvidence": {
+    "availableVertices": [
+      0,
+      1,
+      2
+    ],
+    "channel": "TEXCOORD",
+    "channelLabel": "TEXCOORD",
+    "eventId": 14.0,
+    "framing": "context",
+    "meshProjectedBounds": [
+      0.3387390524148941,
+      0.0535714328289032,
+      0.6612609475851059,
+      0.9464285671710968
+    ],
+    "meshSelectionBounds": [
+      0.05133576978336684,
+      0.02098031443235112,
+      0.9486642302166333,
+      0.979019685567649
+    ],
+    "meshTextureRendered": true,
+    "pair": 0,
+    "ready": true,
+    "requestId": "df-article-mesh",
+    "selectedCount": 1,
+    "selectedElements": [
+      "0"
+    ],
+    "selectedVertices": [
+      2,
+      0,
+      1
+    ],
+    "selectedVerticesComplete": true,
+    "selectionComplete": true,
+    "selectionListComplete": true,
+    "selectionMode": "face",
+    "stage": "vs-in",
+    "textureChannelMask": 7,
+    "textureName": "2D Texture 50",
+    "textureProvenance": "captured",
+    "textureResourceId": "50",
+    "triangleCount": 1,
+    "uvSelectionBounds": [
+      0.09951048725353547,
+      0.1146232990552885,
+      0.900489512746465,
+      0.8853767009447112
+    ],
+    "uvTextureRendered": true,
+    "vertexCount": 3,
+    "viewAngles": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "meshPassed": true,
+  "error": null,
+  "phase": "mesh-capture",
+  "captureUnchanged": true,
+  "run": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\bread-df-article-otmnc2my",
+  "captureSha256": "119ebc9453a9bb07b19d401ddc7acf9047183efe666895be772cdea2c60c2b23",
+  "captureHashUnchanged": true,
+  "guiExit": 0
+}

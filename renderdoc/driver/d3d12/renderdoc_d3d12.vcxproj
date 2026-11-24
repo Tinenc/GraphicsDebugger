@@ -98,7 +98,17 @@
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
   </ItemDefinitionGroup>
+  <!-- Optional performance measurement with Development diagnostics and PDBs retained. -->
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Development' and '$(ReplayOptimizeDevelopment)'=='true'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="d3d12_api_monitor.cpp" />
+    <ClCompile Include="d3d12_monitor_readback.cpp" />
     <ClCompile Include="d3d12_commands.cpp" />
     <ClCompile Include="d3d12_command_list10_wrap.cpp" />
     <ClCompile Include="d3d12_command_list1_wrap.cpp" />
@@ -123,6 +133,7 @@
     <ClCompile Include="d3d12_device_wrap12.cpp" />
     <ClCompile Include="d3d12_device_wrap13.cpp" />
     <ClCompile Include="d3d12_device_wrap14.cpp" />
+    <ClCompile Include="d3d12_device_wrap15.cpp" />
     <ClCompile Include="d3d12_device_wrap2.cpp" />
     <ClCompile Include="d3d12_device_wrap3.cpp" />
     <ClCompile Include="d3d12_device_wrap4.cpp" />
@@ -160,10 +171,13 @@
   <ItemGroup>
     <ClInclude Include="..\dx\official\D3D11On12On7.h" />
     <ClInclude Include="..\dx\official\D3D12Downlevel.h" />
+    <ClInclude Include="d3d12_api_monitor.h" />
     <ClInclude Include="d3d12_commands.h" />
     <ClInclude Include="d3d12_command_list.h" />
     <ClInclude Include="d3d12_command_queue.h" />
     <ClInclude Include="d3d12_common.h" />
+    <ClInclude Include="d3d12_replay_clear.h" />
+    <ClInclude Include="d3d12_buffer_read_index.inl" />
     <ClInclude Include="d3d12_debug.h" />
     <ClInclude Include="d3d12_device.h" />
     <ClInclude Include="d3d12_dxil_debug.h" />

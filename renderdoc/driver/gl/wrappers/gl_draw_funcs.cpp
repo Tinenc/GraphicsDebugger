@@ -25,6 +25,7 @@
 
 #include "../gl_driver.h"
 #include "common/common.h"
+#include "replay/replay_timing.h"
 #include "strings/string_utils.h"
 
 void WrappedOpenGL::BindIndirectBuffer(GLsizeiptr bufLength)
@@ -3633,6 +3634,7 @@ bool WrappedOpenGL::Serialise_glClearNamedFramebufferfv(SerialiserType &ser,
     // we are running without ARB_dsa support, these functions are emulated in the obvious way. This
     // is necessary since these functions can be serialised even if ARB_dsa was not used originally,
     // and we need to support this case.
+    RecordReplayCheckpointTextureWrite(framebuffer);
     GL.glClearNamedFramebufferfv(framebuffer.name, buffer, drawbuffer, value);
 
     if(IsLoading(m_State))
@@ -3773,6 +3775,7 @@ bool WrappedOpenGL::Serialise_glClearNamedFramebufferiv(SerialiserType &ser,
     // we are running without ARB_dsa support, these functions are emulated in the obvious way. This
     // is necessary since these functions can be serialised even if ARB_dsa was not used originally,
     // and we need to support this case.
+    RecordReplayCheckpointTextureWrite(framebuffer);
     GL.glClearNamedFramebufferiv(framebuffer.name, buffer, drawbuffer, value);
 
     if(IsLoading(m_State))
@@ -3898,6 +3901,7 @@ bool WrappedOpenGL::Serialise_glClearNamedFramebufferuiv(SerialiserType &ser,
     // we are running without ARB_dsa support, these functions are emulated in the obvious way. This
     // is necessary since these functions can be serialised even if ARB_dsa was not used originally,
     // and we need to support this case.
+    RecordReplayCheckpointTextureWrite(framebuffer);
     GL.glClearNamedFramebufferuiv(framebuffer.name, buffer, drawbuffer, value);
 
     if(IsLoading(m_State))
@@ -4019,6 +4023,7 @@ bool WrappedOpenGL::Serialise_glClearNamedFramebufferfi(SerialiserType &ser, GLu
     // we are running without ARB_dsa support, these functions are emulated in the obvious way. This
     // is necessary since these functions can be serialised even if ARB_dsa was not used originally,
     // and we need to support this case.
+    RecordReplayCheckpointTextureWrite(framebuffer);
     GL.glClearNamedFramebufferfi(framebuffer.name, buffer, drawbuffer, depth, stencil);
 
     if(IsLoading(m_State))
@@ -4680,6 +4685,7 @@ bool WrappedOpenGL::Serialise_glClearTexImage(SerialiserType &ser, GLuint textur
 
   if(IsReplayingAndReading())
   {
+    RecordReplayCheckpointTextureWrite(texture);
     GL.glClearTexImage(texture.name, level, format, type, (const void *)&data[0]);
 
     if(IsLoading(m_State))
@@ -4827,6 +4833,7 @@ bool WrappedOpenGL::Serialise_glClearTexSubImage(SerialiserType &ser, GLuint tex
 
   if(IsReplayingAndReading())
   {
+    RecordReplayCheckpointTextureWrite(texture);
     GL.glClearTexSubImage(texture.name, level, xoffset, yoffset, zoffset, width, height, depth,
                           format, type, (const void *)&data[0]);
 
@@ -4888,6 +4895,7 @@ bool WrappedOpenGL::Serialise_glFlush(SerialiserType &ser)
 {
   if(IsReplayingAndReading())
   {
+    ScopedReplayTimingSection timing(ReplayTimingSection::ExplicitSubmit);
     GL.glFlush();
 
     if(IsLoading(m_State))
@@ -4926,6 +4934,7 @@ bool WrappedOpenGL::Serialise_glFinish(SerialiserType &ser)
 {
   if(IsReplayingAndReading())
   {
+    ScopedReplayTimingSection timing(ReplayTimingSection::ExplicitWait);
     GL.glFinish();
 
     if(IsLoading(m_State))

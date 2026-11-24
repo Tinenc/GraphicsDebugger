@@ -96,7 +96,7 @@ win32 {
 		}
 	}
 
-	LIBS += user32.lib
+	LIBS += user32.lib shell32.lib ole32.lib gdi32.lib windowscodecs.lib
 
 	# Link against the core library
 	LIBS += $$DESTDIR/renderdoc.lib
@@ -170,6 +170,11 @@ SOURCES += Code/qrenderdoc.cpp \
     Code/qprocessinfo.cpp \
     Code/ReplayManager.cpp \
     Code/CaptureContext.cpp \
+    Code/ReplayLab/ReplayLabIntegration.cpp \
+    Code/ReplayLab/ReplayLabCBufferAliases.cpp \
+    Code/CodeEditorService.cpp \
+    Widgets/ShaderCodeEditor.cpp \
+    Code/TranslationManager.cpp \
     Code/ScintillaSyntax.cpp \
     Code/QRDUtils.cpp \
     Code/MiniQtHelper.cpp \
@@ -177,11 +182,13 @@ SOURCES += Code/qrenderdoc.cpp \
     Code/Resources.cpp \
     Code/RGPInterop.cpp \
     Code/pyrenderdoc/PythonContext.cpp \
+    Code/pyrenderdoc/PythonInvokers.cpp \
     Code/Interface/QRDInterface.cpp \
     Code/Interface/Analytics.cpp \
     Code/Interface/ShaderProcessingTool.cpp \
-    Code/Interface/PersistantConfig.cpp \
+    Code/Interface/PersistentConfig.cpp \
     Code/Interface/RemoteHost.cpp \
+    Code/Interface/Helpers.cpp \
     Styles/StyleData.cpp \
     Styles/RDStyle/RDStyle.cpp \
     Styles/RDTweakedNativeStyle/RDTweakedNativeStyle.cpp \
@@ -190,6 +197,7 @@ SOURCES += Code/qrenderdoc.cpp \
     Windows/Dialogs/UpdateDialog.cpp \
     Windows/MainWindow.cpp \
     Windows/EventBrowser.cpp \
+    Windows/BookmarksView.cpp \
     Windows/TextureViewer.cpp \
     Windows/ShaderViewer.cpp \
     Windows/ShaderMessageViewer.cpp \
@@ -222,9 +230,11 @@ SOURCES += Code/qrenderdoc.cpp \
     Windows/PipelineState/D3D12PipelineStateViewer.cpp \
     Windows/PipelineState/GLPipelineStateViewer.cpp \
     Widgets/Extended/RDTreeView.cpp \
+    Widgets/Extended/RDToolTip.cpp \
     Widgets/Extended/RDTreeWidget.cpp \
     Widgets/BufferFormatSpecifier.cpp \
     Windows/BufferViewer.cpp \
+    Windows/MeshUVView.cpp \
     Widgets/Extended/RDTableView.cpp \
     Windows/DebugMessageView.cpp \
     Windows/LogView.cpp \
@@ -240,13 +250,26 @@ SOURCES += Code/qrenderdoc.cpp \
     Windows/Dialogs/RemoteManager.cpp \
     Windows/Dialogs/ExtensionManager.cpp \
     Windows/PixelHistoryView.cpp \
+    Windows/RenderTargetHistoryView.cpp \
     Widgets/PipelineFlowChart.cpp \
     Windows/Dialogs/EnvironmentEditor.cpp \
     Widgets/FindReplace.cpp \
     Widgets/Extended/RDSplitter.cpp \
     Windows/Dialogs/TipsDialog.cpp \
     Windows/Dialogs/ConfigEditor.cpp \
+    Windows/AI/AIConfiguration.cpp \
+    Windows/AI/AIAssistant.cpp \
+    Windows/AI/AIFileThumbnail.cpp \
+    Windows/AI/AITextureAnnotation.cpp \
+    Windows/AI/AIVisualReply.cpp \
+    Windows/AI/AIAgentMonitorWindow.cpp \
+    Windows/AI/AIAgentTraceStore.cpp \
+    Windows/AI/AIConversationListView.cpp \
+    Windows/AI/AIConversationStore.cpp \
+    Windows/AI/AIConversationView.cpp \
+    Windows/AI/AIPendingChatView.cpp \
     Windows/PythonShell.cpp \
+    Windows/ApiMonitorWindow.cpp \
     Windows/Dialogs/PerformanceCounterSelection.cpp \
     Windows/PerformanceCounterViewer.cpp \
     Windows/ResourceInspector.cpp \
@@ -258,6 +281,11 @@ SOURCES += Code/qrenderdoc.cpp \
 HEADERS += Code/CaptureContext.h \
     Code/qprocessinfo.h \
     Code/ReplayManager.h \
+    Code/ReplayLab/ReplayLabIntegration.h \
+    Code/ReplayLab/ReplayLabCBufferAliases.h \
+    Code/CodeEditorService.h \
+    Widgets/ShaderCodeEditor.h \
+    Code/TranslationManager.h \
     Code/ScintillaSyntax.h \
     Code/QRDUtils.h \
     Code/MiniQtHelper.h \
@@ -268,7 +296,8 @@ HEADERS += Code/CaptureContext.h \
     Code/pyrenderdoc/interface_check.h \
     Code/Interface/QRDInterface.h \
     Code/Interface/Analytics.h \
-    Code/Interface/PersistantConfig.h \
+    Code/Interface/PersistentConfig.h \
+    Code/Interface/Helpers.h \
     Code/Interface/Extensions.h \
     Code/Interface/RemoteHost.h \
     Styles/StyleData.h \
@@ -279,6 +308,7 @@ HEADERS += Code/CaptureContext.h \
     Windows/Dialogs/UpdateDialog.h \
     Windows/MainWindow.h \
     Windows/EventBrowser.h \
+    Windows/BookmarksView.h \
     Windows/TextureViewer.h \
     Windows/ShaderViewer.h \
     Windows/ShaderMessageViewer.h \
@@ -311,9 +341,11 @@ HEADERS += Code/CaptureContext.h \
     Windows/PipelineState/D3D12PipelineStateViewer.h \
     Windows/PipelineState/GLPipelineStateViewer.h \
     Widgets/Extended/RDTreeView.h \
+    Widgets/Extended/RDToolTip.h \
     Widgets/Extended/RDTreeWidget.h \
     Widgets/BufferFormatSpecifier.h \
     Windows/BufferViewer.h \
+    Windows/MeshUVView.h \
     Widgets/Extended/RDTableView.h \
     Windows/DebugMessageView.h \
     Windows/LogView.h \
@@ -329,6 +361,7 @@ HEADERS += Code/CaptureContext.h \
     Windows/Dialogs/RemoteManager.h \
     Windows/Dialogs/ExtensionManager.h \
     Windows/PixelHistoryView.h \
+    Windows/RenderTargetHistoryView.h \
     Widgets/PipelineFlowChart.h \
     Windows/Dialogs/EnvironmentEditor.h \
     Widgets/FindReplace.h \
@@ -343,7 +376,20 @@ HEADERS += Code/CaptureContext.h \
     Windows/Dialogs/AnalyticsPromptDialog.h \
     Windows/Dialogs/AxisMappingDialog.h \
     Windows/Dialogs/CameraControlsDialog.h \
-    Windows/Dialogs/ProjectionGuessDialog.h
+    Windows/Dialogs/ProjectionGuessDialog.h \
+    Windows/AI/AIConfiguration.h \
+    Windows/AI/AIAssistant.h \
+    Windows/AI/AIFileThumbnail.h \
+    Windows/AI/AITextureAnnotation.h \
+    Windows/AI/AIVisualReply.h \
+    Windows/AI/AICodeFormatting.h \
+    Windows/AI/AIAgentMonitorWindow.h \
+    Windows/AI/AIAgentTraceStore.h \
+    Windows/AI/AIConversationListView.h \
+    Windows/AI/AIConversationStore.h \
+    Windows/AI/AIConversationView.h \
+    Windows/AI/AIPendingChatView.h \
+    Windows/ApiMonitorWindow.h
 FORMS    += Windows/Dialogs/AboutDialog.ui \
     Windows/Dialogs/CrashDialog.ui \
     Windows/Dialogs/UpdateDialog.ui \
@@ -383,6 +429,7 @@ FORMS    += Windows/Dialogs/AboutDialog.ui \
     Windows/Dialogs/TipsDialog.ui \
     Windows/Dialogs/ConfigEditor.ui \
     Windows/PythonShell.ui \
+    Windows/ApiMonitorWindow.ui \
     Windows/Dialogs/PerformanceCounterSelection.ui \
     Windows/PerformanceCounterViewer.ui \
     Windows/ResourceInspector.ui \
@@ -393,6 +440,56 @@ FORMS    += Windows/Dialogs/AboutDialog.ui \
     Windows/Dialogs/ProjectionGuessDialog.ui
 
 RESOURCES += Resources/resources.qrc
+
+# Source strings remain English. lupdate/lrelease use this catalog for Simplified Chinese, so new
+# .ui text and C++ tr()/translate() calls are picked up by the standard Qt translation workflow.
+TRANSLATIONS += Translations/qrenderdoc_zh_CN.ts
+
+# ReplayLab is a first-party integration loaded from the application directory, not a qrenderdoc
+# extension. Its packaged sidecars currently rely on Windows Job Object containment, so only
+# Windows builds mirror the Python implementation package.
+win32 {
+REPLAYLAB_INTEGRATION_SOURCE_DIR = $$clean_path($$_PRO_FILE_PWD_/../replaylab/renderdoc_mcp_bridge)
+macx {
+	REPLAYLAB_INTEGRATION_OUTPUT_DIR = $$clean_path($$DESTDIR/$${TARGET}.app/Contents/MacOS/integrations/replaylab/python/renderdoc_mcp_bridge)
+} else {
+	REPLAYLAB_INTEGRATION_OUTPUT_DIR = $$clean_path($$DESTDIR/integrations/replaylab/python/renderdoc_mcp_bridge)
+}
+
+REPLAYLAB_PYTHON_CANDIDATES = $$files($$REPLAYLAB_INTEGRATION_SOURCE_DIR/*.py, true)
+for(REPLAYLAB_PYTHON_CANDIDATE, REPLAYLAB_PYTHON_CANDIDATES) {
+	!contains(REPLAYLAB_PYTHON_CANDIDATE, __pycache__) {
+		REPLAYLAB_INTEGRATION_FILES += $$REPLAYLAB_PYTHON_CANDIDATE
+	}
+}
+REPLAYLAB_INTEGRATION_FILES += $$REPLAYLAB_INTEGRATION_SOURCE_DIR/integration.json
+DISTFILES += $$REPLAYLAB_INTEGRATION_FILES
+
+# A changed integration source must re-run the post-link mirror even when no C++ source changed.
+PRE_TARGETDEPS += $$REPLAYLAB_INTEGRATION_FILES
+
+!exists($$REPLAYLAB_INTEGRATION_SOURCE_DIR/integration.json) {
+	error("ReplayLab integration metadata is missing: $$REPLAYLAB_INTEGRATION_SOURCE_DIR/integration.json")
+}
+
+win32 {
+	REPLAYLAB_CLEAN_COMMAND = if exist $$shell_quote($$system_path($$REPLAYLAB_INTEGRATION_OUTPUT_DIR)) $$QMAKE_DEL_TREE $$shell_quote($$system_path($$REPLAYLAB_INTEGRATION_OUTPUT_DIR))
+} else {
+	REPLAYLAB_CLEAN_COMMAND = $$QMAKE_DEL_TREE $$shell_quote($$system_path($$REPLAYLAB_INTEGRATION_OUTPUT_DIR))
+}
+
+QMAKE_POST_LINK += $$escape_expand(\\n\\t) $$REPLAYLAB_CLEAN_COMMAND
+win32:QMAKE_POST_LINK += $$escape_expand(\\n\\t) if exist $$shell_quote($$system_path($$DESTDIR/extensions/replaylab_bridge)) $$QMAKE_DEL_TREE $$shell_quote($$system_path($$DESTDIR/extensions/replaylab_bridge))
+QMAKE_POST_LINK += $$escape_expand(\\n\\t) $$sprintf($$QMAKE_MKDIR_CMD, $$shell_quote($$system_path($$REPLAYLAB_INTEGRATION_OUTPUT_DIR)))
+
+for(REPLAYLAB_INTEGRATION_FILE, REPLAYLAB_INTEGRATION_FILES) {
+	REPLAYLAB_RELATIVE_PATH = $$relative_path($$REPLAYLAB_INTEGRATION_FILE, $$REPLAYLAB_INTEGRATION_SOURCE_DIR)
+	REPLAYLAB_RELATIVE_DIR = $$dirname(REPLAYLAB_RELATIVE_PATH)
+	REPLAYLAB_FILE_OUTPUT_DIR = $$clean_path($$REPLAYLAB_INTEGRATION_OUTPUT_DIR/$$REPLAYLAB_RELATIVE_DIR)
+	QMAKE_POST_LINK += $$escape_expand(\\n\\t) $$sprintf($$QMAKE_MKDIR_CMD, $$shell_quote($$system_path($$REPLAYLAB_FILE_OUTPUT_DIR)))
+	QMAKE_POST_LINK += $$escape_expand(\\n\\t) $$QMAKE_COPY $$shell_quote($$system_path($$REPLAYLAB_INTEGRATION_FILE)) $$shell_quote($$system_path($$REPLAYLAB_FILE_OUTPUT_DIR))
+}
+}
 
 # Add ToolWindowManager
 

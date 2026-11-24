@@ -1,0 +1,608 @@
+diff --git a/src/Uex/Core/MaterialShaderMapEvidence.cs b/src/Uex/Core/MaterialShaderMapEvidence.cs
+new file mode 100644
+index 0000000..d2141ca
+--- /dev/null
++++ b/src/Uex/Core/MaterialShaderMapEvidence.cs
+@@ -0,0 +1,395 @@
++using System.Runtime.CompilerServices;
++using System.Security.Cryptography;
++using System.Text;
++using CUE4Parse.FileProvider;
++using CUE4Parse.FileProvider.Objects;
++using CUE4Parse.MappingsProvider.Usmap;
++using CUE4Parse.UE4.Assets;
++using CUE4Parse.UE4.Assets.Exports.Material;
++using CUE4Parse.UE4.Assets.Objects.Properties;
++using CUE4Parse.UE4.Objects.UObject;
++using CUE4Parse.UE4.Versions;
++using Newtonsoft.Json;
++using Newtonsoft.Json.Linq;
++using Serilog;
++using Serilog.Core;
++using Serilog.Events;
++using Uex.Config;
++
++[assembly: InternalsVisibleTo("Uex.Tests")]
++
++namespace Uex.Core;
++
++/// <summary>
++/// Explicit, CLI-only inline material evidence. A private loose-file provider admits
++/// one package and its sidecars; it never mounts/scans a tree or changes a cached provider.
++/// </summary>
++public static class MaterialShaderMapEvidence
++{
++    public const int MaximumBytes = 8 * 1024 * 1024;
++    private const int MaximumInputBytes = 16 * 1024 * 1024;
++    private const int MaximumExports = 256;
++    private const int MaximumVariants = 64;
++
++    public static (string Json, int ExitCode) ReadProfile(string? configPath, string profileName, string asset, int maxBytes)
++    {
++        try { return Read(ProfilesConfig.LoadDefault(configPath).GetProfile(profileName), asset, maxBytes); }
++        catch (Exception exception)
++        {
++            var result = NewEnvelope(asset);
++            ((JArray)result["diagnostics"]!).Add(Diagnostic("error", "profile_failed", SafeDiagnostics.Error(exception)));
++            return Finish(result, maxBytes);
++        }
++    }
++
++    public static (string Json, int ExitCode) Read(GameProfile profile, string asset, int maxBytes = MaximumBytes)
++    {
++        var result = NewEnvelope(asset);
++        var diagnostics = (JArray)result["diagnostics"]!;
++        var sink = new DiagnosticSink(diagnostics);
++        // Only called by the dedicated one-operation CLI process: Serilog's global
++        // logger is not changed by preview, serve, MCP, or ProviderManager.
++        var previousLogger = Log.Logger;
++        using var logger = new LoggerConfiguration().MinimumLevel.Warning().WriteTo.Sink(sink).CreateLogger();
++        Log.Logger = logger;
++        try
++        {
++            if (maxBytes < 4096 || maxBytes > MaximumBytes)
++                throw new EvidenceException("budget_exceeded", "max-bytes must be between 4096 and 8388608.");
++            if (string.IsNullOrWhiteSpace(profile.Game) ||
++                !Enum.TryParse<EGame>(profile.Game, false, out var game) ||
++                !Enum.IsDefined(game) || !profile.Game.StartsWith("GAME_", StringComparison.Ordinal))
++                throw new EvidenceException("unsupported", "An explicit EGame in profile.game is required; version candidates are not selected automatically.");
++            if (game < EGame.GAME_UE4_25)
++                throw new EvidenceException("unsupported", "Inline material ShaderMap reading requires the reader's UE4.25-or-newer route.");
++
++            var root = new DirectoryInfo(Path.GetFullPath(profile.PaksDir));
++            if (!root.Exists) throw new EvidenceException("failed", "The profile asset root does not exist.");
++            var relative = ValidateAssetPath(root.FullName, asset);
++            result["asset"]!["path"] = relative;
++            var versions = new VersionContainer(game);
++            using var provider = new DefaultFileProvider(root, SearchOption.TopDirectoryOnly, versions, StringComparer.OrdinalIgnoreCase)
++            {
++                ReadShaderMaps = true,
++                SkipReferencedTextures = true
++            };
++            var inputs = (JArray)result["asset"]!["inputs"]!;
++            var files = new Dictionary<string, GameFile>(StringComparer.OrdinalIgnoreCase);
++            long totalBytes = 0;
++            foreach (var extension in new[] { ".uasset", ".uexp", ".ubulk", ".uptnl" })
++            {
++                var inputRelative = Path.ChangeExtension(relative, extension).Replace('\\', '/');
++                var info = new FileInfo(Path.Combine(root.FullName, inputRelative));
++                if (!info.Exists)
++                {
++                    if (extension == ".uasset") throw new EvidenceException("unsupported", "Exact loose .uasset not found; this bounded operation does not mount archives or search directories.");
++                    continue;
++                }
++                RejectReparsePoints(root.FullName, info.FullName);
++                totalBytes += info.Length;
++                if (totalBytes > MaximumInputBytes)
++                    throw new EvidenceException("budget_exceeded", "The exact package and sidecars exceed the 16 MiB input budget.");
++                inputs.Add(new JObject { ["relativePath"] = inputRelative, ["byteSize"] = info.Length, ["sha256"] = FileHash(info.FullName) });
++                var entry = new OsGameFile(root, info, "", versions);
++                files.Add(entry.Path, entry);
++            }
++            provider.Files.AddFiles(files);
++            string? mappingHash = null;
++            if (!string.IsNullOrWhiteSpace(profile.Usmap))
++            {
++                var mapping = new FileInfo(profile.Usmap);
++                if (!mapping.Exists || mapping.Length > MaximumInputBytes)
++                    throw new EvidenceException("failed", "The explicit profile.usmap is missing or exceeds the 16 MiB input budget.");
++                mappingHash = FileHash(mapping.FullName);
++                provider.MappingsContainer = new FileUsmapTypeMappingsProvider(mapping.FullName);
++            }
++            else if (profile.Usmaps?.Count > 0)
++                throw new EvidenceException("unsupported", "Select a proven mapping in profile.usmap; mapping candidates are not selected automatically.");
++
++            result["reader"] = new JObject
++            {
++                ["id"] = "uex", ["game"] = game.ToString(), ["mappingsSha256"] = mappingHash,
++                ["programAssemblySha256"] = FileHash(typeof(MaterialShaderMapEvidence).Assembly.Location),
++                ["parserSha256"] = FileHash(typeof(DefaultFileProvider).Assembly.Location),
++                ["providerScope"] = "exact-loose-package", ["skipReferencedTextures"] = true
++            };
++            result["readShaderMaps"]!["attempted"] = true;
++            var package = provider.LoadPackage(relative);
++            if (!package.CanDeserialize) throw new EvidenceException("failed", "The exact package cannot deserialize with the selected profile.");
++            if (package.ExportMapLength > MaximumExports)
++                throw new EvidenceException("budget_exceeded", "The package exceeds the 256 export budget.");
++            var materials = (JArray)result["materials"]!;
++            foreach (var material in package.GetExports().OfType<UMaterialInterface>())
++            {
++                if (material.LoadedMaterialResources.Count > MaximumVariants)
++                    throw new EvidenceException("budget_exceeded", "A material exceeds the 64 variant budget.");
++                var variants = new JArray();
++                foreach (var resource in material.LoadedMaterialResources)
++                {
++                    if (resource.LoadedShaderMap is null)
++                    {
++                        diagnostics.Add(Diagnostic("warning", "missing_shader_map", "A serialized material resource has no valid ShaderMap."));
++                        sink.Incomplete = true;
++                        continue;
++                    }
++                    variants.Add(ProjectVariant(resource.LoadedShaderMap, game));
++                }
++                materials.Add(new JObject
++                {
++                    ["objectName"] = material.Name, ["className"] = material.GetType().Name,
++                    ["inlineReadApplicable"] = material is UMaterial || material is UMaterialInstance { bHasStaticPermutationResource: true },
++                    // The exact-package reader already deserialized this export.  Retain the
++                    // ordinary material properties in the same content-hashed receipt so the
++                    // Host can follow Parent and parameter overrides without launching the
++                    // tree-mounting preview command for every level of the chain.
++                    ["materialPreview"] = ProjectMaterialPreview(material),
++                    ["loadedMaterialResourceCount"] = material.LoadedMaterialResources.Count, ["variants"] = variants
++                });
++            }
++            if (materials.Count == 0) throw new EvidenceException("unsupported", "No material export was present in the exact package.");
++            // Content hashes bind the receipt to the bytes consumed, including changes
++            // during a read. Do not claim completion from path/timestamp identity alone.
++            foreach (var input in inputs)
++                if (FileHash(Path.Combine(root.FullName, input["relativePath"]!.Value<string>()!)) != input["sha256"]!.Value<string>())
++                    throw new EvidenceException("failed", "An admitted package input changed during the read.");
++            if (mappingHash is not null && FileHash(profile.Usmap!) != mappingHash)
++                throw new EvidenceException("failed", "The selected mapping changed during the read.");
++            if (sink.Incomplete) throw new EvidenceException("failed", "The reader reported an incomplete inline ShaderMap read; empty resources are not proof of absence.");
++            result["status"] = materials.Any(m => m["variants"]!.HasValues) ? "parsed" : "empty";
++            result["readShaderMaps"]!["completed"] = true;
++            result["coverage"]!["complete"] = true;
++        }
++        catch (Exception exception)
++        {
++            result["status"] = exception is EvidenceException evidence ? evidence.Status : "failed";
++            diagnostics.Add(Diagnostic("error", "read_failed", SafeDiagnostics.Error(exception)));
++        }
++        finally { Log.Logger = previousLogger; }
++        return Finish(result, maxBytes);
++    }
++
++    internal static JObject ProjectVariant(FMaterialShaderMap map, EGame game)
++    {
++        var content = map.Content as FMaterialShaderMapContent;
++        var uniforms = content?.MaterialCompilationOutput?.UniformExpressionSet;
++        if (uniforms is null) throw new EvidenceException("failed", "A material ShaderMap has no readable uniform expression set.");
++        var raw = JObject.FromObject(uniforms);
++        var code = uniforms.UniformPreshaderData?.Data ?? [];
++        var layout = raw["UniformBufferLayoutInitializer"];
++        return new JObject
++        {
++            ["shaderPlatform"] = map.ShaderPlatform.ToString(),
++            ["qualityLevel"] = map.ShaderMapId.QualityLevel.ToString(),
++            ["featureLevel"] = map.ShaderMapId.FeatureLevel.ToString(),
++            ["shaderMapId"] = JToken.FromObject(map.ShaderMapId),
++            ["cookedShaderMapHash"] = HashIdentity(map.ShaderMapId.CookedShaderMapIdHash?.ToString(), game, "cooked-shader-map"),
++            ["resourceHash"] = HashIdentity(map.ResourceHash?.ToString(), game, "shader-map-resource"),
++            ["uniformLayout"] = new JObject
++            {
++                ["name"] = layout?["Name"], ["serializedByteSize"] = layout?["ConstantBufferSize"],
++                ["preshaderFloat4Count"] = uniforms.UniformPreshaderBufferSize,
++                ["preshaderByteSize"] = checked((long)uniforms.UniformPreshaderBufferSize * 16),
++                ["serialized"] = layout?.DeepClone(),
++                ["note"] = "Serialized layout may include resource members; it is not the numeric CBuffer byte extent."
++            },
++            ["numericParameters"] = raw["UniformNumericParameters"],
++            ["legacyScalarParameters"] = raw["UniformScalarParameters"],
++            ["legacyVectorParameters"] = raw["UniformVectorParameters"],
++            ["numericParameterOffsetMeaning"] = "DefaultValueOffset indexes serialized default values, not GPU CBuffer storage.",
++            ["parameterEvaluations"] = raw["UniformParameterEvaluations"],
++            ["preshaderHeaders"] = raw["UniformPreshaders"],
++            ["preshaderFields"] = raw["UniformPreshaderFields"],
++            ["preshaderFieldOffsetMeaning"] = "Raw reader BufferOffset is not a byte offset. Resolve the engine format and field type before converting it to capture storage; this operation does not evaluate preshaders.",
++            ["legacyScalarPreshaders"] = raw["UniformScalarPreshaders"],
++            ["legacyVectorPreshaders"] = raw["UniformVectorPreshaders"],
++            ["preshaderCode"] = new JObject
++            {
++                ["byteSize"] = code.Length, ["sha256"] = BytesHash(code), ["base64"] = Convert.ToBase64String(code),
++                ["metadata"] = raw["UniformPreshaderData"] is JObject data ? WithoutBytecode(data) : null
++            },
++            ["defaultValues"] = raw["DefaultValues"],
++            ["resourceBindings"] = new JObject
++            {
++                ["textures"] = raw["UniformTextureParameters"], ["externalTextures"] = raw["UniformExternalTextureParameters"],
++                ["textureCollections"] = raw["UniformTextureCollectionParameters"], ["parameterCollections"] = raw["ParameterCollections"],
++                ["virtualTextureStacks"] = raw["VTStacks"], ["materialCacheTagStacks"] = raw["MaterialCacheTagStacks"]
++            },
++            ["compactUniformsVSOptional"] = raw["CompactUniformsVSOptional"],
++            ["materialShaderCount"] = map.Content.Shaders.Length,
++            ["meshShaderMapCount"] = content?.OrderedMeshShaderMaps?.Length ?? 0
++        };
++    }
++
++    internal static JObject ProjectMaterialPreview(UMaterialInterface material)
++    {
++        var properties = new JObject();
++        if (material is UMaterialInstance instance)
++        {
++            var parent = ExactImportPath(instance, "Parent");
++            if (parent is not null)
++                properties["Parent"] = new JObject { ["ObjectPath"] = parent };
++        }
++        if (material is UMaterialInstanceConstant constant)
++        {
++            properties["ScalarParameterValues"] = new JArray(
++                constant.ScalarParameterValues.Select(value => new JObject
++                {
++                    ["ParameterInfo"] = JToken.FromObject(value.ParameterInfo),
++                    ["ParameterValue"] = value.ParameterValue
++                }));
++            properties["VectorParameterValues"] = new JArray(
++                constant.VectorParameterValues.Select(value => new JObject
++                {
++                    ["ParameterInfo"] = value.ParameterInfo is null
++                        ? JValue.CreateNull()
++                        : JToken.FromObject(value.ParameterInfo),
++                    ["ParameterValue"] = value.ParameterValue is null
++                        ? JValue.CreateNull()
++                        : JToken.FromObject(value.ParameterValue)
++                }));
++            properties["TextureParameterValues"] = new JArray(
++                constant.TextureParameterValues.Select(value => new JObject
++                {
++                    ["ParameterInfo"] = JToken.FromObject(value.ParameterInfo),
++                    ["ParameterValue"] = ExactObjectReference(value.ParameterValue)
++                }));
++        }
++        return new JObject
++        {
++            ["Type"] = material.ExportType,
++            ["Name"] = material.Name,
++            ["Properties"] = properties
++        };
++    }
++
++    private static string? ExactImportPath(UMaterialInstance material, string propertyName)
++    {
++        var property = material.Properties.LastOrDefault(item =>
++            item.Name.Text.Equals(propertyName, StringComparison.Ordinal));
++        if (property?.Tag is not ObjectProperty objectProperty)
++            return null;
++        return ExactImportPath(objectProperty.Value);
++    }
++
++    private static JObject ExactObjectReference(FPackageIndex index)
++    {
++        var path = ExactImportPath(index);
++        if (path is null)
++            return new JObject();
++        var name = path[(path.LastIndexOf('.') + 1)..];
++        return new JObject { ["ObjectName"] = name, ["ObjectPath"] = path };
++    }
++
++    private static string? ExactImportPath(FPackageIndex? index)
++    {
++        if (index is null || index.Owner is not Package package || !index.IsImport)
++            return null;
++        var names = new List<string>();
++        var current = index;
++        while (current is { IsImport: true })
++        {
++            var offset = -current.Index - 1;
++            if (offset < 0 || offset >= package.ImportMap.Length)
++                return null;
++            var import = package.ImportMap[offset];
++            names.Add(import.ObjectName.Text);
++            current = import.OuterIndex;
++            if (names.Count > 64)
++                return null;
++        }
++        names.Reverse();
++        if (names.Count == 0 || !names[0].StartsWith("/", StringComparison.Ordinal))
++            return null;
++        return names[0] + (names.Count > 1 ? "." + string.Join('.', names.Skip(1)) : "");
++    }
++
++    private static JObject WithoutBytecode(JObject data) { var copy = (JObject)data.DeepClone(); copy.Remove("Data"); return copy; }
++    internal static JToken HashIdentity(string? value, EGame game, string kind) => value is null ? JValue.CreateNull() : new JObject
++    {
++        // CUE4Parse stores UE5.8's 8-byte value in a zero-padded FSHAHash. It is
++        // not a 20-byte SHA1 merely because the CLR wrapper has that name.
++        ["algorithm"] = game >= EGame.GAME_UE5_8 ? "opaque-64" : "sha1",
++        ["kind"] = kind, ["serializedByteSize"] = game >= EGame.GAME_UE5_8 ? 8 : 20,
++        ["value"] = (game >= EGame.GAME_UE5_8 ? value[..16] : value).ToLowerInvariant()
++    };
++
++    internal static string ValidateAssetPath(string root, string asset)
++    {
++        if (string.IsNullOrWhiteSpace(asset) || asset.Length > 2048 || Path.IsPathRooted(asset) || asset.Contains(':'))
++            throw new EvidenceException("unsupported", "Provide one relative virtual material path inside the profile root.");
++        var path = asset.Replace('\\', '/');
++        if (path.Split('/').Any(p => p is "" or "." or "..") || path.IndexOfAny(['*', '?']) >= 0)
++            throw new EvidenceException("unsupported", "Wildcards and path traversal are not accepted.");
++        if (!Path.HasExtension(path)) path += ".uasset";
++        if (!path.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase))
++            throw new EvidenceException("unsupported", "Only a single .uasset material package is accepted.");
++        var absolute = Path.GetFullPath(Path.Combine(root, path));
++        if (!absolute.StartsWith(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
++            throw new EvidenceException("unsupported", "The asset path escapes the profile root.");
++        return path;
++    }
++
++    private static void RejectReparsePoints(string root, string path)
++    {
++        for (var current = path; !string.Equals(current, root, StringComparison.OrdinalIgnoreCase); current = Path.GetDirectoryName(current)!)
++            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
++                throw new EvidenceException("unsupported", "Linked package files or directories are not admitted by this exact-path reader.");
++    }
++
++    internal static JObject NewEnvelope(string asset) => new()
++    {
++        ["schema"] = "bread-material-shader-evidence/v1", ["status"] = "failed",
++        ["readShaderMaps"] = new JObject { ["requested"] = true, ["attempted"] = false, ["completed"] = false },
++        ["asset"] = new JObject { ["path"] = asset.Length <= 2048 ? asset : asset[..2048], ["inputs"] = new JArray() },
++        ["reader"] = new JObject { ["id"] = "uex" }, ["materials"] = new JArray(),
++        ["coverage"] = new JObject { ["complete"] = false, ["omittedVariants"] = 0, ["omittedFields"] = 0 },
++        ["diagnostics"] = new JArray(), ["rawBytecodeIdentityVerified"] = false,
++        ["limitations"] = new JArray("No active capture, shader archive identity, preshader evaluation, or alias application is implied.")
++    };
++
++    internal static (string Json, int ExitCode) Finish(JObject result, int maxBytes)
++    {
++        // Reserve the final CLI newline as part of the stdout byte budget.
++        var budget = Math.Clamp(maxBytes, 4096, MaximumBytes) - 2;
++        var json = result.ToString(Formatting.None);
++        if (Encoding.UTF8.GetByteCount(json) > budget)
++        {
++            var removed = (JArray)result["materials"]!;
++            result["coverage"]!["omittedVariants"] = removed.Sum(m => (m["variants"] as JArray)?.Count ?? 0);
++            result["coverage"]!["omittedFields"] = removed.SelectMany(m => (m["variants"] as JArray) ?? []).Sum(v => (v["preshaderFields"] as JArray)?.Count ?? 0);
++            result["materials"] = new JArray(); result["coverage"]!["complete"] = false;
++            result["readShaderMaps"]!["completed"] = false; result["status"] = "budget_exceeded";
++            result["diagnostics"] = new JArray(Diagnostic("error", "output_budget", "Complete evidence exceeds max-bytes; no partial layout is returned."));
++            json = result.ToString(Formatting.None);
++            if (Encoding.UTF8.GetByteCount(json) > budget)
++            {
++                // A long path or many admitted input receipts can themselves exceed
++                // a small requested budget. Return a small failed envelope, never
++                // truncate UTF-8 or emit invalid JSON.
++                var compact = NewEnvelope("");
++                compact["status"] = "budget_exceeded";
++                compact["readShaderMaps"]!["attempted"] = result["readShaderMaps"]!["attempted"];
++                compact["coverage"] = result["coverage"]!.DeepClone();
++                compact["diagnostics"] = result["diagnostics"]!.DeepClone();
++                result = compact;
++                json = result.ToString(Formatting.None);
++            }
++        }
++        return (json, result["readShaderMaps"]!["completed"]!.Value<bool>() && result["coverage"]!["complete"]!.Value<bool>() ? 0 : 1);
++    }
++
++    private static JObject Diagnostic(string level, string code, string message) => new() { ["level"] = level, ["code"] = code, ["message"] = SafeDiagnostics.Text(message) };
++    private static string FileHash(string path) { using var stream = File.OpenRead(path); return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant(); }
++    private static string BytesHash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
++    private sealed class EvidenceException(string status, string message) : Exception(message) { public string Status { get; } = status; }
++    internal sealed class DiagnosticSink(JArray diagnostics) : ILogEventSink
++    {
++        public bool Incomplete { get; set; }
++        public void Emit(LogEvent logEvent)
++        {
++            if (logEvent.Level >= LogEventLevel.Warning) Incomplete = true;
++            if (diagnostics.Count < 32)
++                diagnostics.Add(Diagnostic(logEvent.Level.ToString().ToLowerInvariant(), "reader_log", logEvent.RenderMessage() + (logEvent.Exception is null ? "" : " " + SafeDiagnostics.Error(logEvent.Exception))));
++        }
++    }
++}
+diff --git a/src/Uex/Program.cs b/src/Uex/Program.cs
+index f76d0c0..bd17ad3 100644
+--- a/src/Uex/Program.cs
++++ b/src/Uex/Program.cs
+@@ -724,6 +724,21 @@ previewCommand.SetAction(parse => Run(() =>
+ }));
+ root.Subcommands.Add(previewCommand);
+ 
++// ---- material-shader-maps ---------------------------------------------------
++var materialMapAssetArg = new Argument<string>("asset") { Description = "Exact relative loose material .uasset path" };
++var materialMapBytesOption = new Option<int>("--max-bytes") { Description = "Complete evidence JSON budget (4096 to 8388608 bytes)", DefaultValueFactory = _ => MaterialShaderMapEvidence.MaximumBytes };
++var materialMapsCommand = new Command("material-shader-maps", "Read bounded inline material ShaderMap metadata using the explicit profile.game; no archive or directory scan");
++materialMapsCommand.Options.Add(profileOption);
++materialMapsCommand.Options.Add(materialMapBytesOption);
++materialMapsCommand.Arguments.Add(materialMapAssetArg);
++materialMapsCommand.SetAction(parse => Run(() =>
++{
++    var evidence = MaterialShaderMapEvidence.ReadProfile(parse.GetValue(configOption), parse.GetValue(profileOption)!, parse.GetValue(materialMapAssetArg)!, parse.GetValue(materialMapBytesOption));
++    Console.WriteLine(evidence.Json);
++    return evidence.ExitCode;
++}));
++root.Subcommands.Add(materialMapsCommand);
++
+ // ---- preview-texture ---------------------------------------------------------
+ var texAssetArg = new Argument<string>("asset") { Description = "Virtual asset path of a texture package" };
+ var outOption = new Option<string>("--out") { Description = "PNG output file path", Required = true };
+diff --git a/tests/Uex.Tests/MaterialShaderMapEvidenceTests.cs b/tests/Uex.Tests/MaterialShaderMapEvidenceTests.cs
+new file mode 100644
+index 0000000..0d1f7d7
+--- /dev/null
++++ b/tests/Uex.Tests/MaterialShaderMapEvidenceTests.cs
+@@ -0,0 +1,175 @@
++using System.Runtime.CompilerServices;
++using System.Text;
++using CUE4Parse.UE4.Assets.Exports.Material;
++using CUE4Parse.UE4.Versions;
++using Newtonsoft.Json.Linq;
++using Serilog;
++using Uex.Config;
++using Uex.Core;
++using Xunit;
++
++namespace Uex.Tests;
++
++public sealed class MaterialShaderMapEvidenceTests
++{
++    [Theory]
++    [InlineData("../escape.uasset")]
++    [InlineData("A/../escape.uasset")]
++    [InlineData("A/*.uasset")]
++    [InlineData("C:/outside.uasset")]
++    [InlineData("/outside.uasset")]
++    [InlineData("A/Texture.ubulk")]
++    public void RejectsTraversalWildcardsAndNonPackages(string asset)
++    {
++        Assert.ThrowsAny<Exception>(() => MaterialShaderMapEvidence.ValidateAssetPath(Path.GetTempPath(), asset));
++    }
++
++    [Fact]
++    public void ExactPathAcceptsEitherSeparatorAndOptionalExtension()
++    {
++        Assert.Equal("Game/Content/M_Material.uasset", MaterialShaderMapEvidence.ValidateAssetPath(Path.GetTempPath(), "Game\\Content\\M_Material"));
++    }
++
++    [Fact]
++    public void DeclaredVersionCandidatesAreNotSilentlyChosen()
++    {
++        var result = MaterialShaderMapEvidence.Read(new GameProfile { Versions = ["GAME_SilverPalace"], PaksDir = Path.GetTempPath() }, "Game/M.uasset");
++        var json = JObject.Parse(result.Json);
++        Assert.Equal(1, result.ExitCode);
++        Assert.Equal("unsupported", json["status"]);
++        Assert.False(json["readShaderMaps"]!["attempted"]!.Value<bool>());
++        Assert.False(json["readShaderMaps"]!["completed"]!.Value<bool>());
++    }
++
++    [Fact]
++    public void MissingExactFileDoesNotSearchOrMountAnyTree()
++    {
++        var result = MaterialShaderMapEvidence.Read(new GameProfile { Game = "GAME_SilverPalace", PaksDir = Path.GetTempPath() }, "Missing-Evidence-Test/M.uasset");
++        var json = JObject.Parse(result.Json);
++        Assert.Equal(1, result.ExitCode);
++        Assert.Equal("unsupported", json["status"]);
++        Assert.Empty((JArray)json["asset"]!["inputs"]!);
++        Assert.False(json["readShaderMaps"]!["attempted"]!.Value<bool>());
++    }
++
++    [Fact]
++    public void InvalidPackageProducesStructuredFailureAndRestoresLogger()
++    {
++        var directory = Path.Combine(Path.GetTempPath(), "uex-inline-test-" + Guid.NewGuid().ToString("N"));
++        Directory.CreateDirectory(directory);
++        try
++        {
++            File.WriteAllBytes(Path.Combine(directory, "Bad.uasset"), new byte[128]);
++            var logger = Log.Logger;
++            var result = MaterialShaderMapEvidence.Read(new GameProfile { Game = "GAME_SilverPalace", PaksDir = directory }, "Bad.uasset");
++            var json = JObject.Parse(result.Json);
++            Assert.Equal(1, result.ExitCode);
++            Assert.True(json["readShaderMaps"]!["attempted"]!.Value<bool>());
++            Assert.False(json["readShaderMaps"]!["completed"]!.Value<bool>());
++            Assert.NotEmpty((JArray)json["diagnostics"]!);
++            Assert.Equal(64, json["asset"]!["inputs"]![0]!["sha256"]!.Value<string>()!.Length);
++            Assert.Same(logger, Log.Logger);
++        }
++        finally { Directory.Delete(directory, recursive: true); }
++    }
++
++    [Fact]
++    public void SwallowedReaderExceptionIsIncompleteAndSecretSafe()
++    {
++        var messages = new JArray();
++        var sink = new MaterialShaderMapEvidence.DiagnosticSink(messages);
++        using var logger = new LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
++        logger.Error(new InvalidDataException(new string('a', 64)), "Failed to deserialize inline shader maps.");
++        Assert.True(sink.Incomplete);
++        Assert.Contains("inline shader maps", messages.ToString());
++        Assert.DoesNotContain(new string('a', 64), messages.ToString());
++    }
++
++    [Fact]
++    public void BudgetFailureIsValidJsonAndDoesNotReturnPartialLayout()
++    {
++        var envelope = MaterialShaderMapEvidence.NewEnvelope("Game/M.uasset");
++        envelope["materials"] = new JArray(new JObject
++        {
++            ["variants"] = new JArray(new JObject { ["preshaderFields"] = new JArray(new JObject()), ["large"] = new string('你', 5000) })
++        });
++        envelope["readShaderMaps"]!["completed"] = true;
++        envelope["coverage"]!["complete"] = true;
++        var result = MaterialShaderMapEvidence.Finish(envelope, 4096);
++        var parsed = JObject.Parse(result.Json);
++        Assert.Equal(1, result.ExitCode);
++        Assert.True(Encoding.UTF8.GetByteCount(result.Json) <= 4096);
++        Assert.Equal("budget_exceeded", parsed["status"]);
++        Assert.Empty((JArray)parsed["materials"]!);
++        Assert.Equal(1, parsed["coverage"]!["omittedVariants"]);
++        Assert.Equal(1, parsed["coverage"]!["omittedFields"]);
++    }
++
++    [Fact]
++    public void ProjectionPreservesActualFieldsAndSeparatesDefaultsFromGpuLayout()
++    {
++        var uniform = Blank<FUniformExpressionSet>();
++        var parameter = Blank<FMaterialNumericParameterInfo>();
++        parameter.DefaultValueOffset = 48;
++        parameter.ParameterType = EMaterialParameterType.Vector;
++        parameter.Value = new[] { 300f, 220f, 0f, 0f };
++        uniform.UniformNumericParameters = [parameter];
++        uniform.UniformScalarParameters = [];
++        uniform.UniformVectorParameters = [];
++        uniform.UniformPreshaders = [];
++        uniform.UniformScalarPreshaders = [];
++        uniform.UniformVectorPreshaders = [];
++        uniform.UniformParameterEvaluations = [new FMaterialUniformParameterEvaluation { ParameterIndex = 7, BufferOffset = 64 }];
++        uniform.UniformPreshaderFields = [new FMaterialUniformPreshaderField { BufferOffset = 16, ComponentIndex = 0, Type = EShaderValueType.Float2 }];
++        uniform.UniformPreshaderBufferSize = 43;
++        uniform.UniformPreshaderData = Blank<FMaterialPreshaderData>();
++        uniform.UniformPreshaderData.Data = [1, 3, 7];
++        uniform.UniformBufferLayoutInitializer = Blank<FRHIUniformBufferLayoutInitializer>();
++        uniform.UniformBufferLayoutInitializer.Name = "Material";
++        uniform.UniformBufferLayoutInitializer.ConstantBufferSize = 864;
++        var map = new FMaterialShaderMap();
++        var content = (FMaterialShaderMapContent)map.Content;
++        content.MaterialCompilationOutput = Blank<FMaterialCompilationOutput>();
++        content.MaterialCompilationOutput.UniformExpressionSet = uniform;
++        var result = MaterialShaderMapEvidence.ProjectVariant(map, EGame.GAME_SilverPalace);
++        Assert.Equal(688, result["uniformLayout"]!["preshaderByteSize"]);
++        Assert.Equal(864, result["uniformLayout"]!["serializedByteSize"]);
++        Assert.Equal(16, result["preshaderFields"]![0]!["BufferOffset"]);
++        Assert.Equal(48, result["numericParameters"]![0]!["DefaultValueOffset"]);
++        Assert.Equal(300, result["numericParameters"]![0]!["Value"]![0]);
++        Assert.Null(result["numericParameters"]![0]!["BufferOffset"]);
++        Assert.Equal("Float2", result["preshaderFields"]![0]!["Type"]);
++        Assert.Equal(64, result["parameterEvaluations"]![0]!["BufferOffset"]);
++        Assert.Equal("AQMH", result["preshaderCode"]!["base64"]);
++        Assert.Null(result["preshaderCode"]!["metadata"]!["Data"]);
++        Assert.Contains("not GPU", result["numericParameterOffsetMeaning"]!.Value<string>());
++    }
++
++    [Fact]
++    public void NewOpaqueHashIsNotMislabeledSha1()
++    {
++        var full = "1234567890abcdef" + new string('0', 24);
++        var old = MaterialShaderMapEvidence.HashIdentity(full, EGame.GAME_SilverPalace, "shader-map-resource");
++        var modern = MaterialShaderMapEvidence.HashIdentity(full, EGame.GAME_UE5_8, "shader-map-resource");
++        Assert.Equal("sha1", old["algorithm"]);
++        Assert.Equal(full, old["value"]);
++        Assert.Equal("opaque-64", modern["algorithm"]);
++        Assert.Equal("1234567890abcdef", modern["value"]);
++    }
++
++    [Fact]
++    public void MissingProfileAndLongReceiptRemainBoundedJson()
++    {
++        var profile = MaterialShaderMapEvidence.ReadProfile(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"), "unknown", "Game/M", 4096);
++        Assert.Equal(1, profile.ExitCode);
++        Assert.False(JObject.Parse(profile.Json)["readShaderMaps"]!["attempted"]!.Value<bool>());
++        var huge = MaterialShaderMapEvidence.NewEnvelope(new string('长', 2048));
++        huge["asset"]!["inputs"] = new JArray(new string('大', 9000));
++        var finished = MaterialShaderMapEvidence.Finish(huge, 4096);
++        Assert.Equal(1, finished.ExitCode);
++        Assert.True(Encoding.UTF8.GetByteCount(finished.Json) + 2 <= 4096);
++        Assert.Equal("budget_exceeded", JObject.Parse(finished.Json)["status"]);
++    }
++
++    private static T Blank<T>() where T : class => (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
++}

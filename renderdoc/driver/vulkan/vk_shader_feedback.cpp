@@ -1487,6 +1487,7 @@ void AnnotateShader(const ShaderReflection &refl, const SPIRVPatchData &patchDat
 
 void VulkanReplay::ClearFeedbackCache()
 {
+  m_pDriver->InvalidateLiveForward("replayOrShaderCacheChanged");
   m_BindlessFeedback.clear();
 }
 

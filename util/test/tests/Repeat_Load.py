@@ -19,6 +19,8 @@ class Repeat_Load(rdtest.TestCase):
                 return
 
             rdtest.log.print("Loaded capture.")
+            if not self.validate_eventids(controller):
+                raise rdtest.TestFailureException("ERROR: capture doesn't have valid event IDs.")
 
             # Do nothing, just ensure it's loaded
             memory_usage: int = rd.GetCurrentProcessMemoryUsage()

@@ -27,6 +27,7 @@
 #include "core/settings.h"
 #include "driver/ihv/amd/amd_counters.h"
 #include "driver/ihv/nv/nv_d3d12_counters.h"
+#include "os/os_specific.h"
 #include "d3d12_command_list.h"
 #include "d3d12_command_queue.h"
 #include "d3d12_common.h"
@@ -439,8 +440,10 @@ struct D3D12GPUTimerCallback : public D3D12ActionCallback
 
     if(cmd->GetType() == D3D12_COMMAND_LIST_TYPE_DIRECT)
     {
-      cmd->BeginQuery(m_OcclusionQueryHeap, D3D12_QUERY_TYPE_OCCLUSION, m_NumStatsQueries);
-      cmd->BeginQuery(m_PipeStatsQueryHeap, m_PipeQueryType, m_NumStatsQueries);
+      if(m_OcclusionQueryHeap)
+        cmd->BeginQuery(m_OcclusionQueryHeap, D3D12_QUERY_TYPE_OCCLUSION, m_NumStatsQueries);
+      if(m_PipeStatsQueryHeap)
+        cmd->BeginQuery(m_PipeStatsQueryHeap, m_PipeQueryType, m_NumStatsQueries);
     }
     cmd->EndQuery(m_TimerQueryHeap, D3D12_QUERY_TYPE_TIMESTAMP, m_NumTimestampQueries * 2 + 0);
   }
@@ -456,8 +459,10 @@ struct D3D12GPUTimerCallback : public D3D12ActionCallback
     bool direct = (cmd->GetType() == D3D12_COMMAND_LIST_TYPE_DIRECT);
     if(direct)
     {
-      cmd->EndQuery(m_PipeStatsQueryHeap, m_PipeQueryType, m_NumStatsQueries);
-      cmd->EndQuery(m_OcclusionQueryHeap, D3D12_QUERY_TYPE_OCCLUSION, m_NumStatsQueries);
+      if(m_PipeStatsQueryHeap)
+        cmd->EndQuery(m_PipeStatsQueryHeap, m_PipeQueryType, m_NumStatsQueries);
+      if(m_OcclusionQueryHeap)
+        cmd->EndQuery(m_OcclusionQueryHeap, D3D12_QUERY_TYPE_OCCLUSION, m_NumStatsQueries);
 
       m_NumStatsQueries++;
     }
@@ -567,6 +572,35 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
     return ret;
   }
 
+  const bool timestampOnly =
+      d3dCounters.size() == 1 && d3dCounters[0] == GPUCounter::EventGPUDuration;
+  // Stable power changes the whole adapter and removes the device without developer mode.
+  // Ordinary timing must work at normal clocks without changing another application's GPU.
+  struct StableCounterPower
+  {
+    WrappedID3D12Device *device;
+    bool active = false;
+    explicit StableCounterPower(WrappedID3D12Device *dev) : device(dev) {}
+    ~StableCounterPower()
+    {
+      if(active)
+        device->SetStablePowerState(FALSE);
+    }
+  } power(m_pDevice);
+  if(Process::GetEnvVariable("RENDERDOC_D3D12_STABLE_COUNTER_POWER") == "1")
+  {
+    HRESULT result = m_pDevice->SetStablePowerState(TRUE);
+    if(FAILED(result))
+    {
+      RDResult error;
+      SET_ERROR_RESULT(error, ResultCode::DeviceLost,
+                       "Explicit stable counter power state failed; developer mode is required");
+      m_pDevice->ReportFatalError(error);
+      return ret;
+    }
+    power.active = true;
+  }
+
   D3D12_HEAP_PROPERTIES heapProps;
   heapProps.Type = D3D12_HEAP_TYPE_READBACK;
   heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
@@ -577,7 +611,10 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
   D3D12_RESOURCE_DESC bufDesc;
   bufDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
   bufDesc.Alignment = 0;
-  bufDesc.Width = (sizeof(uint64_t) * 3 + sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1)) * maxEID;
+  bufDesc.Width =
+      (sizeof(uint64_t) * 2 +
+       (timestampOnly ? 0 : sizeof(uint64_t) + sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1))) *
+      maxEID;
   bufDesc.Height = 1;
   bufDesc.DepthOrArraySize = 1;
   bufDesc.MipLevels = 1;
@@ -609,6 +646,7 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
   if(FAILED(hr))
   {
     RDCERR("Failed to create timer query heap HRESULT: %s", ToStr(hr).c_str());
+    SAFE_RELEASE(readbackBuf);
     return ret;
   }
 
@@ -628,13 +666,18 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
   }
 
   ID3D12QueryHeap *pipestatsQueryHeap = NULL;
-  hr = m_pDevice->CreateQueryHeap(&pipestatsQueryDesc, __uuidof(pipestatsQueryHeap),
-                                  (void **)&pipestatsQueryHeap);
-  CHECK_HR(m_pDevice, hr);
-  if(FAILED(hr))
+  if(!timestampOnly)
   {
-    RDCERR("Failed to create pipeline statistics query heap HRESULT: %s", ToStr(hr).c_str());
-    return ret;
+    hr = m_pDevice->CreateQueryHeap(&pipestatsQueryDesc, __uuidof(pipestatsQueryHeap),
+                                    (void **)&pipestatsQueryHeap);
+    CHECK_HR(m_pDevice, hr);
+    if(FAILED(hr))
+    {
+      RDCERR("Failed to create pipeline statistics query heap HRESULT: %s", ToStr(hr).c_str());
+      SAFE_RELEASE(timerQueryHeap);
+      SAFE_RELEASE(readbackBuf);
+      return ret;
+    }
   }
 
   D3D12_QUERY_HEAP_DESC occlusionQueryDesc;
@@ -642,26 +685,19 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
   occlusionQueryDesc.NodeMask = 1;
   occlusionQueryDesc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
   ID3D12QueryHeap *occlusionQueryHeap = NULL;
-  hr = m_pDevice->CreateQueryHeap(&occlusionQueryDesc, __uuidof(occlusionQueryHeap),
-                                  (void **)&occlusionQueryHeap);
-  CHECK_HR(m_pDevice, hr);
-  if(FAILED(hr))
+  if(!timestampOnly)
   {
-    RDCERR("Failed to create occlusion query heap HRESULT: %s", ToStr(hr).c_str());
-    return ret;
-  }
-
-  // Only supported with developer mode drivers!!!
-  hr = m_pDevice->SetStablePowerState(TRUE);
-  if(FAILED(hr))
-  {
-    RDResult err;
-    SET_ERROR_RESULT(
-        err, ResultCode::DeviceLost,
-        "D3D12 counters require Win10 developer mode enabled: Settings > Update & Security "
-        "> For Developers > Developer Mode");
-    m_pDevice->ReportFatalError(err);
-    return ret;
+    hr = m_pDevice->CreateQueryHeap(&occlusionQueryDesc, __uuidof(occlusionQueryHeap),
+                                    (void **)&occlusionQueryHeap);
+    CHECK_HR(m_pDevice, hr);
+    if(FAILED(hr))
+    {
+      RDCERR("Failed to create occlusion query heap HRESULT: %s", ToStr(hr).c_str());
+      SAFE_RELEASE(pipestatsQueryHeap);
+      SAFE_RELEASE(timerQueryHeap);
+      SAFE_RELEASE(readbackBuf);
+      return ret;
+    }
   }
 
   D3D12GPUTimerCallback cb(m_pDevice, this, pipeQueryType, timerQueryHeap, pipestatsQueryHeap,
@@ -676,9 +712,9 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
     m_pDevice->FlushLists(true);
   }
 
-  // Only supported with developer mode drivers!!!
-  m_pDevice->SetStablePowerState(FALSE);
-
+  // Resolve only after the captured queues' query writes, using GPU dependencies rather than
+  // relying on a later CPU wait to make an earlier resolve valid.
+  m_pDevice->ReplayQueueWaitForPreviousWork(m_pDevice->GetQueue());
   ID3D12GraphicsCommandList *list = m_pDevice->GetNewList();
 
   if(!list)
@@ -691,16 +727,19 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
 
   bufferOffset += sizeof(uint64_t) * 2 * cb.m_NumTimestampQueries;
 
-  list->ResolveQueryData(pipestatsQueryHeap, pipeQueryType, 0, cb.m_NumStatsQueries, readbackBuf,
-                         bufferOffset);
+  if(pipestatsQueryHeap)
+  {
+    list->ResolveQueryData(pipestatsQueryHeap, pipeQueryType, 0, cb.m_NumStatsQueries, readbackBuf,
+                           bufferOffset);
 
-  if(meshQueries)
-    bufferOffset += sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1) * cb.m_NumStatsQueries;
-  else
-    bufferOffset += sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS) * cb.m_NumStatsQueries;
-
-  list->ResolveQueryData(occlusionQueryHeap, D3D12_QUERY_TYPE_OCCLUSION, 0, cb.m_NumStatsQueries,
-                         readbackBuf, bufferOffset);
+    if(meshQueries)
+      bufferOffset += sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1) * cb.m_NumStatsQueries;
+    else
+      bufferOffset += sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS) * cb.m_NumStatsQueries;
+  }
+  if(occlusionQueryHeap)
+    list->ResolveQueryData(occlusionQueryHeap, D3D12_QUERY_TYPE_OCCLUSION, 0, cb.m_NumStatsQueries,
+                           readbackBuf, bufferOffset);
 
   list->Close();
 
@@ -730,10 +769,13 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
   D3D12_QUERY_DATA_PIPELINE_STATISTICS *pipelinestats = (D3D12_QUERY_DATA_PIPELINE_STATISTICS *)data;
   D3D12_QUERY_DATA_PIPELINE_STATISTICS1 *pipelinestats1 =
       (D3D12_QUERY_DATA_PIPELINE_STATISTICS1 *)data;
-  if(meshQueries)
-    data += cb.m_NumStatsQueries * sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1);
-  else
-    data += cb.m_NumStatsQueries * sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS);
+  if(pipestatsQueryHeap)
+  {
+    if(meshQueries)
+      data += cb.m_NumStatsQueries * sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1);
+    else
+      data += cb.m_NumStatsQueries * sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS);
+  }
   uint64_t *occlusion = (uint64_t *)data;
 
   uint64_t freq;
@@ -748,7 +790,7 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
     uint64_t occl = 0;
 
     // only events on direct lists recorded pipeline stats or occlusion queries
-    if(direct)
+    if(direct && pipestatsQueryHeap)
     {
       if(meshQueries)
       {
@@ -759,12 +801,11 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
       {
         pipeStats = *pipelinestats;
       }
-      occl = *occlusion;
-
       pipelinestats++;
       pipelinestats1++;
-      occlusion++;
     }
+    if(direct && occlusionQueryHeap)
+      occl = *occlusion++;
 
     for(size_t c = 0; c < d3dCounters.size(); c++)
     {
@@ -830,6 +871,8 @@ rdcarray<CounterResult> D3D12Replay::FetchCounters(const rdcarray<GPUCounter> &c
   // sort so that the alias results appear in the right places
   std::sort(ret.begin(), ret.end());
 
+  D3D12_RANGE noWrite = {0, 0};
+  readbackBuf->Unmap(0, &noWrite);
   SAFE_RELEASE(readbackBuf);
   SAFE_RELEASE(timerQueryHeap);
   SAFE_RELEASE(pipestatsQueryHeap);

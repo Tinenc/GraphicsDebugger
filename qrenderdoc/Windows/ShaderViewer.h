@@ -25,9 +25,11 @@
 #pragma once
 
 #include <QFrame>
+#include <QPointer>
 #include <QSemaphore>
 #include <QSet>
 #include <QStyledItemDelegate>
+#include <memory>
 #include "Code/Interface/QRDInterface.h"
 
 namespace Ui
@@ -39,12 +41,15 @@ class RDTreeWidgetItem;
 struct ShaderDebugTrace;
 struct ShaderReflection;
 class ScintillaEdit;
+class CodeEditorService;
 class FindReplace;
 class QTableWidgetItem;
 class QKeyEvent;
 class QMouseEvent;
 class QComboBox;
+class QTimer;
 class QTextEdit;
+class QToolButton;
 
 // from Scintilla
 typedef intptr_t sptr_t;
@@ -170,6 +175,7 @@ public:
   virtual void RunForward() override;
 
   virtual void ShowErrors(const rdcstr &errors) override;
+  virtual void SetExplanatoryMode(const rdcstr &reason) override;
 
   virtual void AddWatch(const rdcstr &variable) override;
 
@@ -207,6 +213,7 @@ private slots:
   void disassemble_typeChanged(int index);
   void watch_keyPress(QKeyEvent *event);
   void performFind();
+  void performIncrementalFind();
   void performFindAll();
   void resultsDoubleClick(int position, int line);
   void performReplace();
@@ -265,6 +272,30 @@ private:
   bool HasBookmarks();
 
   void SetFindTextFromCurrentWord();
+  void updateFindOverlayGeometry();
+  void closeFindOverlay();
+  void refreshFindHighlights(bool selectMatch);
+
+  struct TextAttachmentSelection
+  {
+    QString title;
+    QString text;
+    QString source;
+    // Compact replaylab-attachment-context/v1 JSON produced by this first-party viewer. It carries
+    // stable capture/shader identifiers separately from the selected code, which remains untrusted
+    // reference material.
+    QString contextJSON;
+    sptr_t start = -1;
+    sptr_t end = -1;
+
+    bool isValid() const { return !text.isEmpty(); }
+  };
+
+  void registerTextAttachmentEditor(ScintillaEdit *editor);
+  TextAttachmentSelection captureTextAttachmentSelection(ScintillaEdit *editor) const;
+  void updateTextAttachmentSelection(ScintillaEdit *editor);
+  void updateTextAttachmentButtonGeometry();
+  void addTextAttachmentToChat(const TextAttachmentSelection &selection);
 
   QString m_TooltipVarPath;
   int m_TooltipVarIndex = -1;
@@ -273,8 +304,12 @@ private:
 
   Ui::ShaderViewer *ui;
   ICaptureContext &m_Ctx;
-  const ShaderReflection *m_ShaderDetails = NULL;
+  // A pipeline publication may be replaced on navigation or replay refresh. A shader window
+  // outlives that publication; queued disassembly work shares this immutable owned snapshot.
+  std::shared_ptr<const ShaderReflection> m_ShaderDetails;
   bool m_CustomShader = false;
+  bool m_ExplanatoryMode = false;
+  rdcstr m_ExplanatoryReason;
   ResourceId m_EditingShader;
   ShaderCompileFlags m_Flags;
   QList<ShaderEncoding> m_Encodings;
@@ -289,6 +324,11 @@ private:
   ScintillaEdit *m_Errors = NULL;
   ScintillaEdit *m_FindResults = NULL;
   QList<ScintillaEdit *> m_Scintillas;
+  CodeEditorService *m_CodeEditorService = NULL;
+  QToolButton *m_AddToChatButton = NULL;
+  QPointer<ScintillaEdit> m_TextAttachmentEditor;
+  TextAttachmentSelection m_TextAttachmentSelection;
+  bool m_TextAttachmentSelecting = false;
 
   // a map, from a source location to a list of instruction blocks with that location.
   // not every instruction with the instruction will be mapped to, only the first in each contiguous
@@ -301,7 +341,9 @@ private:
   ScintillaEdit *m_CurInstructionScintilla = NULL;
   QList<ScintillaEdit *> m_FileScintillas;
 
-  FindReplace *m_FindReplace;
+  FindReplace *m_FindReplace = NULL;
+  QPointer<ScintillaEdit> m_FindEditor;
+  QTimer *m_FindTimer = NULL;
 
   struct FindState
   {
@@ -317,6 +359,9 @@ private:
 
     // the last result
     QPair<int, int> prevResult;
+
+    // the editor containing the last result. Positions are only meaningful in this document.
+    QPointer<ScintillaEdit> editor;
   } m_FindState;
 
   SaveCallback m_SaveCallback;
@@ -424,10 +469,7 @@ private:
 
   const ShaderVariable *GetDebugVariable(const DebugVariableReference &r);
 
-  void ensureLineScrolled(ScintillaEdit *s, int i);
-
   void find(bool down);
-
   void updateEditState();
 
   enum StepMode

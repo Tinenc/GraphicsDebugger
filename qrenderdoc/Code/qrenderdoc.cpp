@@ -23,19 +23,30 @@
  ******************************************************************************/
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string>
+
+#if defined(RENDERDOC_PLATFORM_WIN32)
+#include <windows.h>
+#endif
+
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFileInfo>
+#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QRegularExpressionMatch>
 #include <QStandardPaths>
 #include <QSysInfo>
+#include "Code/BreadVersion.h"
 #include "Code/CaptureContext.h"
 #include "Code/QRDUtils.h"
 #include "Code/Resources.h"
+#include "Code/TranslationManager.h"
 #include "Code/pyrenderdoc/PythonContext.h"
 #include "Windows/Dialogs/CrashDialog.h"
+#include "Windows/Dialogs/UpdateDialog.h"
 #include "Windows/MainWindow.h"
 #include "version.h"
 
@@ -166,17 +177,37 @@ void sharedLogOutput(QtMsgType type, const QMessageLogContext &context, const QS
   RENDERDOC_LogMessage(logtype, "QTRD", context.file ? context.file : rdcstr(), context.line, msg);
 }
 
-static QString tr(const char *string)
-{
-  return QApplication::translate("qTinecmaTool", string);
-}
-
 void hideOption(QCommandLineOption &opt)
 {
 #if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
   opt.setFlags(QCommandLineOption::HiddenFromHelp);
 #else
   opt.setHidden(true);
+#endif
+}
+
+static int PrintBreadVersion()
+{
+  // i18n-ignore: machine-readable application version and build identifiers.
+  std::string output = std::string("RenderDocBread " BREAD_FULL_VERSION_STRING " (") +
+                       RENDERDOC_GetCommitHash() + ")\n";
+#if defined(DISTRIBUTION_VERSION)
+  // i18n-ignore: build distribution metadata in the version diagnostic.
+  output += std::string("Packaged for ") + DISTRIBUTION_NAME + " - " + DISTRIBUTION_CONTACT + "\n";
+#endif
+#if defined(RENDERDOC_PLATFORM_WIN32)
+  // The Windows GUI CRT may not bind stdout even when the process inherits a
+  // redirected pipe. Write to that inherited handle without opening a console.
+  DWORD written = 0;
+  HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+  return handle && handle != INVALID_HANDLE_VALUE &&
+                 WriteFile(handle, output.data(), DWORD(output.size()), &written, NULL) &&
+                 written == output.size()
+             ? 0
+             : 1;
+#else
+  return fwrite(output.data(), 1, output.size(), stdout) == output.size() && fflush(stdout) == 0 ? 0
+                                                                                                 : 1;
 #endif
 }
 
@@ -188,12 +219,18 @@ int main(int argc, char *argv[])
 
   qInstallMessageHandler(sharedLogOutput);
 
+  if(BreadRelease::InstallationInProgress())
+  {
+    qInfo() << "RenderDocBread is applying an update. The installer will restart it.";
+    return 0;
+  }
+
   // there seems to be a persistent crash in QWidgetPrivate::subtractOpaqueSiblings where a widget
   // has no parent but is not a window. Try to work around it by setting this env var, as it's only
   // an optimisation
   qputenv("QT_NO_SUBTRACTOPAQUESIBLINGS", lit("1").toUtf8());
 
-  qInfo() << "QTinecmaTool initialising.";
+  qInfo() << "QRenderDoc initialising.";
 
   if(IsRunningAsAdmin())
     qInfo() << "Running as administrator";
@@ -219,7 +256,7 @@ int main(int argc, char *argv[])
       Qt::HighDpiScaleFactorRoundingPolicy::RoundPreferFloor);
 #endif
 
-  QApplication::setApplicationVersion(lit(FULL_VERSION_STRING));
+  QApplication::setApplicationVersion(lit(BREAD_FULL_VERSION_STRING));
 
 // shortcut here so we can run this with a non-GUI application
 #if ENABLE_UNIT_TESTS
@@ -262,7 +299,7 @@ int main(int argc, char *argv[])
 
       Catch::Session session;
 
-      session.configData().name = "QTinecmaTool";
+      session.configData().name = "QRenderDoc";
       session.configData().shouldDebugBreak = Catch::isDebuggerActive();
 
       ret = session.applyCommandLine(argc, mod_argv);
@@ -286,7 +323,8 @@ int main(int argc, char *argv[])
 
     {
       QCoreApplication application(argc, mod_argv);
-      PythonContext::GlobalInit();
+      PersistentConfig cfg;
+      PythonContext::GlobalInit(cfg);
 
       logstream << "Checking python binding consistency.\n";
 
@@ -324,31 +362,82 @@ int main(int argc, char *argv[])
 
   QApplication application(argc, argv);
 
+  // Portable releases use a separate UI profile and only the co-located first-party runtime.
+  // Existing installations keep their original settings and project identities.
+  if(QFileInfo(QDir(QCoreApplication::applicationDirPath()).filePath(
+         lit("RenderDocBread.portable"))).isFile())    // i18n-ignore: portable package marker
+  {
+    QCoreApplication::setApplicationName(lit("RenderDocBread"));    // i18n-ignore: product brand
+    if(qEnvironmentVariableIsEmpty("RENDERDOC_CONFIG_DIR"))
+    {
+      QString localData;
+#if defined(RENDERDOC_PLATFORM_WIN32)
+      // Preserve Unicode and honor redirected per-process profiles. Qt's known-folder lookup
+      // can otherwise resolve the account's original directory instead of LOCALAPPDATA.
+      localData = QProcessEnvironment::systemEnvironment().value(lit("LOCALAPPDATA"));    // i18n-ignore: Windows profile environment key
+#endif
+      if(localData.isEmpty())
+        localData = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+      const QString profile = QDir(localData)
+                                  .filePath(lit("RenderDocBread/ui"));    // i18n-ignore: isolated portable UI profile path
+      // Qt 5's qputenv uses the narrow MSVC CRT environment. UTF-8 bytes are interpreted in
+      // the system code page there, corrupting non-ASCII profile paths. The wide CRT setter
+      // preserves the native Windows environment and also synchronizes CRT presence checks.
+#if defined(RENDERDOC_PLATFORM_WIN32)
+      const bool profileSet = _wputenv_s(L"RENDERDOC_CONFIG_DIR", profile.toStdWString().c_str()) == 0;
+#else
+      const bool profileSet = qputenv("RENDERDOC_CONFIG_DIR", profile.toUtf8());
+#endif
+      if(!profileSet)
+      {
+        // i18n-ignore: Startup log diagnostic before translations/UI configuration are loaded.
+        qCritical("Cannot set the portable configuration directory; refusing user-directory fallback");
+        return 2;
+      }
+    }
+    QCoreApplication::setLibraryPaths(
+        {QDir(QCoreApplication::applicationDirPath()).filePath(lit("qtplugins"))});    // i18n-ignore: fixed bundled Qt plugin path
+  }
+  else if(QCoreApplication::applicationName().compare(lit("RenderDocBread"), Qt::CaseInsensitive) == 0)    // i18n-ignore: executable identity
+  {
+    // The renamed non-portable executable must keep the existing UI/conversation
+    // store. This technical identity is not the displayed application brand.
+    QCoreApplication::setApplicationName(lit("qTinecmaTool"));    // i18n-ignore: DF persistent-data and shared-extension path identity
+  }
+
   QCommandLineParser parser;
-  parser.setApplicationDescription(tr("Qt UI for TinecmaTool"));
+  parser.setApplicationDescription(QApplication::translate("qrenderdoc", "RenderDocBread graphics debugger"));
   QCommandLineOption helpOption = parser.addHelpOption();
   QCommandLineOption versionOption = parser.addVersionOption();
 
   QCommandLineOption tempfile(
-      lit("tempfile"), tr("The filename to be opened is a temporary file owned by this instance."));
+      lit("tempfile"),
+      QApplication::translate(
+          "qrenderdoc", "The filename to be opened is a temporary file owned by this instance."));
   parser.addOption(tempfile);
 
   QCommandLineOption targetcontrol({lit("targetcontrol"), lit("remoteaccess")},
-                                   tr("A target control connection to open on startup."),
+                                   QApplication::translate(
+                                       "qrenderdoc",
+                                       "A target control connection to open on startup."),
                                    lit("host:port"));
   parser.addOption(targetcontrol);
 
-  QCommandLineOption replayhost(lit("replayhost"), tr("The replay host to connect to on startup."),
+  QCommandLineOption replayhost(lit("replayhost"),
+                                QApplication::translate(
+                                    "qrenderdoc", "The replay host to connect to on startup."),
                                 lit("host"));
   parser.addOption(replayhost);
 
   QCommandLineOption python({lit("python"), lit("script"), lit("py")},
-                            tr("Run a python script before opening the main UI."),
+                            QApplication::translate(
+                                "qrenderdoc", "Run a python script before opening the main UI."),
                             lit("filename.py"));
   parser.addOption(python);
 
   QCommandLineOption uiscript({lit("ui-python"), lit("ui-script"), lit("ui-py")},
-                              tr("Run a python script after opening the main UI."),
+                              QApplication::translate(
+                                  "qrenderdoc", "Run a python script after opening the main UI."),
                               lit("filename.py"));
   parser.addOption(uiscript);
 
@@ -373,7 +462,8 @@ int main(int argc, char *argv[])
   hideOption(crashReport);
   parser.addOption(crashReport);
 
-  parser.addPositionalArgument(lit("filename"), tr("The file to open."));
+  parser.addPositionalArgument(
+      lit("filename"), QApplication::translate("qrenderdoc", "The file to open."));
 
   bool parsedCommands = parser.parse(application.arguments());
 
@@ -388,11 +478,7 @@ int main(int argc, char *argv[])
 
   if(parser.isSet(versionOption))
   {
-    printf("QTinecmaTool v%s (%s)\n", MAJOR_MINOR_VERSION_STRING, RENDERDOC_GetCommitHash());
-#if defined(DISTRIBUTION_VERSION)
-    printf("Packaged for %s - %s\n", DISTRIBUTION_NAME, DISTRIBUTION_CONTACT);
-#endif
-    return 0;
+    return PrintBreadVersion();
   }
 
   if(parser.isSet(installLayer))
@@ -411,8 +497,10 @@ int main(int argc, char *argv[])
 
   if(parser.isSet(updateFailed))
   {
-    RDDialog::critical(NULL, tr("Error updating"),
-                       tr("Error applying update: %1").arg(parser.value(updateFailed)));
+    RDDialog::critical(
+        NULL, QApplication::translate("qrenderdoc", "Error updating"),
+        QApplication::translate("qrenderdoc", "Error applying update: %1")
+            .arg(parser.value(updateFailed)));
   }
 
   if(parser.isSet(updateDone))
@@ -508,19 +596,23 @@ int main(int argc, char *argv[])
   RegisterMetatypeConversions();
 
   {
-    PersistantConfig config;
+    PersistentConfig config;
 
-    {
-      QString configPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-      QDir dir(configPath);
+    // ConfigFilePath validates and creates an explicit isolation root before any UI settings are
+    // loaded. Do not create the normal AppData directory when this process requested isolation.
+    const QString configPath = ConfigFilePath(QString());
+    QDir().mkpath(configPath);
 
-      if(!dir.exists())
-        dir.mkpath(configPath);
-    }
+    const QString configFilename = ConfigFilePath(lit("UI.config"));
+    const bool configLoaded = config.Load(configFilename);
 
-    QString configFilename = ConfigFilePath(lit("UI.config"));
+    // Install the persisted language before constructing any capture UI. Keeping the manager in
+    // this scope ensures both translators outlive every translated widget and are removed before
+    // QApplication is destroyed.
+    TranslationManager translationManager(application);
+    translationManager.ApplyLanguage(config.UILanguage);
 
-    if(!config.Load(configFilename))
+    if(!configLoaded)
     {
       RDDialog::critical(
           NULL, CaptureContext::tr("Error loading config"),
@@ -545,8 +637,10 @@ int main(int argc, char *argv[])
       if(replayHostIndex < 0)
       {
         RDDialog::critical(
-            NULL, tr("Error loading remote host"),
-            tr("Remote host %1 doesn't exist. Please add it in Remote Host Manager first.")
+            NULL, QApplication::translate("qrenderdoc", "Error loading remote host"),
+            QApplication::translate(
+                "qrenderdoc",
+                "Remote host %1 doesn't exist. Please add it in Remote Host Manager first.")
                 .arg(parser.value(replayhost)));
       }
     }
@@ -556,14 +650,12 @@ int main(int argc, char *argv[])
     else
       Analytics::Load();
 
-    bool isDarkTheme = IsDarkTheme();
-
     bool styleSet = config.SetStyle();
 
     // unrecognised style, or empty (none set), choose a default
     if(!styleSet)
     {
-      config.UIStyle = isDarkTheme ? lit("RDDark") : lit("RDLight");
+      config.UIStyle = lit("ultra");    // i18n-ignore: persisted Black theme identifier
 
       config.SetStyle();
     }
@@ -582,15 +674,17 @@ int main(int argc, char *argv[])
       {
         env.waylandDisplay = (wl_display *)AccessWaylandPlatformInterface("display", NULL);
 
-        QString warning =
-            tr("Running directly on Wayland is NOT SUPPORTED and is likely to crash, hang, or "
-               "fail to render.");
+        QString warning = QApplication::translate(
+            "qrenderdoc", "Running directly on Wayland is NOT SUPPORTED and is likely to crash, "
+                          "hang, or fail to render.");
 
         qInfo() << "------ !!!! WARNING !!!! ------";
         qInfo() << warning;
         qInfo() << "------ !!!! WARNING !!!! ------";
 
-        RDDialog::critical(NULL, tr("Wayland Qt platform not supported"), warning);
+        RDDialog::critical(
+            NULL, QApplication::translate("qrenderdoc", "Wayland Qt platform not supported"),
+            warning);
       }
 #endif
       rdcarray<rdcstr> coreargs;
@@ -631,7 +725,7 @@ int main(int argc, char *argv[])
     }
     else
     {
-      PythonContext::GlobalInit();
+      PythonContext::GlobalInit(config);
 
       if(updateApplied)
       {
@@ -647,7 +741,7 @@ int main(int argc, char *argv[])
       }
       Analytics::Prompt(ctx, config);
 
-      ANALYTIC_SET(Metadata.TinecmaToolVersion, lit(FULL_VERSION_STRING));
+      ANALYTIC_SET(Metadata.RenderDocVersion, lit(FULL_VERSION_STRING));
 #if defined(DISTRIBUTION_VERSION)
       ANALYTIC_SET(Metadata.DistributionVersion, lit(DISTRIBUTION_NAME));
 #endif
@@ -670,33 +764,31 @@ int main(int argc, char *argv[])
 
         ANALYTIC_SET(UIFeatures.PythonInterop, true);
 
-        py.ctx().setGlobal("pyrenderdoc", (ICaptureContext *)&ctx);
+        QObject::connect(&py.ctx(), &PythonContext::exception,
+                         [&pythonExited](const QString &, const QString &type, const QString &value,
+                                         int, QList<QString> frames) {
+                           if(type == lit("SystemExit"))
+                           {
+                             pythonExited = true;
+                             return;
+                           }
 
-        QObject::connect(
-            &py.ctx(), &PythonContext::exception,
-            [&pythonExited](const QString &type, const QString &value, int, QList<QString> frames) {
-              if(type == lit("SystemExit"))
-              {
-                pythonExited = true;
-                return;
-              }
+                           QString exString;
 
-              QString exString;
+                           if(!frames.isEmpty())
+                           {
+                             exString += QApplication::translate(
+                                 "qrenderdoc", "Traceback (most recent call last):\n");
+                             for(const QString &f : frames)
+                               exString += QFormatStr("  %1\n").arg(f);
+                           }
+                           exString += QFormatStr("%1: %2\n").arg(type).arg(value);
 
-              if(!frames.isEmpty())
-              {
-                exString += tr("Traceback (most recent call last):\n");
-                for(const QString &f : frames)
-                  exString += QFormatStr("  %1\n").arg(f);
-              }
-
-              exString += QFormatStr("%1: %2\n").arg(type).arg(value);
-
-              qCritical("%s", exString.toUtf8().data());
-            });
+                           qCritical("%s", exString.toUtf8().data());
+                         });
 
         QObject::connect(&py.ctx(), &PythonContext::textOutput,
-                         [](bool isStdError, const QString &output) {
+                         [](const QString &, bool isStdError, const QString &output) {
                            if(isStdError)
                              qCritical("%s", output.toUtf8().data());
                            else

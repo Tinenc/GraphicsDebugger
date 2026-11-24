@@ -153,6 +153,11 @@ class D3D12_Descriptor_Indexing(rdtest.TestCase):
 
             rdtest.log.success("Dynamic usage is as expected for {}".format(sm))
 
+            v = pipe.GetViewport(0)
+            x = int(v.x) + int(v.width / 2)
+            y = int(v.y) + int(v.height // 2)
+            self.check_debug_pixel(x, y)
+
         for sm in ["sm_6_6_heap"]:
             base = self.find_action("Tests " + sm)
             if base == None:
@@ -239,3 +244,7 @@ class D3D12_Descriptor_Indexing(rdtest.TestCase):
                             loc.logicalBindName, a.access.byteOffset))
 
             rdtest.log.success("Dynamic usage is as expected for {}".format(sm))
+            v = pipe.GetViewport(0)
+            x = int(v.x) + int(v.width / 2)
+            y = int(v.y) + int(v.height // 2)
+            self.check_debug_pixel(x, y)

@@ -29,6 +29,8 @@
 #include "common/timing.h"
 #include "core/core.h"
 #include "driver/shaders/spirv/spirv_reflect.h"
+#include "replay/replay_driver.h"
+#include "replay/replay_resource_versions.h"
 #include "gl_common.h"
 #include "gl_dispatch_table.h"
 #include "gl_manager.h"
@@ -100,6 +102,47 @@ struct GLDrawParams
 {
   uint32_t indexWidth = 0;
   Topology topo = Topology::Unknown;
+};
+
+inline bool GLReplayPatchBindingCanWrite(GLenum target)
+{
+  return target == eGL_SHADER_STORAGE_BUFFER || target == eGL_ATOMIC_COUNTER_BUFFER ||
+         target == eGL_TRANSFORM_FEEDBACK_BUFFER || target == eGL_TEXTURE_BUFFER ||
+         target == eGL_PIXEL_PACK_BUFFER;
+}
+
+// Native indexed bindings, not reflected block sizes, bound possible shader reads. Base binding
+// reports (0, 0); missing, invalid or out-of-storage ranges retain the whole-buffer proof.
+inline ReplayResourceRange GLReplayPatchUniformReadRange(ResourceId buffer, uint64_t extent,
+                                                         int64_t start, int64_t size,
+                                                         bool rangeAvailable)
+{
+  if(rangeAvailable && start >= 0 && size > 0 && uint64_t(start) < extent &&
+     uint64_t(size) <= extent - uint64_t(start))
+    return {buffer, 0, uint64_t(start), uint64_t(size)};
+  return {buffer, 0, 0, extent};
+}
+
+struct GLReplayCheckpointBufferWrites
+{
+  explicit GLReplayCheckpointBufferWrites(size_t maximum = 65536) : limit(maximum) {}
+  void Clear()
+  {
+    buffers.clear();
+    complete = true;
+  }
+  void Record(ResourceId buffer)
+  {
+    if(!complete)
+      return;
+    if(buffer == ResourceId() || (buffers.size() >= limit && buffers.count(buffer) == 0))
+      complete = false;
+    else
+      buffers.insert(buffer);
+  }
+  std::set<ResourceId> buffers;
+  bool complete = true;
+  size_t limit;
 };
 
 class WrappedOpenGL : public IFrameCapturer
@@ -327,9 +370,32 @@ private:
     GLenum curType = eGL_NONE;
     BufferCategory creationFlags = BufferCategory::NoFlags;
     uint64_t size = 0;
+    // Bindings are recorded even if the original shader did not access them. A replacement shader
+    // must not make a previously unnoticed storage/atomic/texture-buffer write invalidate patches.
+    bool replayPatchUnsafe = false;
+    // Pixel-unpack reads have no draw action/EID; do not infer a first shader consumer for them.
+    bool replayPatchNonUniformInput = false;
+    uint64_t replayPatchMinSize = ~0ULL;
   };
 
   std::map<ResourceId, BufferData> m_Buffers;
+
+  rdcarray<ReplayBufferPatch> m_ReplayBufferPatches;
+  GLuint m_ReplayPatchUpload = 0;
+  bool m_ReplayPatchInitialBindingsChecked = false;
+  rdcstr m_ReplayPatchCaptureError;
+  std::map<ResourceId, uint32_t> m_ReplayPatchFirstReads;
+  rdcstr m_ReplayPatchReadEvidenceError;
+  ReplayResourceAccessIndex m_ReplayPatchReadIndex;
+  std::map<ResourceId, uint64_t> m_ReplayPatchReadRegistered;
+  uint32_t m_ReplayPatchReadLastEvent = 0;
+  GLReplayCheckpointBufferWrites m_ReplayCheckpointBufferWrites;
+  void RecordReplayPatchRead(ResourceId buffer, uint32_t eventId, uint64_t byteOffset = 0,
+                             uint64_t byteLength = ~0ULL);
+  void TrackReplayPatchBinding(GLResource buffer, GLenum target);
+  bool ApplyReplayBufferPatches();
+  void TrackReplayCheckpointBufferWrite(const GLResource &buffer);
+  void RecordReplayCheckpointTextureWrite(const GLResource &resource);
 
   // this object is only created on old captures where VAO0 was a single global object. In new
   // captures each context has its own VAO0.
@@ -564,8 +630,11 @@ private:
 
   void ReplaceResource(ResourceId from, ResourceId to);
   void RemoveReplacement(ResourceId id);
+  rdcstr ReplaceTargetShaderChecked(ResourceId from, ResourceId to);
+  rdcstr RemoveTargetShaderReplacementChecked(ResourceId id);
   void FreeTargetResource(ResourceId id);
   void RefreshDerivedReplacements();
+  rdcstr RefreshDerivedReplacementsChecked(ResourceId requiredShader = ResourceId());
 
   struct QueuedResource
   {
@@ -668,6 +737,15 @@ public:
     m_StoredStructuredData = m_StructuredFile = NULL;
     return ret;
   }
+  rdcarray<SDObject *> DetachAnnotations()
+  {
+    rdcarray<SDObject *> ret;
+    ret.swap(m_EventAnnotations);
+    for(auto it = m_Annotations.begin(); it != m_Annotations.end(); ++it)
+      ret.push_back(it->second);
+    m_Annotations.clear();
+    return ret;
+  }
   void SetFetchCounters(bool in) { m_FetchCounters = in; };
   void SetDebugMsgContext(const rdcstr &context) { m_DebugMsgContext = context; }
   void AddDebugMessage(DebugMessage msg)
@@ -682,7 +760,9 @@ public:
   bool IsUnsafeDraw(uint32_t eventId) { return m_UnsafeDraws.find(eventId) != m_UnsafeDraws.end(); }
   // replay interface
   void Initialise(GLInitParams &params, uint64_t sectionVersion, const ReplayOptions &opts);
-  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType);
+  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType,
+                 bool liveCursorManaged = false);
+  bool m_LastReplaySucceeded = false;
   RDResult ReadLogInitialisation(RDCFile *rdc, bool storeStructuredBuffers);
 
   GLuint GetFakeVAO0() { return m_Global_VAO0; }
@@ -755,6 +835,8 @@ public:
     rdcarray<uint32_t> spirvWords;
     SPIRVPatchData patchData;
 
+    rdcarray<SpecConstant> specInfo;
+
     // used if the application uploaded GLSL but we were able to compile to SPIR-V
     bool convertedSPIRV = false;
     bool convertedAutomapped = false;
@@ -787,7 +869,7 @@ public:
     void Disassemble(const rdcstr &disasmEntryPoint)
     {
       if(disassembly.empty())
-        disassembly = spirv.Disassemble(disasmEntryPoint, spirvInstructionLines);
+        disassembly = spirv.Disassemble(disasmEntryPoint, specInfo, spirvInstructionLines);
     }
 
   private:
@@ -2620,6 +2702,15 @@ public:
   IMPLEMENT_FUNCTION_SERIALISED(void, glGetPerfQueryInfoINTEL, GLuint queryId,
                                 GLuint queryNameLength, GLchar *queryName, GLuint *dataSize,
                                 GLuint *noCounters, GLuint *noInstances, GLuint *capsMask);
+
+  IMPLEMENT_FUNCTION_SERIALISED(void, glEGLImageTargetRenderbufferStorageOES, GLenum target,
+                                GLeglImageOES image);
+  IMPLEMENT_FUNCTION_SERIALISED(void, glEGLImageTargetTexStorageEXT, GLenum target,
+                                GLeglImageOES image, const GLint *attrib_list);
+  IMPLEMENT_FUNCTION_SERIALISED(void, glEGLImageTargetTexture2DOES, GLenum target,
+                                GLeglImageOES image);
+  IMPLEMENT_FUNCTION_SERIALISED(void, glEGLImageTargetTextureStorageEXT, GLuint texture,
+                                GLeglImageOES image, const GLint *attrib_list);
 };
 
 class ScopedDebugContext

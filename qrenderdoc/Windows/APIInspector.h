@@ -44,7 +44,7 @@ public:
 
   // IAPIInspector
   QWidget *Widget() override { return this; }
-  void Refresh() override { on_apiEvents_itemSelectionChanged(); }
+  void Refresh() override;
   void RevealParameter(SDObject *param) override;
 
   // ICaptureViewer
@@ -55,15 +55,22 @@ public:
 public slots:
   void on_apiEvents_itemSelectionChanged();
 
+protected:
+  void showEvent(QShowEvent *event) override;
+
 private:
   Ui::APIInspector *ui;
   ICaptureContext &m_Ctx;
 
   uint32_t m_EventID = 0;
+  bool m_HasDeferredEvent = false;
+  bool m_EventInitialised = false;
+  uint64_t m_PopulateCount = 0;
 
   rdcarray<SDChunk *> m_Chunks;
 
   void addCallstack(rdcarray<rdcstr> calls);
   void fillAPIView();
-  void addEvent(const APIEvent &ev, bool primary);
+  void ApplySelectedEvent(uint32_t eventId);
+  RDTreeWidgetItem *addEvent(const APIEvent &ev, bool primary);
 };

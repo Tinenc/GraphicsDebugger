@@ -164,6 +164,8 @@ set(VULKAN_SRC
         vk/vk_shader_isa.cpp
         vk/vk_shader_printf.cpp
         vk/vk_simple_triangle.cpp
+        vk/vk_shared_buffer.cpp
+        vk/vk_buffer_delta.cpp
         vk/vk_spec_constants.cpp
         vk/vk_spirv_13_shaders.cpp
         vk/vk_subgroup_zoo.cpp
@@ -175,6 +177,7 @@ set(VULKAN_SRC
         vk/vk_vertex_attr_zoo.cpp
         vk/vk_video_textures.cpp
         vk/vk_vs_max_desc_set.cpp
+        vk/vk_vrs.cpp
         vk/vk_workgroup_zoo.cpp)
 
 set(OPENGL_SRC
@@ -216,6 +219,9 @@ set(OPENGL_SRC
         gl/gl_shader_editing.cpp
         gl/gl_shader_isa.cpp
         gl/gl_simple_triangle.cpp
+        gl/gl_shared_buffer.cpp
+        gl/gl_buffer_delta.cpp
+        gl/gl_checkpoint_texture_versions.cpp
         gl/gl_spirv_shader.cpp
         gl/gl_state_trashing.cpp
         gl/gl_texture_zoo.cpp

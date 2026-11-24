@@ -24,6 +24,7 @@
 
 #include "ThumbnailStrip.h"
 #include <QScrollBar>
+#include <QTimer>
 #include "Widgets/ResourcePreview.h"
 #include "ui_ThumbnailStrip.h"
 
@@ -35,6 +36,25 @@ ThumbnailStrip::ThumbnailStrip(QWidget *parent) : QWidget(parent), ui(new Ui::Th
   layout->setSpacing(6);
   layout->setContentsMargins(6, 6, 6, 6);
   layout->setAlignment(Qt::AlignTop);
+  ui->scrollArea->viewport()->setAutoFillBackground(true);
+  ui->scrollAreaWidgetContents->setAutoFillBackground(true);
+  const auto scrolled = [this]() {
+    if(m_ScrollRefreshQueued)
+      return;
+    m_ScrollRefreshQueued = true;
+    QTimer::singleShot(0, this, [this]() {
+      m_ScrollRefreshQueued = false;
+      // Native GPU children are not part of Qt's scroll blit. Repaint exposed labels/background
+      // and ask visible children to re-present; preserve the cached resource data and layout.
+      ui->scrollArea->viewport()->update();
+      ui->scrollAreaWidgetContents->update();
+      for(ResourcePreview *preview : m_Thumbnails)
+        if(preview->isActive() && preview->isVisible() && !preview->visibleRegion().isEmpty())
+          preview->RefreshNativeWindow();
+    });
+  };
+  QObject::connect(ui->scrollArea->horizontalScrollBar(), &QScrollBar::valueChanged, this, scrolled);
+  QObject::connect(ui->scrollArea->verticalScrollBar(), &QScrollBar::valueChanged, this, scrolled);
 }
 
 ThumbnailStrip::~ThumbnailStrip()
@@ -51,6 +71,9 @@ void ThumbnailStrip::addThumb(ResourcePreview *prev)
 
 void ThumbnailStrip::clearThumbs()
 {
+  m_LastActiveThumbnails.clear();
+  m_LastLayoutSize = QSize();
+  m_LastThumbnailCount = -1;
   for(ResourcePreview *p : m_Thumbnails)
   {
     layout->removeWidget(p);
@@ -77,8 +100,36 @@ void ThumbnailStrip::showEvent(QShowEvent *event)
 
 void ThumbnailStrip::refreshLayout()
 {
+  if(!isVisible())
+  {
+    // Binding metadata can change while this strip is hidden. Lay it out once when shown.
+    m_LastLayoutSize = QSize();
+    setUpdatesEnabled(true);
+    return;
+  }
+  QVector<ResourcePreview *> active;
+  for(ResourcePreview *preview : m_Thumbnails)
+    if(preview->isActive())
+      active.push_back(preview);
+  if(m_LastLayoutSize == size() && m_LastThumbnailCount == m_Thumbnails.size() &&
+     m_LastActiveThumbnails == active)
+  {
+    // TextureViewer retires and rebinds previews on every event. The final bindings can match
+    // the previous layout while their widgets were hidden in between. Reuse geometry, not
+    // transient visibility; otherwise native child surfaces and labels retain stale pixels.
+    for(ResourcePreview *preview : m_Thumbnails)
+      preview->setVisible(preview->isActive());
+    setUpdatesEnabled(true);
+    return;
+  }
+  m_LastLayoutSize = size();
+  m_LastThumbnailCount = m_Thumbnails.size();
+  m_LastActiveThumbnails = active;
   if(updatesEnabled())
     setUpdatesEnabled(false);
+  for(ResourcePreview *preview : m_Thumbnails)
+    if(!preview->isActive())
+      preview->hide();
 
   QRect avail = geometry();
   avail.adjust(6, 6, -6, -6);
@@ -183,3 +234,41 @@ void ThumbnailStrip::refreshLayout()
 
   setUpdatesEnabled(true);
 }
+
+#if ENABLE_UNIT_TESTS
+#include <QApplication>
+#include <memory>
+#include "3rdparty/catch/catch.hpp"
+#include "Code/Interface/PersistentConfig.h"
+#include "Code/QRDUtils.h"
+TEST_CASE("Thumbnail layout reuse restores rebound previews", "[thumbnail-layout]")
+{
+  int argc = 1;
+  char name[] = "thumbnail-layout-test";
+  char *argv[] = {name, NULL};
+  std::unique_ptr<QApplication> application;
+  if(!QCoreApplication::instance())
+    application.reset(new QApplication(argc, argv));
+  Formatter::setParams(PersistentConfig());
+  ThumbnailStrip strip;
+  strip.setAttribute(Qt::WA_DontShowOnScreen);
+  strip.resize(360, 640);
+  ResourcePreview *preview = new ResourcePreview(true, &strip);
+  strip.addThumb(preview);
+  preview->setActive(true);
+  strip.show();
+  strip.refreshLayout();
+  REQUIRE(preview->isVisible());
+  preview->setActive(false);
+  preview->setActive(true);
+  // A binding transaction that returns to the same active set keeps native children visible.
+  REQUIRE(preview->isVisible());
+  strip.refreshLayout();
+  CHECK(preview->isVisible());
+  CHECK(preview->width() > 0);
+  CHECK(preview->height() > 0);
+  preview->setActive(false);
+  strip.refreshLayout();
+  CHECK(preview->isHidden());
+}
+#endif

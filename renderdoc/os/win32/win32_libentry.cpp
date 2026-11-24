@@ -28,8 +28,54 @@
 #include <windows.h>
 #include "common/common.h"
 #include "core/core.h"
+#include "core/settings.h"
 #include "hooks/hooks.h"
 #include "strings/string_utils.h"
+
+#include <iostream>
+
+RDOC_CONFIG(bool, Debug_OpenConsole, true,
+            "Open a debug console window when injected into a target process. "
+            "Disable this if the console interferes with the target application (e.g. SDK login windows).");
+
+static bool OpenConsole()
+{
+  if(AllocConsole())
+  {
+    freopen("CONOUT$", "w", stdout);
+    SetConsoleTitle(L"Debug Console");
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE),
+                            FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_RED);
+
+    // Enable text selection (right-click copy) in the console window
+    HANDLE hStdIn = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD consoleMode = 0;
+    if(GetConsoleMode(hStdIn, &consoleMode))
+    {
+      consoleMode |= ENABLE_QUICK_EDIT_MODE | ENABLE_EXTENDED_FLAGS;
+      SetConsoleMode(hStdIn, consoleMode);
+    }
+
+    std::cout << "RenderDoc OpenConsole!" << std::endl;
+    return true;
+  }
+
+  return false;
+}
+
+//static bool CloseConsole()
+//{
+//  HWND hwndConsole = GetConsoleWindow();
+//  if(hwndConsole)
+//  {
+//    ShowWindow(hwndConsole, SW_HIDE);
+//    FreeConsole();
+//    std::cout << "Console closed and hidden." << std::endl;
+//    return true;
+//  }
+//  std::cout << "No console window found." << std::endl;
+//  return false;
+//}
 
 static BOOL add_hooks()
 {
@@ -65,6 +111,10 @@ static BOOL add_hooks()
 
   RenderDoc::Inst().Initialise();
 
+  // Open console after config is loaded so we can check the setting
+  if(Debug_OpenConsole())
+    OpenConsole();
+
   RDCLOG("Loading into %ls", curFile);
 
   LibraryHooks::RegisterHooks();
@@ -76,8 +126,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
   if(ul_reason_for_call == DLL_PROCESS_ATTACH)
   {
+    bool isReplayApp = LibraryHooks::Detect(STRINGIZE(RDOC_BASE_NAME) "__replay__marker");
+
     BOOL ret = add_hooks();
     SetLastError(0);
+
+    if(!isReplayApp)
+      std::cout << "RenderDoc AddHook " << (ret ? "true" : "false") << std::endl;
+
     return ret;
   }
 

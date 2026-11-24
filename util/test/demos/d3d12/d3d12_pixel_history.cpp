@@ -219,7 +219,8 @@ void main()
         "#define COLOR " + std::string(colourFormat == DXGI_FORMAT_UNKNOWN ? "0" : "1") + "\n";
 
     if(colourFormat == DXGI_FORMAT_R8G8B8A8_UINT || colourFormat == DXGI_FORMAT_R16G16B16A16_UINT ||
-       colourFormat == DXGI_FORMAT_R32G32B32A32_UINT)
+       colourFormat == DXGI_FORMAT_R32G32B32A32_UINT || colourFormat == DXGI_FORMAT_R32_UINT ||
+       colourFormat == DXGI_FORMAT_R32G32_UINT)
     {
       batch.uint = true;
       defines += R"(
@@ -715,6 +716,14 @@ float4 ProcessColor(float4 col)
                    DXGI_FORMAT_D32_FLOAT_S8X24_UINT);
     BuildTestBatch("32-bit uint", "5_0", 1, DXGI_FORMAT_R32G32B32A32_UINT,
                    DXGI_FORMAT_D32_FLOAT_S8X24_UINT);
+
+    if(GetEnvVar("RENDERDOC_SHADER_VISUAL_FORMAT_FIXTURE") == "1")
+    {
+      BuildTestBatch("Visual R32 float", "5_0", 1, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_UNKNOWN);
+      BuildTestBatch("Visual RG32 float", "5_0", 1, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_UNKNOWN);
+      BuildTestBatch("Visual R32 uint", "5_0", 1, DXGI_FORMAT_R32_UINT, DXGI_FORMAT_UNKNOWN);
+      BuildTestBatch("Visual RG32 uint", "5_0", 1, DXGI_FORMAT_R32G32_UINT, DXGI_FORMAT_UNKNOWN);
+    }
 
     while(Running())
     {

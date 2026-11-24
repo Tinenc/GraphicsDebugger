@@ -30,6 +30,8 @@
 #include "d3d12_command_queue.h"
 #include "d3d12_debug.h"
 #include "d3d12_replay.h"
+#include "d3d12_replay_clear.h"
+#include "d3d12_api_monitor.h"
 
 RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RT_Auditing);
 
@@ -95,11 +97,6 @@ bool WrappedID3D12GraphicsCommandList::Serialise_Close(SerialiserType &ser)
     {
       GetResourceManager()->GetResAs<WrappedID3D12GraphicsCommandList>(CommandList)->Close();
 
-      {
-        if(m_Cmd->GetActionStack().size() > 1)
-          m_Cmd->GetActionStack().pop_back();
-      }
-
       BakedCmdListInfo &baked = m_Cmd->m_BakedCmdListInfo[BakedCommandList];
       BakedCmdListInfo &parent = m_Cmd->m_BakedCmdListInfo[CommandList];
 
@@ -111,7 +108,6 @@ bool WrappedID3D12GraphicsCommandList::Serialise_Close(SerialiserType &ser)
 
       parent.curEventID = 0;
       parent.eventCount = 0;
-      parent.actionCount = 0;
     }
   }
 
@@ -220,6 +216,15 @@ bool WrappedID3D12GraphicsCommandList::Serialise_Reset(SerialiserType &ser,
         }
       }
 
+      bool reusedPrepared = false;
+      ID3D12GraphicsCommandListX *preparedList = NULL;
+
+      if(rerecord && !partial)
+      {
+        preparedList = m_Cmd->BeginPreparedCommandList(BakedCommandList, CommandList, type,
+                                                       pInitialState, reusedPrepared);
+      }
+
       {
         ID3D12GraphicsCommandList *listptr = NULL;
         HRESULT hr =
@@ -236,7 +241,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_Reset(SerialiserType &ser,
         // this is a safe upcast because it's a wrapped object
         ID3D12GraphicsCommandListX *list = (ID3D12GraphicsCommandListX *)listptr;
 
-        if(rerecord)
+        if(rerecord && preparedList == NULL)
         {
           // we store under both baked and non baked ID.
           // The baked ID is the 'real' entry, the non baked is simply so it
@@ -255,8 +260,11 @@ bool WrappedID3D12GraphicsCommandList::Serialise_Reset(SerialiserType &ser,
           list->Close();
         }
 
-        // always create a version of this list even if we're not re-recording, so the serialisation
-        // has an object to find
+        // Always retain a wrapper with the captured baked ID for command and queue-submit
+        // deserialisation. Prepared lists have an independent internal ID and cannot replace this
+        // identity object: without it ReplaceResource(parent, baked) fails after the previous
+        // replay's wrappers are released. The prepared native list stays in m_RerecordCmds while
+        // this closed, empty placeholder has the normal per-replay lifetime.
         m_Cmd->m_RerecordCmdList.push_back(list);
       }
 
@@ -290,10 +298,10 @@ bool WrappedID3D12GraphicsCommandList::Serialise_Reset(SerialiserType &ser,
           m_Cmd->m_BakedCmdListInfo[BakedCommandList].markerCount = 0;
       m_Cmd->m_BakedCmdListInfo[CommandList].curEventID =
           m_Cmd->m_BakedCmdListInfo[BakedCommandList].curEventID = 0;
-      m_Cmd->m_BakedCmdListInfo[CommandList].executeEvents =
-          m_Cmd->m_BakedCmdListInfo[BakedCommandList].executeEvents;
       m_Cmd->m_BakedCmdListInfo[CommandList].barriers.clear();
       m_Cmd->m_BakedCmdListInfo[BakedCommandList].barriers.clear();
+
+      m_Cmd->PrepareFullReplayCompanion(BakedCommandList, CommandList, pInitialState);
     }
     else
     {
@@ -337,9 +345,6 @@ bool WrappedID3D12GraphicsCommandList::Serialise_Reset(SerialiserType &ser,
       }
 
       {
-        D3D12ActionTreeNode *action = new D3D12ActionTreeNode;
-        m_Cmd->m_BakedCmdListInfo[BakedCommandList].action = action;
-
         m_Cmd->m_BakedCmdListInfo[CommandList].type =
             m_Cmd->m_BakedCmdListInfo[BakedCommandList].type = type;
         m_Cmd->m_BakedCmdListInfo[CommandList].nodeMask =
@@ -353,12 +358,21 @@ bool WrappedID3D12GraphicsCommandList::Serialise_Reset(SerialiserType &ser,
         // m_RootEventID and insert them into the tree.
         m_Cmd->m_BakedCmdListInfo[BakedCommandList].curEventID = 0;
         m_Cmd->m_BakedCmdListInfo[BakedCommandList].eventCount = 0;
-        m_Cmd->m_BakedCmdListInfo[BakedCommandList].actionCount = 0;
-
-        m_Cmd->m_BakedCmdListInfo[BakedCommandList].actionStack.push_back(action);
 
         m_Cmd->m_BakedCmdListInfo[BakedCommandList].beginChunk =
             uint32_t(m_Cmd->m_StructuredFile->chunks.size() - 1);
+
+        // Prepared replay is deliberately restricted to standalone DIRECT lists. The frame-reader
+        // scan will clear this bit if Reset..Close is not contiguous or contains a command with
+        // replay-time transient/callback requirements.
+        m_Cmd->m_BakedCmdListInfo[BakedCommandList].preparedReplaySafe =
+            (type == D3D12_COMMAND_LIST_TYPE_DIRECT);
+        m_Cmd->m_BakedCmdListInfo[BakedCommandList].preparedReplayBegin = 0;
+        m_Cmd->m_BakedCmdListInfo[BakedCommandList].preparedReplayEnd = 0;
+        m_Cmd->m_BakedCmdListInfo[BakedCommandList].checkpointQueries.clear();
+        m_Cmd->m_BakedCmdListInfo[BakedCommandList].checkpointBarriers.clear();
+        m_Cmd->m_BakedCmdListInfo[BakedCommandList].replayClearUnsafeBarriers.clear();
+        m_Cmd->m_BakedCmdListInfo[BakedCommandList].checkpointChunks.clear();
 
         // reset state
         D3D12RenderState &state = m_Cmd->m_BakedCmdListInfo[BakedCommandList].state;
@@ -485,6 +499,61 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ResourceBarrier(
   {
     m_Cmd->m_LastCmdListID = GetResID(pCommandList);
 
+    if(IsLoading(m_State))
+    {
+      for(UINT i = 0; i < NumBarriers; i++)
+      {
+        const D3D12_RESOURCE_BARRIER &barrier = pBarriers[i];
+        if(!BakedCmdListInfo::IsReplayClearBarrierReadFree(barrier.Type, barrier.Flags))
+        {
+          BakedCmdListInfo &info = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+          if(info.replayClearUnsafeBarriers.empty() ||
+             info.replayClearUnsafeBarriers.back() != info.curEventID)
+            info.replayClearUnsafeBarriers.push_back(info.curEventID);
+        }
+        if(barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_ALIASING ||
+           (barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION && barrier.Transition.pResource))
+        {
+          BakedCmdListInfo &info = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+          BakedCmdListInfo::CheckpointBarrierOp op;
+          op.relativeEvent = info.curEventID;
+          op.type = barrier.Type;
+          op.flags = barrier.Flags;
+          if(barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_ALIASING)
+          {
+            op.before = GetResID(barrier.Aliasing.pResourceBefore);
+            op.after = GetResID(barrier.Aliasing.pResourceAfter);
+          }
+          else
+          {
+            op.before = GetResID(barrier.Transition.pResource);
+            op.subresource = barrier.Transition.Subresource;
+            op.stateBefore = barrier.Transition.StateBefore;
+            op.stateAfter = barrier.Transition.StateAfter;
+          }
+          if(barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_ALIASING ||
+             barrier.Flags != D3D12_RESOURCE_BARRIER_FLAG_NONE)
+            info.checkpointBarriers.push_back(op);
+          if(info.replayTypedBarriersComplete)
+          {
+            if(info.replayTypedBarriers.size() >= 65536)
+            {
+              info.replayTypedBarriersComplete = false;
+              info.replayTypedBarriers.clear();
+            }
+            else
+              info.replayTypedBarriers.push_back(op);
+          }
+        }
+        if(pBarriers[i].Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION)
+        {
+          // Aliasing and UAV barriers can depend on ordering which is not represented by a single
+          // command-list-local state vector. Keep those lists on the original replay path.
+          m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID].preparedReplaySafe = false;
+        }
+      }
+    }
+
     rdcarray<D3D12_RESOURCE_BARRIER> filtered;
     {
       filtered.reserve(NumBarriers);
@@ -524,17 +593,15 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ResourceBarrier(
 
           if(IsLoading(m_State) && (res1 || res2))
           {
-            BakedCmdListInfo &cmdinfo = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+            D3D12EventNode &eventNode = m_Cmd->m_LoadingEventNode;
 
             if(res1)
             {
-              cmdinfo.resourceUsage.push_back(make_rdcpair(
-                  GetResID(res1), EventUsage(cmdinfo.curEventID, ResourceUsage::Barrier)));
+              eventNode.resourceUsage.push_back(make_rdcpair(GetResID(res1), ResourceUsage::Barrier));
             }
             if(res2)
             {
-              cmdinfo.resourceUsage.push_back(make_rdcpair(
-                  GetResID(res2), EventUsage(cmdinfo.curEventID, ResourceUsage::Barrier)));
+              eventNode.resourceUsage.push_back(make_rdcpair(GetResID(res2), ResourceUsage::Barrier));
             }
           }
         }
@@ -605,6 +672,26 @@ void WrappedID3D12GraphicsCommandList::ResourceBarrier(UINT NumBarriers,
   }
 
   SERIALISE_TIME_CALL(m_pList->ResourceBarrier(NumBarriers, barriers));
+
+#if RENDERDOC_ENABLE_API_MONITOR
+  if(ApiMonitor::Inst().IsActive() && NumBarriers > 0)
+  {
+    ResourceId *resIds = new ResourceId[NumBarriers];
+    for(UINT i = 0; i < NumBarriers; i++)
+    {
+      if(pBarriers[i].Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION && pBarriers[i].Transition.pResource)
+        resIds[i] = GetResID(pBarriers[i].Transition.pResource);
+      else if(pBarriers[i].Type == D3D12_RESOURCE_BARRIER_TYPE_UAV && pBarriers[i].UAV.pResource)
+        resIds[i] = GetResID(pBarriers[i].UAV.pResource);
+      else if(pBarriers[i].Type == D3D12_RESOURCE_BARRIER_TYPE_ALIASING && pBarriers[i].Aliasing.pResourceAfter)
+        resIds[i] = GetResID(pBarriers[i].Aliasing.pResourceAfter);
+      else
+        resIds[i] = ResourceId();
+    }
+    D3D12ApiMonitor::OnResourceBarrier(NumBarriers, resIds);
+    delete[] resIds;
+  }
+#endif
 
   if(IsCaptureMode(m_State))
   {
@@ -1354,7 +1441,8 @@ bool WrappedID3D12GraphicsCommandList::Serialise_SetPipelineState(SerialiserType
     {
       if(m_Cmd->InRerecordRange(m_Cmd->m_LastCmdListID))
       {
-        Unwrap(m_Cmd->RerecordCmdList(m_Cmd->m_LastCmdListID))->SetPipelineState(Unwrap(pPipelineState));
+        if(Unwrap(pPipelineState))
+          Unwrap(m_Cmd->RerecordCmdList(m_Cmd->m_LastCmdListID))->SetPipelineState(Unwrap(pPipelineState));
 
         stateUpdate = true;
       }
@@ -1365,7 +1453,8 @@ bool WrappedID3D12GraphicsCommandList::Serialise_SetPipelineState(SerialiserType
     }
     else
     {
-      Unwrap(pCommandList)->SetPipelineState(Unwrap(pPipelineState));
+      if(Unwrap(pPipelineState))
+        Unwrap(pCommandList)->SetPipelineState(Unwrap(pPipelineState));
 
       stateUpdate = true;
     }
@@ -2858,6 +2947,12 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BeginQuery(SerialiserType &ser,
     }
     else
     {
+      if(IsLoading(m_State))
+      {
+        BakedCmdListInfo &info = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+        if(!info.preparedReplayQueries.Begin(GetResID(pQueryHeap), Type, Index))
+          info.preparedReplaySafe = false;
+      }
       Unwrap(pCommandList)->BeginQuery(Unwrap(pQueryHeap), Type, Index);
     }
   }
@@ -2920,6 +3015,15 @@ bool WrappedID3D12GraphicsCommandList::Serialise_EndQuery(SerialiserType &ser,
     }
     else
     {
+      if(IsLoading(m_State))
+      {
+        BakedCmdListInfo &info = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+        const bool completed = info.preparedReplayQueries.End(GetResID(pQueryHeap), Type, Index);
+        if(!completed)
+          info.preparedReplaySafe = false;
+        info.checkpointQueries.push_back(
+            {GetResID(pQueryHeap), Index, 1, info.curEventID, false, Type, completed});
+      }
       Unwrap(pCommandList)->EndQuery(Unwrap(pQueryHeap), Type, Index);
 
       // during replay store which queries are issued in the capture itself, so we know which ones
@@ -2991,11 +3095,18 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ResolveQueryData(
         // stored buffer
         queryHeap->ResolveValidQueryData(m_Cmd->RerecordCmdList(m_Cmd->m_LastCmdListID), Type,
                                          StartIndex, NumQueries, pDestinationBuffer,
-                                         AlignedDestinationBufferOffset);
+                                         AlignedDestinationBufferOffset, m_Cmd->m_LastCmdListID,
+                                         m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID].curEventID);
       }
     }
     else
     {
+      if(IsLoading(m_State))
+      {
+        BakedCmdListInfo &info = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+        info.checkpointQueries.push_back(
+            {GetResID(pQueryHeap), StartIndex, NumQueries, info.curEventID, true, Type});
+      }
       // don't resolve queries during load, since we can't know for certain at record time whether
       // or not a query will be valid (it could have been queried in a previous frame so not valid
       // to resolve right now, and without knowing the submission order ahead of time we can't
@@ -3032,11 +3143,9 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ResolveQueryData(
 
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
-
-        actionNode.resourceUsage.push_back(
-            make_rdcpair(GetResID(pDestinationBuffer),
-                         EventUsage(actionNode.action.eventId, ResourceUsage::ResolveDst)));
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
+        eventNode.resourceUsage.push_back(
+            make_rdcpair(GetResID(pDestinationBuffer), ResourceUsage::ResolveDst));
       }
     }
   }
@@ -3368,10 +3477,8 @@ bool WrappedID3D12GraphicsCommandList::Serialise_SetCommandAnnotation(
 
       ResourceId cmdId = GetResID(pCommandList);
 
-      PendingAnnotation annot = {m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID].curEventID, key,
-                                 valueType, valueVectorWidth, value};
-
-      m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID].annotations.push_back(annot);
+      PendingAnnotation annot = {0, key, valueType, valueVectorWidth, value};
+      m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID].pendingAnnotations.push_back(annot);
 
       m_pDevice->GetReplay()->WriteFrameRecord().frameInfo.containsAnnotations = true;
     }
@@ -3451,6 +3558,12 @@ void WrappedID3D12GraphicsCommandList::DrawInstanced(UINT VertexCountPerInstance
 {
   SERIALISE_TIME_CALL(m_pList->DrawInstanced(VertexCountPerInstance, InstanceCount,
                                              StartVertexLocation, StartInstanceLocation));
+
+#if RENDERDOC_ENABLE_API_MONITOR
+  if(ApiMonitor::Inst().IsActive())
+    D3D12ApiMonitor::OnDrawInstanced(VertexCountPerInstance, InstanceCount, StartVertexLocation,
+                                     StartInstanceLocation);
+#endif
 
   if(IsCaptureMode(m_State))
   {
@@ -3534,6 +3647,12 @@ void WrappedID3D12GraphicsCommandList::DrawIndexedInstanced(UINT IndexCountPerIn
                                                     StartIndexLocation, BaseVertexLocation,
                                                     StartInstanceLocation));
 
+#if RENDERDOC_ENABLE_API_MONITOR
+  if(ApiMonitor::Inst().IsActive())
+    D3D12ApiMonitor::OnDrawIndexedInstanced(IndexCountPerInstance, InstanceCount, StartIndexLocation,
+                                            BaseVertexLocation, StartInstanceLocation);
+#endif
+
   if(IsCaptureMode(m_State))
   {
     CACHE_THREAD_SERIALISER();
@@ -3602,6 +3721,11 @@ void WrappedID3D12GraphicsCommandList::Dispatch(UINT ThreadGroupCountX, UINT Thr
                                                 UINT ThreadGroupCountZ)
 {
   SERIALISE_TIME_CALL(m_pList->Dispatch(ThreadGroupCountX, ThreadGroupCountY, ThreadGroupCountZ));
+
+#if RENDERDOC_ENABLE_API_MONITOR
+  if(ApiMonitor::Inst().IsActive())
+    D3D12ApiMonitor::OnDispatch(ThreadGroupCountX, ThreadGroupCountY, ThreadGroupCountZ);
+#endif
 
   if(IsCaptureMode(m_State))
   {
@@ -3685,14 +3809,12 @@ void WrappedID3D12GraphicsCommandList::ExecuteBundle(ID3D12GraphicsCommandList *
   }
 }
 
-void WrappedID3D12GraphicsCommandList::SaveExecuteIndirectParameters(
+D3D12ExecuteData WrappedID3D12GraphicsCommandList::SaveExecuteIndirectParameters(
     ID3D12GraphicsCommandListX *list, ID3D12CommandSignature *pCommandSignature,
     UINT MaxCommandCount, ID3D12Resource *pArgumentBuffer, UINT64 ArgumentBufferOffset,
     ID3D12Resource *pCountBuffer, UINT64 CountBufferOffset)
 {
   WrappedID3D12CommandSignature *comSig = (WrappedID3D12CommandSignature *)pCommandSignature;
-
-  BakedCmdListInfo &cmdListInfo = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
 
   const size_t argsSize =
       comSig->sig.ByteStride * (RDCMAX(1U, MaxCommandCount) - 1) + comSig->sig.PackedByteSize;
@@ -3709,10 +3831,16 @@ void WrappedID3D12GraphicsCommandList::SaveExecuteIndirectParameters(
   Unwrap(list)->CopyBufferRegion(Unwrap(buf), offs + countSize, Unwrap(pArgumentBuffer),
                                  ArgumentBufferOffset, argsSize);
 
-  BakedCmdListInfo::ExecuteData exec = {};
-  exec.baseEvent = cmdListInfo.curEventID;
+  D3D12ExecuteData exec = {};
   exec.sig = comSig;
   exec.maxCount = MaxCommandCount;
+  // For variable count indirects only allocate up to one indirect command to avoid pessimistic
+  // allocation if MaxCommandCount is very high but the actual action count is low.
+  exec.reservedCount = pCountBuffer ? RDCMIN(1U, MaxCommandCount) : MaxCommandCount;
+  exec.sourceArgs = GetResID(pArgumentBuffer);
+  exec.sourceArgsOffset = ArgumentBufferOffset;
+  exec.sourceCount = GetResID(pCountBuffer);
+  exec.sourceCountOffset = CountBufferOffset;
   if(pCountBuffer)
   {
     exec.countBuf = buf;
@@ -3721,7 +3849,7 @@ void WrappedID3D12GraphicsCommandList::SaveExecuteIndirectParameters(
   exec.argBuf = buf;
   exec.argOffs = offs + 16;
 
-  cmdListInfo.executeEvents.push_back(exec);
+  return exec;
 }
 
 void WrappedID3D12GraphicsCommandList::ResetAndRecordExecuteIndirectStates(
@@ -3835,8 +3963,12 @@ void WrappedID3D12GraphicsCommandList::ResetAndRecordExecuteIndirectStates(
 }
 
 void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdListInfo &info,
-                                                                     BakedCmdListInfo::ExecuteData &exec)
+                                                                     size_t nodeIdx)
 {
+  rdcarray<D3D12EventNode> &eventNodes = info.eventNodes;
+  D3D12EventNode &baseActionNode = eventNodes[nodeIdx];
+  const D3D12ExecuteData exec = baseActionNode.executeData;
+
   WrappedID3D12CommandSignature *comSig = exec.sig;
 
   uint32_t count = exec.maxCount;
@@ -3852,6 +3984,15 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
       count = RDCMIN(count, *(uint32_t *)&data[0]);
   }
 
+  // Active replay uses one event extent per recorded list. A second execution cannot resize it
+  // without also invalidating the already-published EIDs for its first execution.
+  if(exec.countResolved && count != exec.reservedCount)
+  {
+    m_pDevice->ReportFatalError(RDResult(ResultCode::APIReplayFailed,
+                                         "ExecuteIndirect count changed between list executions"));
+    return;
+  }
+
   const uint32_t sigSize = (uint32_t)comSig->sig.arguments.size();
 
   D3D12_RANGE range = {0, D3D12CommandData::m_IndirectSize};
@@ -3861,40 +4002,80 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
   if(m_pDevice->HasFatalError())
     return;
 
-  rdcarray<D3D12ActionTreeNode> &actions = info.action->children;
-
-  size_t idx = 0;
-  uint32_t eid = exec.baseEvent;
-
-  uint32_t firstActionEid = eid;
-
-  // find the action where our execute begins
-  for(; idx < actions.size(); idx++)
-    if(actions[idx].action.eventId == firstActionEid)
-      break;
-
-  RDCASSERTMSG("Couldn't find base event action!", idx < actions.size(), idx, actions.size());
-
   // patch the name for the base action
-  actions[idx].action.customName =
+  baseActionNode.action.customName =
       StringFormat::Fmt("ExecuteIndirect(maxCount %u, count <%u>)", exec.maxCount, count);
 
-  // move to the first actual action of the commands
+  // move to the first actual event of the commands
+  size_t idx = nodeIdx;
   idx++;
-  eid++;
 
   D3D12RenderState state;
 
   SDChunk *baseChunk = NULL;
+  SDFile *sdFile = m_Cmd->m_StructuredFile;
 
   if(count > 0)
   {
-    RDCASSERT(actions[idx].state);
+    size_t firstAction = idx;
+    // Find the first action (which should have state)
+    for(uint32_t a = 0; a < sigSize; ++a)
+    {
+      if(eventNodes[firstAction].action.actionId == UINT32_MAX)
+        break;
+      firstAction++;
+    }
+    RDCASSERT(eventNodes[firstAction].state);
+    state = *eventNodes[firstAction].state;
 
-    state = *actions[idx].state;
-    baseChunk = m_Cmd->m_StructuredFile->chunks[actions[idx].action.events[0].chunkIndex];
+    baseChunk = m_Cmd->m_StructuredFile->chunks[eventNodes[idx].event.chunkIndex];
+  }
+  // this can be negative if count is 0
+  const int64_t countExtraActions = int64_t(count) - exec.reservedCount;
+  // exec.reservedCount copies of the signatuire were reserved for the indirect count actions
+  // if we ended up with a different number countExtraNodes will be non-zero,
+  // we need to adjust and either remove the nodes we allocated (if no actions happened)
+  // or clone the nodes to create more that we can then patch.
+  if(countExtraActions != 0)
+  {
+    if(count == 0)
+    {
+      // idx is the start of the signature nodes
+      eventNodes.erase(idx, sigSize);
+    }
+    else if(countExtraActions > 0)
+    {
+      size_t baseCommandStart = idx;
+      // We need to clone the signature nodes countExtraNode times
+      size_t countExtraNodes = countExtraActions * sigSize;
+      sdFile->chunks.reserve(sdFile->chunks.size() + countExtraNodes);
+      // Insert space for the new nodes
+      const size_t oldSize = eventNodes.size();
+      const size_t endActionNode = idx + sigSize;
+      eventNodes.resize(oldSize + countExtraNodes);
+      std::move_backward(eventNodes.begin() + endActionNode, eventNodes.begin() + oldSize,
+                         eventNodes.end());
+
+      size_t newIdx = endActionNode;
+      for(int64_t extra = 0; extra < countExtraActions; ++extra)
+      {
+        for(uint32_t a = 0; a < sigSize; ++a)
+        {
+          // duplicate the base node
+          eventNodes[newIdx++] = eventNodes[baseCommandStart + a];
+        }
+      }
+    }
   }
 
+  if(countExtraActions != 0)
+    info.ShiftReplayMetadata(uint32_t(idx + sigSize * exec.reservedCount),
+                             countExtraActions * sigSize);
+
+  eventNodes[nodeIdx].executeData.reservedCount = count;
+  eventNodes[nodeIdx].executeData.countResolved = true;
+
+  size_t countNodes = eventNodes.size();
   for(uint32_t i = 0; i < count; i++)
   {
     byte *data = mapPtr + exec.argOffs;
@@ -3904,26 +4085,16 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
     {
       const D3D12_INDIRECT_ARGUMENT_DESC &arg = comSig->sig.arguments[a];
 
-      ActionDescription &curAction = actions[idx].action;
-
-      APIEvent *curEvent = NULL;
-
-      for(APIEvent &ev : curAction.events)
+      if(idx >= countNodes)
       {
-        if(ev.eventId == eid)
-        {
-          curEvent = &ev;
-          break;
-        }
+        RDCERR("Couldn't find child event %u in current action while patching ExecuteIndirect", idx);
+        break;
       }
 
-      APIEvent dummy;
-      if(!curEvent)
-      {
-        RDCERR("Couldn't find EID %u in current action while patching ExecuteIndirect", eid);
-        // assign a dummy so we don't have to NULL-check below
-        curEvent = &dummy;
-      }
+      D3D12EventNode &eventNode = eventNodes[idx];
+      if(exec.countResolved)
+        eventNode.resourceUsage.clear();
+      ActionDescription &curAction = eventNodes[idx].action;
 
       SDChunk *fakeChunk = new SDChunk(""_lit);
       fakeChunk->metadata = baseChunk->metadata;
@@ -3958,17 +4129,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
 
             structuriser.Serialise("ArgumentData"_lit, *args).Important();
 
-            // if this is the first action of the indirect, we could have picked up previous
-            // non-indirect events in this action, so the EID will be higher than we expect. Just
-            // assign the action's EID
-            eid = curAction.eventId;
-
-            m_Cmd->AddUsage(state, actions[idx]);
-
-            // advance
-            idx++;
-            eid++;
-
+            m_Cmd->AddUsage(state, eventNode);
             break;
           }
           case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
@@ -3991,17 +4152,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
 
             structuriser.Serialise("ArgumentData"_lit, *args).Important();
 
-            // if this is the first action of the indirect, we could have picked up previous
-            // non-indirect events in this action, so the EID will be higher than we expect. Just
-            // assign the action's EID
-            eid = curAction.eventId;
-
-            m_Cmd->AddUsage(state, actions[idx]);
-
-            // advance
-            idx++;
-            eid++;
-
+            m_Cmd->AddUsage(state, eventNode);
             break;
           }
           case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
@@ -4021,17 +4172,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
 
             structuriser.Serialise("ArgumentData"_lit, *args).Important();
 
-            // if this is the first action of the indirect, we could have picked up previous
-            // non-indirect events in this action, so the EID will be higher than we expect. Just
-            // assign the action's EID
-            eid = curAction.eventId;
-
-            m_Cmd->AddUsage(state, actions[idx]);
-
-            // advance
-            idx++;
-            eid++;
-
+            m_Cmd->AddUsage(state, eventNode);
             break;
           }
           case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
@@ -4052,17 +4193,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
 
             structuriser.Serialise("ArgumentData"_lit, *args).Important();
 
-            // if this is the first action of the indirect, we could have picked up previous
-            // non-indirect events in this action, so the EID will be higher than we expect. Just
-            // assign the action's EID
-            eid = curAction.eventId;
-
-            m_Cmd->AddUsage(state, actions[idx]);
-
-            // advance
-            idx++;
-            eid++;
-
+            m_Cmd->AddUsage(state, eventNode);
             break;
           }
           case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
@@ -4100,17 +4231,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
 
             structuriser.Serialise("ArgumentData"_lit, *args).Important();
 
-            // if this is the first action of the indirect, we could have picked up previous
-            // non-indirect events in this action, so the EID will be higher than we expect. Just
-            // assign the action's EID
-            eid = curAction.eventId;
-
-            m_Cmd->AddUsage(state, actions[idx]);
-
-            // advance
-            idx++;
-            eid++;
-
+            m_Cmd->AddUsage(state, eventNode);
             break;
           }
           case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
@@ -4134,14 +4255,11 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
               state.compute.sigelems[arg.Constant.RootParameterIndex].SetConstants(
                   arg.Constant.Num32BitValuesToSet, data32, arg.Constant.DestOffsetIn32BitValues);
             }
-
-            // advance only the EID, since we're still in the same action
-            eid++;
-
             break;
           }
           case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
           {
+            // This modifies the mapped data via vb
             D3D12_VERTEX_BUFFER_VIEW *vb = (D3D12_VERTEX_BUFFER_VIEW *)data;
             data += sizeof(D3D12_VERTEX_BUFFER_VIEW);
 
@@ -4165,10 +4283,6 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
             fakeChunk->name = StringFormat::Fmt("[%u] arg%u: IndirectIASetVertexBuffer", i, a);
 
             structuriser.Serialise("ArgumentData"_lit, *vb).Important();
-
-            // advance only the EID, since we're still in the same action
-            eid++;
-
             break;
           }
           case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
@@ -4193,10 +4307,6 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
             fakeChunk->name = StringFormat::Fmt("[%u] arg%u: IndirectIASetIndexBuffer", i, a);
 
             structuriser.Serialise("ArgumentData"_lit, *ib).Important();
-
-            // advance only the EID, since we're still in the same action
-            eid++;
-
             break;
           }
           case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
@@ -4243,42 +4353,22 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
             D3D12BufferLocation buf = *addr;
 
             structuriser.Serialise("ArgumentData"_lit, buf).Important();
-
-            // advance only the EID, since we're still in the same action
-            eid++;
-
             break;
           }
           default: RDCERR("Unexpected argument type! %d", arg.Type); break;
         }
       }
+      // Set the chunk data
+      sdFile->chunks.push_back(fakeChunk);
 
-      m_Cmd->m_StructuredFile->chunks.push_back(fakeChunk);
+      eventNode.event.chunkIndex = uint32_t(sdFile->chunks.size() - 1);
 
-      curEvent->chunkIndex = uint32_t(m_Cmd->m_StructuredFile->chunks.size() - 1);
+      ++idx;
     }
   }
 
   range.End = range.Begin = 0;
   exec.argBuf->Unmap(0, &range);
-
-  // remove excesss actions if count < maxCount
-  if(count < exec.maxCount)
-  {
-    uint32_t shiftEID = (exec.maxCount - count) * sigSize;
-    uint32_t lastEID = exec.baseEvent + 1 + sigSize * exec.maxCount;
-
-    uint32_t shiftActionID = 0;
-
-    while(idx + shiftActionID < actions.size() &&
-          actions[idx + shiftActionID].action.eventId < lastEID)
-      shiftActionID++;
-
-    actions.erase(idx, shiftActionID);
-
-    // shift all subsequent EIDs and action IDs so they're contiguous
-    info.ShiftForRemoved(shiftActionID, shiftEID, idx);
-  }
 }
 
 template <typename SerialiserType>
@@ -4311,6 +4401,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
     if(IsActiveReplaying(m_State))
     {
       uint32_t actualCount = MaxCommandCount;
+      uint32_t countEventsReplayed = actualCount * comSig->sig.arguments.count();
 
       if(m_Cmd->InRerecordRange(m_Cmd->m_LastCmdListID))
       {
@@ -4332,6 +4423,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
         D3D12CommandData::ActionUse use(m_Cmd->m_CurChunkOffset, 0);
         auto it = std::lower_bound(m_Cmd->m_ActionUses.begin(), m_Cmd->m_ActionUses.end(), use);
 
+        // baseEventID is the EI action EID
         uint32_t baseEventID = it->eventId;
 
         {
@@ -4347,6 +4439,10 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
         uint32_t argumentsReplayed =
             RDCMIN(m_Cmd->m_LastEventID - baseEventID, actualCount * comSig->sig.arguments.count());
         uint32_t executesReplayed = argumentsReplayed / comSig->sig.arguments.count();
+
+        // executesReplayed is relative to baseEventID
+        // compute the number of events to skip relative to the curEID
+        countEventsReplayed = (baseEventID + argumentsReplayed) - curEID;
 
         BarrierSet barriers;
 
@@ -4370,12 +4466,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
         // when we have a callback, submit every action individually to the callback
         if(m_Cmd->m_ActionCallback)
         {
-          uint32_t countToReplay = actualCount;
-
-          if(m_Cmd->m_FirstEventID <= 1)
-            countToReplay = RDCMIN(countToReplay, executesReplayed);
-          else
-            countToReplay = 1;
+          uint32_t countToReplay = RDCMIN(actualCount, executesReplayed);
 
           D3D12MarkerRegion::Begin(
               list,
@@ -4418,15 +4509,21 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
 
           countToReplay = RDCMIN(countToReplay, maxCommands);
 
+          uint32_t firstDraw = 0;
           if(m_Cmd->m_FirstEventID > 1)
           {
-            const uint32_t argidx = (curEID - baseEventID - 1);
+            const uint32_t argidx = (curEID > baseEventID) ? (curEID - baseEventID - 1) : 0;
             const uint32_t execidx = argidx / comSig->sig.arguments.count();
+            firstDraw = execidx;
 
             argOffset += comSig->sig.ByteStride * execidx;
+
+            // Don't replay anything when selecting the pop marker
+            if(execidx == maxCommands)
+              countToReplay = 0;
           }
 
-          for(uint32_t i = 0; i < countToReplay; i++)
+          for(uint32_t i = firstDraw; i < countToReplay; i++)
           {
             ActionFlags drawType =
                 comSig->sig.graphics ? ActionFlags::Drawcall : ActionFlags::Dispatch;
@@ -4437,7 +4534,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             // Allow the callback to recreate the command signature i.e. to match the root signature
             pCommandSignature = m_Cmd->m_IndirectData.commandSig;
 
-            // action up to and including i. The previous draws will be nop'd out
+            // single action starting at specific arg offset
             Unwrap(list)->ExecuteIndirect(Unwrap(pCommandSignature), 1, argBuffer, argOffset, NULL,
                                           0);
 
@@ -4445,6 +4542,9 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             {
               if(eventId && m_Cmd->m_ActionCallback->PostDraw(eventId, list))
               {
+                // Allow the callback to recreate the command signature i.e. to match the root signature
+                pCommandSignature = m_Cmd->m_IndirectData.commandSig;
+
                 Unwrap(list)->ExecuteIndirect(Unwrap(pCommandSignature), 1, argBuffer, argOffset,
                                               NULL, 0);
                 m_Cmd->m_ActionCallback->PostRedraw(eventId, list);
@@ -4502,6 +4602,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             m_Cmd->m_RayDispatches.push_back(patchedDispatch);
           }
 
+          const ActionDescription *action = m_pDevice->GetAction(curEID);
           uint32_t countToReplay = RDCMIN(actualCount, maxCommands);
 
           if(m_Cmd->m_FirstEventID <= 1)
@@ -4514,20 +4615,19 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             // there's no need to replay anything more than the first execute.
             countToReplay = RDCMIN(countToReplay, executesReplayed);
           }
-          else
+          else if(action && action->flags & ActionFlags::PopMarker)
           {
-            const uint32_t argidx = (curEID - baseEventID - 1);
-            const uint32_t execidx = argidx / comSig->sig.arguments.count();
-
             // don't do anything when selecting the final popmarker as well - everything will have
             // been done in previous replays so this is a no-op.
-            if(argidx >= countToReplay * comSig->sig.arguments.count())
-            {
-              countToReplay = 0;
-            }
+            countToReplay = 0;
+          }
+          else
+          {
+            const uint32_t argidx = (curEID > baseEventID) ? (curEID - baseEventID - 1) : 0;
+
             // we also know that only the last argument actually does anything - previous are just
             // state setting. So if argIdx isn't the last one, we can skip this
-            else if((argidx + 1) % comSig->sig.arguments.count() != 0)
+            if((argidx + 1) % comSig->sig.arguments.count() != 0)
             {
               countToReplay = 0;
             }
@@ -4536,6 +4636,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
               // slightly more complex, we're replaying only one execute later on as a single draw
               // fortunately ExecuteIndirect has no 'draw' builtin, so we can just offset the
               // argument buffer and set count to 1
+              const uint32_t execidx = argidx / comSig->sig.arguments.count();
               countToReplay = 1;
               argOffset += comSig->sig.ByteStride * execidx;
             }
@@ -4548,11 +4649,11 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
       }
 
       // executes skip the event ID past the whole thing
-      uint32_t numEvents = actualCount * (uint32_t)comSig->sig.arguments.size() + 1;
+      ++countEventsReplayed;
       if(m_Cmd->m_FirstEventID > 1)
-        m_Cmd->m_RootEventID += numEvents;
+        m_Cmd->m_RootEventID += countEventsReplayed;
       else
-        m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID].curEventID += numEvents;
+        cmdInfo.curEventID += countEventsReplayed;
     }
     else
     {
@@ -4568,8 +4669,9 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
 
       barriers.Apply(list);
 
-      SaveExecuteIndirectParameters(list, pCommandSignature, MaxCommandCount, pArgumentBuffer,
-                                    ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+      D3D12ExecuteData execData =
+          SaveExecuteIndirectParameters(list, pCommandSignature, MaxCommandCount, pArgumentBuffer,
+                                        ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
 
       barriers.Unapply(list);
 
@@ -4618,19 +4720,27 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
         action.flags |= ActionFlags::MultiAction | ActionFlags::PushMarker;
 
         m_Cmd->AddAction(action);
-        cmdInfo.curEventID++;
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
+        eventNode.executeData = execData;
+        eventNode.hasExecuteData = true;
+        cmdInfo.hasExecuteDatas = true;
+        cmdInfo.replayLastIndirectEvent = uint32_t(cmdInfo.eventNodes.size() - 1);
+        cmdInfo.replayLastIndirectSignature = comSig;
 
-        actionNode.resourceUsage.push_back(
-            make_rdcpair(GetResID(pArgumentBuffer),
-                         EventUsage(actionNode.action.eventId, ResourceUsage::Indirect)));
+        eventNode.resourceUsage.push_back(
+            make_rdcpair(GetResID(pArgumentBuffer), ResourceUsage::Indirect));
         if(pCountBuffer)
-          actionNode.resourceUsage.push_back(make_rdcpair(
-              GetResID(pCountBuffer), EventUsage(actionNode.action.eventId, ResourceUsage::Indirect)));
+        {
+          eventNode.resourceUsage.push_back(
+              make_rdcpair(GetResID(pCountBuffer), ResourceUsage::Indirect));
+        }
       }
 
-      for(uint32_t i = 0; i < MaxCommandCount; i++)
+      // For variable count indirects only allocate up to one indirect command to avoid pessimistic
+      // allocation if MaxCommandCount is very high but the actual action count is low.
+      uint32_t maxCountCmds = execData.reservedCount;
+      for(uint32_t i = 0; i < maxCountCmds; i++)
       {
         for(uint32_t a = 0; a < sigSize; a++)
         {
@@ -4649,9 +4759,8 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
               ActionDescription action;
               action.customName = "ExecuteIndirect";
               m_Cmd->AddAction(action);
-              m_Cmd->GetActionStack().back()->children.back().state =
-                  new D3D12RenderState(cmdInfo.state);
-              cmdInfo.curEventID++;
+              D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
+              eventNode.state = new D3D12RenderState(cmdInfo.state);
               break;
             }
             case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
@@ -4662,7 +4771,6 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
               // add dummy event
               m_Cmd->AddEvent();
-              cmdInfo.curEventID++;
               break;
             default: RDCERR("Unexpected argument type! %d", arg.Type); break;
           }
@@ -4824,11 +4932,30 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ClearDepthStencilView(
             Subresource(GetMipForDsv(descriptor->GetDSV()), GetSliceForDsv(descriptor->GetDSV()));
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
+        if(IsLoading(m_State))
+        {
+          BakedCmdListInfo &info = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+          BakedCmdListInfo::ReplayClearOp clear;
+          clear.resource = descriptor->GetResResourceId();
+          clear.relativeEvent = info.curEventID;
+          clear.unconditional = info.state.predication.buffer == ResourceId();
+          WrappedID3D12Resource *resource =
+              GetResourceManager()->GetResAs<WrappedID3D12Resource>(clear.resource);
+          if(resource)
+          {
+            const D3D12_RESOURCE_DESC resourceDesc = resource->GetReal()->GetDesc();
+            D3D12_FEATURE_DATA_FORMAT_INFO formatInfo = {resourceDesc.Format};
+            if(SUCCEEDED(m_pDevice->GetReal()->CheckFeatureSupport(
+                   D3D12_FEATURE_FORMAT_INFO, &formatInfo, sizeof(formatInfo))))
+              clear.fullResource = D3D12ReplayFullDSVClear(resourceDesc, descriptor->GetDSV(),
+                                                           ClearFlags, NumRects, formatInfo.PlaneCount);
+          }
+          info.replayClearOps.push_back(clear);
+        }
 
-        actionNode.resourceUsage.push_back(
-            make_rdcpair(descriptor->GetResResourceId(),
-                         EventUsage(actionNode.action.eventId, ResourceUsage::Clear)));
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
+        eventNode.resourceUsage.push_back(
+            make_rdcpair(descriptor->GetResResourceId(), ResourceUsage::Clear));
       }
     }
   }
@@ -4925,11 +5052,30 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ClearRenderTargetView(
             Subresource(GetMipForRtv(descriptor->GetRTV()), GetSliceForRtv(descriptor->GetRTV()));
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
+        if(IsLoading(m_State))
+        {
+          BakedCmdListInfo &info = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+          BakedCmdListInfo::ReplayClearOp clear;
+          clear.resource = descriptor->GetResResourceId();
+          clear.relativeEvent = info.curEventID;
+          clear.unconditional = info.state.predication.buffer == ResourceId();
+          WrappedID3D12Resource *resource =
+              GetResourceManager()->GetResAs<WrappedID3D12Resource>(clear.resource);
+          if(resource)
+          {
+            const D3D12_RESOURCE_DESC resourceDesc = resource->GetReal()->GetDesc();
+            D3D12_FEATURE_DATA_FORMAT_INFO formatInfo = {resourceDesc.Format};
+            if(SUCCEEDED(m_pDevice->GetReal()->CheckFeatureSupport(
+                   D3D12_FEATURE_FORMAT_INFO, &formatInfo, sizeof(formatInfo))))
+              clear.fullResource = D3D12ReplayFullRTVClear(resourceDesc, descriptor->GetRTV(),
+                                                           NumRects, formatInfo.PlaneCount);
+          }
+          info.replayClearOps.push_back(clear);
+        }
 
-        actionNode.resourceUsage.push_back(
-            make_rdcpair(descriptor->GetResResourceId(),
-                         EventUsage(actionNode.action.eventId, ResourceUsage::Clear)));
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
+        eventNode.resourceUsage.push_back(
+            make_rdcpair(descriptor->GetResResourceId(), ResourceUsage::Clear));
       }
     }
   }
@@ -5029,10 +5175,8 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ClearUnorderedAccessViewUint(
 
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
-
-        actionNode.resourceUsage.push_back(make_rdcpair(
-            GetResID(pResource), EventUsage(actionNode.action.eventId, ResourceUsage::Clear)));
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
+        eventNode.resourceUsage.push_back(make_rdcpair(GetResID(pResource), ResourceUsage::Clear));
       }
     }
   }
@@ -5140,10 +5284,8 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ClearUnorderedAccessViewFloat(
 
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
-
-        actionNode.resourceUsage.push_back(make_rdcpair(
-            GetResID(pResource), EventUsage(actionNode.action.eventId, ResourceUsage::Clear)));
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
+        eventNode.resourceUsage.push_back(make_rdcpair(GetResID(pResource), ResourceUsage::Clear));
       }
     }
   }
@@ -5229,10 +5371,26 @@ bool WrappedID3D12GraphicsCommandList::Serialise_DiscardResource(SerialiserType 
 
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
+        eventNode.resourceUsage.push_back(make_rdcpair(GetResID(pResource), ResourceUsage::Discard));
 
-        actionNode.resourceUsage.push_back(make_rdcpair(
-            GetResID(pResource), EventUsage(actionNode.action.eventId, ResourceUsage::Discard)));
+        if(IsLoading(m_State))
+        {
+          BakedCmdListInfo &info = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+          BakedCmdListInfo::ReplayClearOp clear;
+          clear.resource = GetResID(pResource);
+          clear.relativeEvent = info.curEventID;
+          clear.unconditional = info.state.predication.buffer == ResourceId();
+          if(pResource)
+          {
+            const D3D12_RESOURCE_DESC desc = pResource->GetDesc();
+            clear.fullResource = D3D12ReplayFullDiscardPattern(
+                desc, pRegion,
+                m_pDevice->GetReplayOptions().optimisation != ReplayOptimisationLevel::Fastest,
+                GetNumSubresources(m_pDevice, &desc));
+          }
+          info.replayClearOps.push_back(clear);
+        }
       }
     }
   }
@@ -5290,10 +5448,12 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyBufferRegion(SerialiserType
         uint32_t eventId = m_Cmd->HandlePreCallback(list, ActionFlags::Copy);
         Unwrap(list)->CopyBufferRegion(Unwrap(pDstBuffer), DstOffset, Unwrap(pSrcBuffer), SrcOffset,
                                        NumBytes);
+        m_pDevice->RecordReplayBufferPatches(list, pDstBuffer);
         if(eventId && m_Cmd->m_ActionCallback->PostMisc(eventId, ActionFlags::Copy, list))
         {
           Unwrap(list)->CopyBufferRegion(Unwrap(pDstBuffer), DstOffset, Unwrap(pSrcBuffer),
                                          SrcOffset, NumBytes);
+          m_pDevice->RecordReplayBufferPatches(list, pDstBuffer);
           m_Cmd->m_ActionCallback->PostRemisc(eventId, ActionFlags::Copy, list);
         }
       }
@@ -5316,19 +5476,18 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyBufferRegion(SerialiserType
 
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
 
         if(pSrcBuffer == pDstBuffer)
         {
-          actionNode.resourceUsage.push_back(make_rdcpair(
-              GetResID(pSrcBuffer), EventUsage(actionNode.action.eventId, ResourceUsage::Copy)));
+          eventNode.resourceUsage.push_back(make_rdcpair(GetResID(pSrcBuffer), ResourceUsage::Copy));
         }
         else
         {
-          actionNode.resourceUsage.push_back(make_rdcpair(
-              GetResID(pSrcBuffer), EventUsage(actionNode.action.eventId, ResourceUsage::CopySrc)));
-          actionNode.resourceUsage.push_back(make_rdcpair(
-              GetResID(pDstBuffer), EventUsage(actionNode.action.eventId, ResourceUsage::CopyDst)));
+          eventNode.resourceUsage.push_back(
+              make_rdcpair(GetResID(pSrcBuffer), ResourceUsage::CopySrc));
+          eventNode.resourceUsage.push_back(
+              make_rdcpair(GetResID(pDstBuffer), ResourceUsage::CopyDst));
         }
       }
     }
@@ -5343,6 +5502,12 @@ void WrappedID3D12GraphicsCommandList::CopyBufferRegion(ID3D12Resource *pDstBuff
 {
   SERIALISE_TIME_CALL(m_pList->CopyBufferRegion(Unwrap(pDstBuffer), DstOffset, Unwrap(pSrcBuffer),
                                                 SrcOffset, NumBytes));
+
+#if RENDERDOC_ENABLE_API_MONITOR
+  if(ApiMonitor::Inst().IsActive())
+    D3D12ApiMonitor::OnCopyBufferRegion(GetResID(pDstBuffer), DstOffset, GetResID(pSrcBuffer),
+                                        SrcOffset, NumBytes);
+#endif
 
   if(IsCaptureMode(m_State))
   {
@@ -5390,9 +5555,11 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyTextureRegion(
 
         uint32_t eventId = m_Cmd->HandlePreCallback(list, ActionFlags::Copy);
         Unwrap(list)->CopyTextureRegion(&unwrappedDst, DstX, DstY, DstZ, &unwrappedSrc, pSrcBox);
+        m_pDevice->RecordReplayBufferPatches(list, dst.pResource);
         if(eventId && m_Cmd->m_ActionCallback->PostMisc(eventId, ActionFlags::Copy, list))
         {
           Unwrap(list)->CopyTextureRegion(&unwrappedDst, DstX, DstY, DstZ, &unwrappedSrc, pSrcBox);
+          m_pDevice->RecordReplayBufferPatches(list, dst.pResource);
           m_Cmd->m_ActionCallback->PostRemisc(eventId, ActionFlags::Copy, list);
         }
       }
@@ -5409,6 +5576,32 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyTextureRegion(
 
         ResourceId origSrc = liveSrc;
         ResourceId origDst = liveDst;
+
+        if(IsLoading(m_State))
+        {
+          BakedCmdListInfo &info = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+          BakedCmdListInfo::ReplayTextureCopyOp copy;
+          copy.source = origSrc;
+          copy.destination = origDst;
+          copy.relativeEvent = info.curEventID;
+          copy.unconditional = info.state.predication.buffer == ResourceId();
+          // The first supported region-copy initialization is one complete texture subresource
+          // which is also the whole resource. Arrays/mips/planes require collective coverage.
+          if(dst.pResource && src.pResource && dst.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX &&
+             src.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && dst.SubresourceIndex == 0 &&
+             src.SubresourceIndex == 0 && !pSrcBox && DstX == 0 && DstY == 0 && DstZ == 0)
+          {
+            const D3D12_RESOURCE_DESC to = dst.pResource->GetDesc(), from = src.pResource->GetDesc();
+            copy.fullResource =
+                GetNumSubresources(m_pDevice, &to) == 1 &&
+                GetNumSubresources(m_pDevice, &from) == 1 && to.Dimension == from.Dimension &&
+                to.Width == from.Width && to.Height == from.Height &&
+                to.DepthOrArraySize == from.DepthOrArraySize && to.Format == from.Format &&
+                to.SampleDesc.Count == from.SampleDesc.Count &&
+                to.SampleDesc.Quality == from.SampleDesc.Quality;
+          }
+          info.RecordReplayTextureCopy(copy);
+        }
 
         ActionDescription action;
         action.flags |= ActionFlags::Copy;
@@ -5433,19 +5626,16 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyTextureRegion(
 
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
 
         if(origSrc == origDst)
         {
-          actionNode.resourceUsage.push_back(
-              make_rdcpair(liveSrc, EventUsage(actionNode.action.eventId, ResourceUsage::Copy)));
+          eventNode.resourceUsage.push_back(make_rdcpair(liveSrc, ResourceUsage::Copy));
         }
         else
         {
-          actionNode.resourceUsage.push_back(
-              make_rdcpair(liveSrc, EventUsage(actionNode.action.eventId, ResourceUsage::CopySrc)));
-          actionNode.resourceUsage.push_back(
-              make_rdcpair(liveDst, EventUsage(actionNode.action.eventId, ResourceUsage::CopyDst)));
+          eventNode.resourceUsage.push_back(make_rdcpair(liveSrc, ResourceUsage::CopySrc));
+          eventNode.resourceUsage.push_back(make_rdcpair(liveDst, ResourceUsage::CopyDst));
         }
       }
     }
@@ -5466,6 +5656,16 @@ void WrappedID3D12GraphicsCommandList::CopyTextureRegion(const D3D12_TEXTURE_COP
   src.pResource = Unwrap(src.pResource);
 
   SERIALISE_TIME_CALL(m_pList->CopyTextureRegion(&dst, DstX, DstY, DstZ, &src, pSrcBox));
+
+#if RENDERDOC_ENABLE_API_MONITOR
+  if(ApiMonitor::Inst().IsActive())
+  {
+    UINT dstSub = (pDst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX) ? pDst->SubresourceIndex : 0;
+    UINT srcSub = (pSrc->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX) ? pSrc->SubresourceIndex : 0;
+    D3D12ApiMonitor::OnCopyTextureRegion(GetResID(pDst->pResource), dstSub,
+                                         GetResID(pSrc->pResource), srcSub);
+  }
+#endif
 
   if(IsCaptureMode(m_State))
   {
@@ -5504,9 +5704,11 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyResource(SerialiserType &se
 
         uint32_t eventId = m_Cmd->HandlePreCallback(list, ActionFlags::Copy);
         Unwrap(list)->CopyResource(Unwrap(pDstResource), Unwrap(pSrcResource));
+        m_pDevice->RecordReplayBufferPatches(list, pDstResource);
         if(eventId && m_Cmd->m_ActionCallback->PostMisc(eventId, ActionFlags::Copy, list))
         {
           Unwrap(list)->CopyResource(Unwrap(pDstResource), Unwrap(pSrcResource));
+          m_pDevice->RecordReplayBufferPatches(list, pDstResource);
           m_Cmd->m_ActionCallback->PostRemisc(eventId, ActionFlags::Copy, list);
         }
       }
@@ -5524,23 +5726,43 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyResource(SerialiserType &se
         action.copyDestination = GetResID(pDstResource);
         action.copyDestinationSubresource = Subresource();
 
+        if(IsLoading(m_State))
+        {
+          BakedCmdListInfo &info = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
+          BakedCmdListInfo::ReplayTextureCopyOp copy;
+          copy.source = GetResID(pSrcResource);
+          copy.destination = GetResID(pDstResource);
+          copy.relativeEvent = info.curEventID;
+          copy.unconditional = info.state.predication.buffer == ResourceId();
+          if(pSrcResource && pDstResource && pSrcResource != pDstResource)
+          {
+            const D3D12_RESOURCE_DESC to = pDstResource->GetDesc(), from = pSrcResource->GetDesc();
+            copy.fullResource = to.Dimension == from.Dimension && to.Width == from.Width &&
+                                to.Height == from.Height &&
+                                to.DepthOrArraySize == from.DepthOrArraySize &&
+                                to.MipLevels == from.MipLevels && to.Format == from.Format &&
+                                to.SampleDesc.Count == from.SampleDesc.Count &&
+                                to.SampleDesc.Quality == from.SampleDesc.Quality;
+          }
+          info.RecordReplayTextureCopy(copy);
+        }
+
         action.flags |= ActionFlags::Copy;
 
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
 
         if(pSrcResource == pDstResource)
         {
-          actionNode.resourceUsage.push_back(make_rdcpair(
-              GetResID(pSrcResource), EventUsage(actionNode.action.eventId, ResourceUsage::Copy)));
+          eventNode.resourceUsage.push_back(make_rdcpair(GetResID(pSrcResource), ResourceUsage::Copy));
         }
         else
         {
-          actionNode.resourceUsage.push_back(make_rdcpair(
-              GetResID(pSrcResource), EventUsage(actionNode.action.eventId, ResourceUsage::CopySrc)));
-          actionNode.resourceUsage.push_back(make_rdcpair(
-              GetResID(pDstResource), EventUsage(actionNode.action.eventId, ResourceUsage::CopyDst)));
+          eventNode.resourceUsage.push_back(
+              make_rdcpair(GetResID(pSrcResource), ResourceUsage::CopySrc));
+          eventNode.resourceUsage.push_back(
+              make_rdcpair(GetResID(pDstResource), ResourceUsage::CopyDst));
         }
       }
     }
@@ -5553,6 +5775,11 @@ void WrappedID3D12GraphicsCommandList::CopyResource(ID3D12Resource *pDstResource
                                                     ID3D12Resource *pSrcResource)
 {
   SERIALISE_TIME_CALL(m_pList->CopyResource(Unwrap(pDstResource), Unwrap(pSrcResource)));
+
+#if RENDERDOC_ENABLE_API_MONITOR
+  if(ApiMonitor::Inst().IsActive())
+    D3D12ApiMonitor::OnCopyResource(GetResID(pDstResource), GetResID(pSrcResource));
+#endif
 
   if(IsCaptureMode(m_State))
   {
@@ -5626,21 +5853,19 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ResolveSubresource(
 
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
 
         if(pSrcResource == pDstResource)
         {
-          actionNode.resourceUsage.push_back(make_rdcpair(
-              GetResID(pSrcResource), EventUsage(actionNode.action.eventId, ResourceUsage::Resolve)));
+          eventNode.resourceUsage.push_back(
+              make_rdcpair(GetResID(pSrcResource), ResourceUsage::Resolve));
         }
         else
         {
-          actionNode.resourceUsage.push_back(
-              make_rdcpair(GetResID(pSrcResource),
-                           EventUsage(actionNode.action.eventId, ResourceUsage::ResolveSrc)));
-          actionNode.resourceUsage.push_back(
-              make_rdcpair(GetResID(pDstResource),
-                           EventUsage(actionNode.action.eventId, ResourceUsage::ResolveDst)));
+          eventNode.resourceUsage.push_back(
+              make_rdcpair(GetResID(pSrcResource), ResourceUsage::ResolveSrc));
+          eventNode.resourceUsage.push_back(
+              make_rdcpair(GetResID(pDstResource), ResourceUsage::ResolveDst));
         }
       }
     }
@@ -5745,12 +5970,9 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyTiles(
 
         m_Cmd->AddAction(action);
 
-        D3D12ActionTreeNode &actionNode = m_Cmd->GetActionStack().back()->children.back();
-
-        actionNode.resourceUsage.push_back(
-            make_rdcpair(liveSrc, EventUsage(actionNode.action.eventId, ResourceUsage::CopySrc)));
-        actionNode.resourceUsage.push_back(
-            make_rdcpair(liveDst, EventUsage(actionNode.action.eventId, ResourceUsage::CopyDst)));
+        D3D12EventNode &eventNode = m_Cmd->GetLastEventNode();
+        eventNode.resourceUsage.push_back(make_rdcpair(liveSrc, ResourceUsage::CopySrc));
+        eventNode.resourceUsage.push_back(make_rdcpair(liveDst, ResourceUsage::CopyDst));
       }
     }
   }

@@ -24,6 +24,10 @@
 
 #include "d3d12_device.h"
 #include "driver/dxgi/dxgi_common.h"
+#include "os/os_specific.h"
+#include "replay/replay_timing.h"
+#include "d3d12_api_monitor.h"
+#include "d3d12_commit_audit.inl"
 #include "d3d12_resources.h"
 
 bool WrappedID3D12Device::Serialise_CreateResource(
@@ -32,6 +36,7 @@ bool WrappedID3D12Device::Serialise_CreateResource(
     const D3D12_CLEAR_VALUE *pOptimizedClearValue, UINT NumCastableFormats,
     const DXGI_FORMAT *pCastableFormats, ResourceId pResource, uint64_t gpuAddress)
 {
+  D3D12CommitAudit commitAudit("capturedResource", desc.Width, props.Type, desc.Dimension, pResource);
   rdcarray<DXGI_FORMAT> CastableFormats;
   CastableFormats.assign(pCastableFormats, NumCastableFormats);
 
@@ -48,19 +53,24 @@ bool WrappedID3D12Device::Serialise_CreateResource(
       desc.Flags &= ~D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER;
   }
 
-  // if we're creating a committed resource (only place where heap properties is set)
-  if(props.Type == D3D12_HEAP_TYPE_UPLOAD && desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+  // Heap properties are set only for committed resources. Keep the original native UPLOAD path
+  // available for isolated memory-capacity A/B tests; the normal replay policy is unchanged.
+  const bool largeCapturedUpload = props.Type == D3D12_HEAP_TYPE_UPLOAD &&
+                                   desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+                                   desc.Width >= 1024 * 1024;
+  const bool preserveCapturedUpload =
+      largeCapturedUpload &&
+      Process::GetEnvVariable("RENDERDOC_D3D12_PRESERVE_CAPTURED_UPLOAD_HEAPS") == "1";
+  if(largeCapturedUpload && !preserveCapturedUpload)
   {
     // place large resources in local memory so that initial contents and maps can
     // be cached and copied on the GPU instead of memcpy'd from the CPU every time.
-    // smaller resources it's better to just leave them as upload and map into them
-    if(desc.Width >= 1024 * 1024)
-    {
-      RDCLOG("Remapping committed resource %s from upload to default for efficient replay",
-             ToStr(pResource).c_str());
-      props.Type = D3D12_HEAP_TYPE_DEFAULT;
-      m_UploadResourceIds.insert(pResource);
-    }
+    // Only remapped resources enter this set: direct CPU maps and immutable CPU initial contents
+    // continue to handle preserved UPLOAD buffers, including persistent parameter edits and undo.
+    RDCLOG("Remapping committed resource %s from upload to default for efficient replay",
+           ToStr(pResource).c_str());
+    props.Type = D3D12_HEAP_TYPE_DEFAULT;
+    m_UploadResourceIds.insert(pResource);
   }
 
   APIProps.YUVTextures |= IsYUVFormat(desc.Format);
@@ -97,25 +107,32 @@ bool WrappedID3D12Device::Serialise_CreateResource(
     m_OrigGPUAddresses.AddTo(range);
   }
 
-  // check for device requirement
+  // check for device requirement, with automatic downgrade fallback
   switch(chunkType)
   {
     case D3D12Chunk::Device_CreateCommittedResource1:
     case D3D12Chunk::Device_CreateReservedResource1:
       if(!m_pDevice4)
       {
-        SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
-                         "Capture requires ID3D12Device4 which isn't available");
-        return false;
+        RDCWARN("Downgrading %s: ID3D12Device4 unavailable, falling back to base Device",
+                ToStr(chunkType).c_str());
+        if(chunkType == D3D12Chunk::Device_CreateCommittedResource1)
+          chunkType = D3D12Chunk::Device_CreateCommittedResource;
+        else
+          chunkType = D3D12Chunk::Device_CreateReservedResource;
       }
       break;
     case D3D12Chunk::Device_CreateCommittedResource2:
     case D3D12Chunk::Device_CreatePlacedResource1:
       if(!m_pDevice8)
       {
-        SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
-                         "Capture requires ID3D12Device8 which isn't available");
-        return false;
+        RDCWARN("Downgrading %s: ID3D12Device8 unavailable, falling back to lower version",
+                ToStr(chunkType).c_str());
+        if(chunkType == D3D12Chunk::Device_CreateCommittedResource2)
+          chunkType = m_pDevice4 ? D3D12Chunk::Device_CreateCommittedResource1
+                                 : D3D12Chunk::Device_CreateCommittedResource;
+        else
+          chunkType = D3D12Chunk::Device_CreatePlacedResource;
       }
       break;
     case D3D12Chunk::Device_CreateCommittedResource3:
@@ -123,9 +140,31 @@ bool WrappedID3D12Device::Serialise_CreateResource(
     case D3D12Chunk::Device_CreateReservedResource2:
       if(!m_pDevice10)
       {
-        SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
-                         "Capture requires ID3D12Device10 which isn't available");
-        return false;
+        RDCWARN("Downgrading %s: ID3D12Device10 unavailable, falling back to lower version",
+                ToStr(chunkType).c_str());
+        if(chunkType == D3D12Chunk::Device_CreateCommittedResource3)
+        {
+          if(m_pDevice8)
+            chunkType = D3D12Chunk::Device_CreateCommittedResource2;
+          else if(m_pDevice4)
+            chunkType = D3D12Chunk::Device_CreateCommittedResource1;
+          else
+            chunkType = D3D12Chunk::Device_CreateCommittedResource;
+        }
+        else if(chunkType == D3D12Chunk::Device_CreatePlacedResource2)
+        {
+          if(m_pDevice8)
+            chunkType = D3D12Chunk::Device_CreatePlacedResource1;
+          else
+            chunkType = D3D12Chunk::Device_CreatePlacedResource;
+        }
+        else    // CreateReservedResource2
+        {
+          if(m_pDevice4)
+            chunkType = D3D12Chunk::Device_CreateReservedResource1;
+          else
+            chunkType = D3D12Chunk::Device_CreateReservedResource;
+        }
       }
       break;
     default: break;
@@ -220,6 +259,24 @@ bool WrappedID3D12Device::Serialise_CreateResource(
                      "Failed recreating %s, HRESULT: %s", ToStr(chunkType).c_str(),
                      ToStr(hr).c_str());
     return false;
+  }
+
+  if(largeCapturedUpload && Process::GetEnvVariable("RENDERDOC_EID_TIMING") == "1")
+  {
+    // One record per successfully recreated candidate, outside interactive replay. Query the
+    // selected native allocation rather than treating logical bytes as measured LOCAL residency.
+    const D3D12_RESOURCE_DESC nativeDesc = ret->GetDesc();
+    const D3D12_RESOURCE_ALLOCATION_INFO allocation =
+        m_pDevice->GetResourceAllocationInfo(0, 1, &nativeDesc);
+    const bool allocationKnown = allocation.SizeInBytes != ~0ULL && allocation.SizeInBytes != 0;
+    const rdcstr line = StringFormat::Fmt(
+        "api=D3D12CapturedUploadHeap resource=%s logicalWidth=%llu allocationBytes=%llu "
+        "allocationKnown=%u originalHeap=UPLOAD selectedHeap=%s preserveRequested=%u",
+        ToStr(pResource).c_str(), (unsigned long long)desc.Width,
+        (unsigned long long)(allocationKnown ? allocation.SizeInBytes : 0), allocationKnown ? 1U : 0U,
+        preserveCapturedUpload ? "UPLOAD" : "DEFAULT", preserveCapturedUpload ? 1U : 0U);
+    RDCLOG("%s", line.c_str());
+    AppendReplayTimingLog(line);
   }
 
   const char *ResourceTypeName = "?";
@@ -327,6 +384,8 @@ HRESULT WrappedID3D12Device::CreateResource(
     ID3D12ProtectedResourceSession *pProtectedSession, UINT NumCastableFormats,
     const DXGI_FORMAT *pCastableFormats, REFIID riidResource, void **ppvResource)
 {
+  D3D12CommitAudit commitAudit("replayResource", desc.Width,
+                               pHeapProperties ? pHeapProperties->Type : 0, desc.Dimension);
   if(riidResource != __uuidof(ID3D12Resource) && riidResource != __uuidof(ID3D12Resource1) &&
      riidResource != __uuidof(ID3D12Resource2))
     return E_NOINTERFACE;
@@ -448,6 +507,11 @@ HRESULT WrappedID3D12Device::CreateResource(
 
   WrappedID3D12Resource *wrapped =
       new WrappedID3D12Resource(ResourceId(), realRes, pHeap, HeapOffset, this);
+
+#if RENDERDOC_ENABLE_API_MONITOR
+  if(ApiMonitor::Inst().IsActive())
+    D3D12ApiMonitor::OnCreateResource(desc, pHeapProperties, HeapFlags, GetResID(wrapped));
+#endif
 
   if(IsCaptureMode(m_State))
   {

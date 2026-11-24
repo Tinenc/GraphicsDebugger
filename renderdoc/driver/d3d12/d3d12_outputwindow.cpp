@@ -292,6 +292,7 @@ void D3D12Replay::DestroyOutputWindow(uint64_t id)
   SAFE_RELEASE(outw.col);
   SAFE_RELEASE(outw.colResolve);
   SAFE_RELEASE(outw.depth);
+  SAFE_RELEASE(outw.componentHighlight);
 
   m_OutputWindows.erase(it);
 }
@@ -689,6 +690,7 @@ void D3D12Replay::FlipOutputWindow(uint64_t id)
 
   m_pDevice->ExecuteLists();
   m_pDevice->FlushLists();
+  m_TextureDisplaySubmitPending = false;
 
   if(outw.swap)
   {

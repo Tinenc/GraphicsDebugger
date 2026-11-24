@@ -27,6 +27,7 @@
 #include "d3d11_context.h"
 #include "d3d11_debug.h"
 #include "d3d11_resources.h"
+#include "d3d11_api_monitor.h"
 
 void WrappedID3D11Device::MaskResourceMiscFlags(UINT &MiscFlags)
 {
@@ -243,6 +244,11 @@ HRESULT WrappedID3D11Device::CreateBuffer(const D3D11_BUFFER_DESC *pDesc,
     }
 
     *ppBuffer = wrapped;
+
+#if RENDERDOC_ENABLE_API_MONITOR
+    if(ApiMonitor::Inst().IsActive())
+      D3D11ApiMonitor::OnCreateBuffer(pDesc, GetIDForDeviceChild(wrapped));
+#endif
   }
   else
   {
@@ -627,6 +633,11 @@ HRESULT WrappedID3D11Device::CreateTexture2D(const D3D11_TEXTURE2D_DESC *pDesc,
     }
 
     *ppTexture2D = wrapped;
+
+#if RENDERDOC_ENABLE_API_MONITOR
+    if(ApiMonitor::Inst().IsActive())
+      D3D11ApiMonitor::OnCreateTexture2D(pDesc, GetIDForDeviceChild(wrapped));
+#endif
   }
   else
   {
@@ -757,6 +768,11 @@ HRESULT WrappedID3D11Device::CreateTexture3D(const D3D11_TEXTURE3D_DESC *pDesc,
     }
 
     *ppTexture3D = wrapped;
+
+#if RENDERDOC_ENABLE_API_MONITOR
+    if(ApiMonitor::Inst().IsActive())
+      D3D11ApiMonitor::OnCreateTexture3D(pDesc, GetIDForDeviceChild(wrapped));
+#endif
   }
   else
   {
@@ -2629,16 +2645,9 @@ bool WrappedID3D11Device::Serialise_CreateBlendState(SerialiserType &ser,
     }
     else
     {
-      if(GetResourceManager()->HasWrapper(ret))
-      {
-        ret->Release();
-        ret = (ID3D11BlendState *)GetResourceManager()->GetWrapper(ret);
-        ret->AddRef();
-      }
-      else
-      {
-        ret = new WrappedID3D11BlendState1(pState, ret, this);
-      }
+      GetResourceManager()->OverrideWrapper(ret);
+
+      ret = new WrappedID3D11BlendState1(pState, ret, this);
     }
 
     AddResource(pState, ResourceType::StateObject, "Blend State");
@@ -2740,16 +2749,9 @@ bool WrappedID3D11Device::Serialise_CreateDepthStencilState(
     }
     else
     {
-      if(GetResourceManager()->HasWrapper(ret))
-      {
-        ret->Release();
-        ret = (ID3D11DepthStencilState *)GetResourceManager()->GetWrapper(ret);
-        ret->AddRef();
-      }
-      else
-      {
-        ret = new WrappedID3D11DepthStencilState(pState, ret, this);
-      }
+      GetResourceManager()->OverrideWrapper(ret);
+
+      ret = new WrappedID3D11DepthStencilState(pState, ret, this);
     }
 
     AddResource(pState, ResourceType::StateObject, "Depth-Stencil State");
@@ -2849,16 +2851,9 @@ bool WrappedID3D11Device::Serialise_CreateRasterizerState(SerialiserType &ser,
     }
     else
     {
-      if(GetResourceManager()->HasWrapper(ret))
-      {
-        ret->Release();
-        ret = (ID3D11RasterizerState *)GetResourceManager()->GetWrapper(ret);
-        ret->AddRef();
-      }
-      else
-      {
-        ret = new WrappedID3D11RasterizerState2(pState, ret, this);
-      }
+      GetResourceManager()->OverrideWrapper(ret);
+
+      ret = new WrappedID3D11RasterizerState2(pState, ret, this);
     }
 
     AddResource(pState, ResourceType::StateObject, "Rasterizer State");
@@ -2958,16 +2953,9 @@ bool WrappedID3D11Device::Serialise_CreateSamplerState(SerialiserType &ser,
     }
     else
     {
-      if(GetResourceManager()->HasWrapper(ret))
-      {
-        ret->Release();
-        ret = (ID3D11SamplerState *)GetResourceManager()->GetWrapper(ret);
-        ret->AddRef();
-      }
-      else
-      {
-        ret = new WrappedID3D11SamplerState(pState, ret, this);
-      }
+      GetResourceManager()->OverrideWrapper(ret);
+
+      ret = new WrappedID3D11SamplerState(pState, ret, this);
     }
 
     AddResource(pState, ResourceType::Sampler, "Sampler State");

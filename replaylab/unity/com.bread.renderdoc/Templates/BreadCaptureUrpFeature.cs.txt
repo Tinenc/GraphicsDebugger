@@ -1,0 +1,40 @@
+using Bread;
+using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
+namespace Bread.URP {
+// Generated first-party adapter. The color handle is obtained after allocation;
+// CameraTarget/endCameraRendering may refer to a depth/final-blit attachment.
+public sealed class BreadCaptureUrpFeature:ScriptableRendererFeature {
+ public bool sourceIsDisplayEncoded;
+ public bool flipSourceY;
+ sealed class Pass:ScriptableRenderPass {
+  public RTHandle color; public Material material; public bool encoded,flip;
+  public override void Execute(ScriptableRenderContext context,ref RenderingData data){
+   var camera=data.cameraData.camera;
+   var effect=camera.GetComponent<BreadCaptureEffect>();
+   if(effect==null)foreach(var item in Object.FindObjectsOfType<BreadCaptureEffect>())if(item.targetCamera==camera){effect=item;break;}
+   if(effect==null||!effect.isActiveAndEnabled||color==null)return;
+   context.Submit(); // The captured executor can submit standalone compute work.
+   var image=effect.Execute(camera);
+   var cmd=CommandBufferPool.Get("Bread camera color presentation");
+   try {
+    material.SetTexture("_BreadSource",image);material.SetVector("_BreadPresentation",new Vector4(encoded?1:0,flip?1:0,0,0));
+    CoreUtils.SetRenderTarget(cmd,color);
+    var descriptor=data.cameraData.cameraTargetDescriptor;
+    cmd.SetViewport(new Rect(0,0,descriptor.width,descriptor.height));
+    cmd.DrawProcedural(Matrix4x4.identity,material,0,MeshTopology.Triangles,3);
+    context.ExecuteCommandBuffer(cmd);
+   }finally {CommandBufferPool.Release(cmd);}
+  }
+ }
+ Material material;Pass pass;
+ public override void Create(){CoreUtils.Destroy(material);material=CoreUtils.CreateEngineMaterial(Shader.Find("Hidden/Bread/CameraPresentation"));pass=new Pass{renderPassEvent=RenderPassEvent.BeforeRenderingPostProcessing,material=material};pass.ConfigureInput(ScriptableRenderPassInput.Color);}
+ public override void SetupRenderPasses(ScriptableRenderer renderer,in RenderingData data){pass.color=renderer.cameraColorTargetHandle;}
+ public override void AddRenderPasses(ScriptableRenderer renderer,ref RenderingData data){
+  if(data.cameraData.cameraType!=CameraType.Game||material==null)return;
+  pass.encoded=sourceIsDisplayEncoded;pass.flip=flipSourceY;renderer.EnqueuePass(pass);
+ }
+ protected override void Dispose(bool disposing){CoreUtils.Destroy(material);}
+}
+}

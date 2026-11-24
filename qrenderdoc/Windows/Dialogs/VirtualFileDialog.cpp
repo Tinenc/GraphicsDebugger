@@ -36,6 +36,8 @@
 
 class RemoteFileModel : public QAbstractItemModel
 {
+  Q_DECLARE_TR_FUNCTIONS(RemoteFileModel)
+
 public:
   enum Roles
   {

@@ -415,8 +415,11 @@ void D3D11RenderState::ApplyState(WrappedID3D11DeviceContext *context) const
   context->RSSetViewports(RS.NumViews, RS.Viewports);
   context->RSSetScissorRects(RS.NumScissors, RS.Scissors);
 
-  UINT UAV_keepcounts[D3D11_1_UAV_SLOT_COUNT] = {(UINT)-1, (UINT)-1, (UINT)-1, (UINT)-1,
-                                                 (UINT)-1, (UINT)-1, (UINT)-1, (UINT)-1};
+  UINT UAV_keepcounts[D3D11_1_UAV_SLOT_COUNT];
+  // All 64 FL11.1 slots must preserve hidden counters. An eight-element initializer silently
+  // zero-initialises the remaining slots and destroys a restored checkpoint's counter values.
+  for(UINT &count : UAV_keepcounts)
+    count = ~0U;
 
   // CS
   context->CSSetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, CS.SRVs);

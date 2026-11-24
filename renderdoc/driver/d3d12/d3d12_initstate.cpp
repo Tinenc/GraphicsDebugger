@@ -24,11 +24,13 @@
 
 #include "core/settings.h"
 #include "driver/dxgi/dxgi_common.h"
+#include "replay/replay_timing.h"
 #include "d3d12_command_list.h"
 #include "d3d12_command_queue.h"
 #include "d3d12_debug.h"
 #include "d3d12_device.h"
 #include "d3d12_manager.h"
+#include "d3d12_replay.h"
 #include "d3d12_resources.h"
 
 RDOC_EXTERN_CONFIG(bool, D3D12_Debug_SingleSubmitFlushing);
@@ -782,7 +784,7 @@ SparseBinds::SparseBinds(const Sparse::PageTable &table)
     }
     else
     {
-      Sparse::Coord texelShape = table.calcSubresourcePageDim(sub);
+      Sparse::Coord32 texelShape = table.calcSubresourcePageDim32(sub);
 
       // march the pages for this subresource in linear order
       for(uint32_t page = 0; page < mapping.pages.size(); page++)
@@ -1101,6 +1103,7 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
 
         D3D12InitialContents initContents(D3D12InitialContents::Copy, type);
         ResourceContents = initContents.srcData = AllocAlignedBuffer(RDCMAX(ContentsLength, 64ULL));
+        initContents.dataSize = ContentsLength;
         initContents.resourceType = type;
         SetInitialContents(id, initContents);
       }
@@ -1190,6 +1193,7 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
       D3D12InitialContents initContents(D3D12InitialContents::Copy, type);
       initContents.resourceType = type;
       initContents.resource = mappedBuffer;
+      initContents.dataSize = ContentsLength;
 
       initContents.sparseBinds = sparseBinds;
 
@@ -1917,32 +1921,83 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
     return;
 
   D3D12ResourceType type = (D3D12ResourceType)data.resourceType;
+  AddReplayTimingCounter(ReplayTimingCounter::InitialResources);
+
+  if(IsReplayTimingActive())
+  {
+    if(type == Resource_Resource)
+    {
+      const D3D12_RESOURCE_DESC desc = ((ID3D12Resource *)res)->GetDesc();
+      AddReplayTimingCounter(desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
+                                 ? ReplayTimingCounter::InitialBuffers
+                                 : ReplayTimingCounter::InitialTextures);
+    }
+    else if(type == Resource_Heap)
+    {
+      AddReplayTimingCounter(ReplayTimingCounter::InitialHeaps);
+    }
+  }
 
   if(type == Resource_DescriptorHeap)
   {
+    ScopedReplayTimingSection timing(ReplayTimingSection::InitialDescriptors);
+    AddReplayTimingCounter(ReplayTimingCounter::InitialDescriptorHeaps);
     WrappedID3D12DescriptorHeap *dstheap = (WrappedID3D12DescriptorHeap *)res;
     WrappedID3D12DescriptorHeap *srcheap = (WrappedID3D12DescriptorHeap *)data.resource;
 
     if(srcheap)
     {
-      // copy the whole heap
-      m_Device->CopyDescriptorsSimple(
-          srcheap->GetNumDescriptors(), dstheap->GetCPUDescriptorHandleForHeapStart(),
-          srcheap->GetCPUDescriptorHandleForHeapStart(), srcheap->GetDesc().Type);
+      static const bool conservative =
+          Process::GetEnvVariable("RENDERDOC_D3D12_CONSERVATIVE_REPLAY_SYNC") == "1";
+      const bool forceFullRestore = conservative || IsLoading(m_State) ||
+                                    m_Device->GetReplayOptions().apiValidation ||
+                                    D3D12_Debug_SingleSubmitFlushing() || D3D12_Debug_RT_Auditing();
+      dstheap->RestoreInitialDescriptors(srcheap, forceFullRestore);
     }
   }
   else if(type == Resource_Resource || type == Resource_Heap)
   {
     if(data.tag == D3D12InitialContents::AccelerationStructure)
+    {
+      AddReplayTimingCounter(ReplayTimingCounter::InitialAccelerationStructuresSkipped);
       return;
+    }
 
     ResourceId id = GetResID(res);
 
+    // A separate, transaction-wide proof covers this reserved texture and every backing heap.
+    // Keep the generic sparseBinds exclusion below: it is not an individual-resource proof.
+    if(IsActiveReplaying(m_State) && m_Device->UseReplaySparseInitialBaseline(id))
+      return;
+
+    // A validated checkpoint supplies the complete final contents of this ordinary resource.
+    // Keep sparse mappings and descriptor baselines on their normal paths; resource barriers are
+    // restored separately by BeginCaptureFrame before the checkpoint copy is recorded.
+    if(type == Resource_Resource && !data.sparseBinds &&
+       (data.tag == D3D12InitialContents::Copy || data.tag == D3D12InitialContents::ForceCopy) &&
+       m_Device->UsesCheckpointInitialContents(id))
+      return;
+
     if(IsActiveReplaying(m_State) && m_Device->IsReadOnlyResource(id))
     {
+      AddReplayTimingCounter(ReplayTimingCounter::InitialReadOnlySkipped);
+    }
+    else if(IsActiveReplaying(m_State) && !data.sparseBinds &&
+            (data.tag == D3D12InitialContents::Copy || data.tag == D3D12InitialContents::ForceCopy) &&
+            m_Device->IsReplayInitialContentsUnchanged(
+                id, data.srcData ? data.dataSize
+                                : data.resource && ((ID3D12Resource *)data.resource)->GetDesc().Dimension ==
+                                                       D3D12_RESOURCE_DIMENSION_BUFFER
+                                      ? ((ID3D12Resource *)data.resource)->GetDesc().Width
+                                      : 0))
+    {
+      // Resource contents are still at the preceding complete baseline. Descriptor restoration,
+      // sparse mapping handling, and BeginCaptureFrame state barriers remain independent.
     }
     else if(data.tag == D3D12InitialContents::SparseOnly)
     {
+      ScopedReplayTimingSection timing(ReplayTimingSection::InitialSparseBinds);
+      AddReplayTimingCounter(ReplayTimingCounter::InitialSparseResources);
       if(IsLoading(m_State) || m_Device->GetQueue()->IsSparseUpdatedResource(GetResID(res)))
         data.sparseBinds->Apply(m_Device, (ID3D12Resource *)res);
 
@@ -1967,12 +2022,15 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
       if(!unwrappedCopyDst)
       {
         RDCERR("Missing copy destination in initial state apply (%p)", unwrappedCopyDst);
+        m_Device->InvalidateReplayDirtyTracking("initialDestinationMissing");
         return;
       }
 
       D3D12_HEAP_PROPERTIES heapProps = {};
       if(data.sparseBinds)
       {
+        ScopedReplayTimingSection timing(ReplayTimingSection::InitialSparseBinds);
+        AddReplayTimingCounter(ReplayTimingCounter::InitialSparseResources);
         if(IsLoading(m_State) || m_Device->GetQueue()->IsSparseUpdatedResource(GetResID(res)))
           data.sparseBinds->Apply(m_Device, (ID3D12Resource *)res);
 
@@ -1995,11 +2053,14 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
       // device copy in the first place, and just kept the data CPU-side to source from.
       if(heapProps.Type == D3D12_HEAP_TYPE_UPLOAD || isCPUCopyHeap)
       {
+        ScopedReplayTimingSection timing(ReplayTimingSection::InitialCPUCopy);
+        AddReplayTimingCounter(ReplayTimingCounter::InitialCPUCopyResources);
         byte *src = data.srcData, *dst = NULL;
 
         if(!src)
         {
           RDCERR("Doing CPU-side copy, don't have source data");
+          m_Device->InvalidateReplayDirtyTracking("initialCPUDataMissing");
           return;
         }
 
@@ -2015,11 +2076,25 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
           if(FAILED(hr))
           {
             RDCERR("Doing CPU-side copy, couldn't map destination: HRESULT: %s", ToStr(hr).c_str());
+            m_Device->InvalidateReplayDirtyTracking("initialCPUMapFailed");
             dst = NULL;
           }
 
           if(src && dst)
-            memcpy(dst, src, (size_t)unwrappedCopyDst->GetDesc().Width);
+          {
+            rdcarray<rdcpair<uint64_t, uint64_t>> ranges;
+            m_Device->GetCheckpointInitialCopyRanges(id, desc.Width, ranges);
+            m_Device->FilterReplayDirtyBufferCopyRanges(id, desc.Width, ranges);
+            for(const auto &range : ranges)
+            {
+              AddReplayTimingCounter(ReplayTimingCounter::InitialCPUCopyBytes,
+                                     range.second - range.first);
+              m_Device->RecordReplayInitialCopy(id, range.second - range.first,
+                                                 D3D12ReplayInitialCopySource::CPU);
+              memcpy(dst + (size_t)range.first, src + (size_t)range.first,
+                     (size_t)(range.second - range.first));
+            }
+          }
 
           if(dst)
             unwrappedCopyDst->Unmap(0, NULL);
@@ -2049,11 +2124,17 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
             if(FAILED(hr))
             {
               RDCERR("Doing CPU-side copy, couldn't map source: HRESULT: %s", ToStr(hr).c_str());
+              m_Device->InvalidateReplayDirtyTracking("initialCPUMapFailed");
               dst = NULL;
             }
 
             if(src && dst)
             {
+              AddReplayTimingCounter(ReplayTimingCounter::InitialCPUCopyBytes,
+                                     uint64_t(rowsizes[i]) * numrows[i] * layouts[i].Footprint.Depth);
+              m_Device->RecordReplayInitialCopy(
+                  id, uint64_t(rowsizes[i]) * numrows[i] * layouts[i].Footprint.Depth,
+                  D3D12ReplayInitialCopySource::CPU);
               byte *bufPtr = src + layouts[i].Offset;
               byte *texPtr = dst;
 
@@ -2098,18 +2179,30 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
       }
       else
       {
+        // This measures CPU recording/setup, including nested waits, not GPU execution time.
+        ScopedReplayTimingSection timing(ReplayTimingSection::InitialGPUCopy);
+        AddReplayTimingCounter(ReplayTimingCounter::InitialGPUCopyResources);
         ID3D12Resource *copySrc = (ID3D12Resource *)data.resource;
 
         if(!copySrc)
         {
           RDCERR("Missing copy source in initial state apply (%p)", copySrc);
+          m_Device->InvalidateReplayDirtyTracking("initialGPUDataMissing");
           return;
         }
 
         ID3D12GraphicsCommandListX *list = m_Device->GetInitialStateList();
 
         if(!list)
+        {
+          m_Device->InvalidateReplayDirtyTracking("initialGPUListMissing");
           return;
+        }
+
+        ID3D12Resource *nativeCopySrc =
+            m_Device->GetReplay()->ResolveInitialStateCopySource(copySrc, list);
+        const D3D12ReplayInitialCopySource copySource =
+            m_Device->GetReplayInitialCopySource(nativeCopySrc);
 
         BarrierSet barriers;
 
@@ -2125,15 +2218,26 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
           D3D12_RESOURCE_DESC srcDesc = copySrc->GetDesc();
           D3D12_RESOURCE_DESC dstDesc = unwrappedCopyDst->GetDesc();
 
-          Unwrap(list)->CopyBufferRegion(unwrappedCopyDst, 0, Unwrap(copySrc), 0,
-                                         RDCMIN(srcDesc.Width, dstDesc.Width));
+          rdcarray<rdcpair<uint64_t, uint64_t>> ranges;
+          m_Device->GetCheckpointInitialCopyRanges(id, RDCMIN(srcDesc.Width, dstDesc.Width), ranges);
+          m_Device->FilterReplayDirtyBufferCopyRanges(id, RDCMIN(srcDesc.Width, dstDesc.Width), ranges);
+          for(const auto &range : ranges)
+          {
+            AddReplayTimingCounter(ReplayTimingCounter::InitialGPUCopyBufferBytes,
+                                   range.second - range.first);
+            m_Device->RecordReplayInitialCopy(id, range.second - range.first, copySource);
+            Unwrap(list)->CopyBufferRegion(unwrappedCopyDst, range.first, nativeCopySrc, range.first,
+                                           range.second - range.first);
+          }
         }
         else if(unwrappedCopyDst->GetDesc().SampleDesc.Count > 1 ||
                 data.tag == D3D12InitialContents::ForceCopy)
         {
           // MSAA texture was pre-uploaded and decoded, just copy the texture.
           // Similarly for created initial states
-          Unwrap(list)->CopyResource(unwrappedCopyDst, Unwrap(copySrc));
+          AddReplayTimingCounter(ReplayTimingCounter::InitialGPUCopyWholeResources);
+          m_Device->RecordReplayInitialCopy(id, 0, copySource, false, true);
+          Unwrap(list)->CopyResource(unwrappedCopyDst, nativeCopySrc);
         }
         else
         {
@@ -2189,7 +2293,7 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
             dst.SubresourceIndex = i;
 
             src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-            src.pResource = Unwrap(copySrc);
+            src.pResource = nativeCopySrc;
 
             m_Device->GetCopyableFootprints(&desc, i, 1, offset, &src.PlacedFootprint, NULL, NULL,
                                             &subSize);
@@ -2197,10 +2301,15 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
             if(subSize == ~0ULL)
             {
               RDCERR("Failed to call GetCopyableFootprints on %s! skipping copy", ToStr(id).c_str());
+              m_Device->InvalidateReplayDirtyTracking("initialFootprintFailed");
               continue;
             }
 
             Unwrap(list)->CopyTextureRegion(&dst, 0, 0, 0, &src, NULL);
+            // Padded upload footprint bytes, deliberately separate from logical buffer bytes and
+            // whole-resource copies whose physical GPU transfer size is not known here.
+            AddReplayTimingCounter(ReplayTimingCounter::InitialGPUCopyFootprintBytes, subSize);
+            m_Device->RecordReplayInitialCopy(id, subSize, copySource, true);
 
             offset += subSize;
             offset = AlignUp<UINT64>(offset, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
@@ -2222,6 +2331,7 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
 
         if(D3D12_Debug_SingleSubmitFlushing())
         {
+          ScopedReplayTimingContext context(ReplayTimingContext::DebugSingleSubmit);
           m_Device->CloseInitialStateList();
           m_Device->ExecuteLists(NULL, true);
           m_Device->FlushLists(true);
@@ -2231,10 +2341,13 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
     else
     {
       RDCERR("Unexpected tag: %u", data.tag);
+      m_Device->InvalidateReplayDirtyTracking("initialTagUnsupported");
     }
   }
   else if(type == Resource_AccelerationStructure)
   {
+    ScopedReplayTimingSection timing(ReplayTimingSection::InitialAccelerationStructures);
+    AddReplayTimingCounter(ReplayTimingCounter::InitialAccelerationStructures);
     D3D12AccelerationStructure *as = (D3D12AccelerationStructure *)res;
 
     if(!as)

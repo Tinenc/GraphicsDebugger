@@ -1,0 +1,29 @@
+[
+  {
+    "name": "feature-agent-tests.xml",
+    "tests": 134,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 38.378,
+    "sha256": "b4f307b8257ea1faec0528db9536f3715b2becf5534f8499e4e5c4ecc0950e37"
+  },
+  {
+    "name": "feature-mcp-tests.xml",
+    "tests": 83,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 5.36,
+    "sha256": "8d92a430e5efb0d2b88644db55c041f12d234109c1a3de01ec93db37c7bfa04c"
+  },
+  {
+    "name": "codex-live-tests.xml",
+    "tests": 9,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 17.087,
+    "sha256": "4549dd16ff30e9888b0784a75c9ee41b9d73a24b5e77900812005dee67298685"
+  }
+]

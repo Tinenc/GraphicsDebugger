@@ -33,3 +33,4 @@
 class ScintillaEdit;
 
 void ConfigureSyntax(ScintillaEdit *scintilla, int language);
+void RefreshSyntaxEditors();

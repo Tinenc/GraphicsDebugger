@@ -25,9 +25,14 @@
 #pragma once
 
 #include <QFrame>
+#include <QMatrix4x4>
 #include <QMutex>
+#include <QVector3D>
+#include <atomic>
+#include <memory>
 #include "Code/Interface/QRDInterface.h"
 #include "Code/QRDUtils.h"
+#include "Code/ReplayLab/ReplayLabCBufferAliases.h"
 #include "Windows/Dialogs/ProjectionGuessDialog.h"
 
 namespace Ui
@@ -38,8 +43,13 @@ class BufferViewer;
 class ComputeDebugSelector;
 class RDSpinBox64;
 class QItemSelection;
+class QFileSystemWatcher;
+class QLineEdit;
+class QLabel;
+class QTimer;
 class QMenu;
 class QPushButton;
+class QToolButton;
 class QVBoxLayout;
 class RDLabel;
 class RDTableView;
@@ -49,9 +59,19 @@ class CollapseGroupBox;
 class CameraWrapper;
 class ArcballWrapper;
 class FlycamWrapper;
+class MeshUVView;
+class MeshUVTextureView;
+class QRubberBand;
+class QStackedWidget;
+class QComboBox;
+class QSplitter;
+struct MeshUVData;
+struct MeshUVGeometry;
+struct MeshUVHighlight;
 struct BufferData;
 struct PopulateBufferData;
 struct CalcBoundingBoxData;
+struct CBufferLiveEdit;
 
 struct BufferExport
 {
@@ -90,6 +110,9 @@ class BufferViewer : public QFrame, public IBufferViewer, public ICaptureViewer
   Q_OBJECT
 
   Q_PROPERTY(QVariant persistData READ persistData WRITE setPersistData DESIGNABLE false SCRIPTABLE false)
+  Q_PROPERTY(QVariantMap meshEvidence READ meshEvidence DESIGNABLE false SCRIPTABLE false)
+  Q_PROPERTY(QString meshEvidenceRequest READ meshEvidenceRequest WRITE setMeshEvidenceRequest
+                 DESIGNABLE false SCRIPTABLE false)
 
 public:
   explicit BufferViewer(ICaptureContext &ctx, bool meshview, QWidget *parent = 0);
@@ -100,6 +123,15 @@ public:
   bool IsCBufferView() const { return m_CBufferSlot.stage != ShaderStage::Count; }
   void ViewBuffer(uint64_t byteOffset, uint64_t byteSize, ResourceId id, const rdcstr &format = "");
   void ViewCBuffer(const ShaderStage stage, uint32_t slot, uint32_t idx);
+  void NavigateCBufferVariable(const QString &path, qint64 byteOffset, int component);
+  void NavigateMeshUV(int stage, const QString &channel, int component, ResourceId texture);
+  void NavigateMeshSelection(const QString &mode, const QVariantList &vertices,
+                             const QVariantList &elements = QVariantList(),
+                             const QString &packed = QString());
+  QVariantMap meshEvidence();
+  void setMeshEvidence(const QVariantMap &request);
+  QString meshEvidenceRequest() const;
+  void setMeshEvidenceRequest(const QString &request);
   void ViewTexture(ResourceId id, const Subresource &sub, const rdcstr &format = "");
 
   // IBufferViewer
@@ -119,6 +151,9 @@ public:
 
   QVariant persistData();
   void setPersistData(const QVariant &persistData);
+
+protected:
+  void showEvent(QShowEvent *event) override;
 
 private slots:
   // automatic slots
@@ -194,6 +229,55 @@ private:
   MeshDisplay m_Config;
 
   MeshDataStage m_CurStage;
+  std::shared_ptr<MeshUVData> m_UVData;
+  QSplitter *m_MeshSplit = NULL;
+  QWidget *m_UVPanel = NULL;
+  MeshUVView *m_UVCanvas = NULL;
+  MeshUVTextureView *m_UVTextureView = NULL;
+  QWidget *m_UVTextureContainer = NULL;
+  QStackedWidget *m_MeshStack = NULL;
+  QToolButton *m_UVBox = NULL;
+  QRubberBand *m_UVMeshBox = NULL;
+  QPoint m_UVMeshPress;
+  bool m_MeshCameraInitialised = false;
+  bool m_MeshCameraRecovering = false;
+  bool m_UVMeshSelecting = false;
+  bool m_UVMeshDragged = false;
+  bool m_UVGeometryRunning = false;
+  bool m_UVSelectionUpdating = false;
+  std::shared_ptr<const MeshUVGeometry> m_MeshClipGeometry;
+  QMatrix4x4 m_MeshClipModel;
+  QVector3D m_MeshClipMin, m_MeshClipMax;
+  bool m_MeshClipValid = false;
+  QSet<int> m_UVSelectedRows;
+  MeshDataStage m_UVSelectionStage = MeshDataStage::VSIn;
+  std::shared_ptr<const MeshUVHighlight> m_UVHighlight;
+  QVector<QVector4D> m_UVTexturedSelection;
+  unsigned int m_UVSelectionPrimitive = 0;
+  QComboBox *m_UVChannels = NULL;
+  void SetMeshUVTextureChannels(uint32_t mask);
+  QComboBox *m_UVTextures = NULL;
+  QImage m_UVExplanationTexture;
+  QComboBox *m_CameraPreset = NULL;
+  QToolButton *m_UVToggle = NULL;
+  QLabel *m_UVStatus = NULL;
+  uint32_t m_UVEvent = 0;
+  int m_UVDataSequence = -1;
+  uint32_t m_UVGeometrySerial = 0;
+  std::atomic<uint32_t> m_UVTextureSerial{0};
+  uint32_t m_UVTextureEvent = 0;
+  Descriptor m_UVTextureBinding;
+  IReplayOutput *m_UVThumbnailOutput = NULL;
+  bool m_UVLinkPending = false;
+  QString m_UVLinkChannel;
+  QString m_UVManualChannel;
+  int m_UVLinkComponent = 0;
+  ResourceId m_UVLinkTexture;
+  QVariantMap m_MeshEvidenceRequest;
+  bool m_MeshEvidenceSelectionPending = false;
+  bool m_MeshEvidencePrepared = true;
+  uint32_t m_UVTextureReadySerial = 0;
+  rdcarray<Descriptor> m_UVTextureBindings;
 
   // cached data from PostVS data
   MeshFormat m_Out1Data, m_Out2Data;
@@ -215,8 +299,32 @@ private:
                           const rdcarray<ShaderConstant> &consts, BufferData *buffer);
   void UI_AddFixedVariables(RDTreeWidgetItem *root, uint32_t baseOffset,
                             const rdcarray<ShaderConstant> &consts,
-                            const rdcarray<ShaderVariable> &vars);
+                            const rdcarray<ShaderVariable> &vars,
+                            const QString &parentPath = QString());
   void UI_RemoveOffsets(RDTreeWidgetItem *root);
+  void UI_LoadCBufferAliases();
+  void UI_ApplyCBufferSemanticFields(RDTreeWidgetItem *root,
+                                    const rdcarray<ShaderConstant> &displayVars);
+  void UI_UpdateCBufferAliasWatch();
+  void UI_RefreshCBufferAliasDisplay();
+  void editCBufferAlias(const QString &path, const QString &original, qint64 offset, bool remove);
+  void editCBufferBlockAlias(bool remove);
+  void UI_SetupCBufferLiveEdit();
+  void UI_SetupCBufferSearch();
+  void UI_UpdateCBufferSearch();
+  void UI_SelectCBufferLiveValue(RDTreeWidgetItem *item);
+  void UI_RestoreCBufferLiveSelection();
+  void UI_ApplyCBufferNavigation();
+  QString m_CBufferNavigationPath;
+  qint64 m_CBufferNavigationOffset = -1;
+  int m_CBufferNavigationComponent = -1;
+  uint32_t m_CBufferNavigationEvent = 0;
+  void UI_QueueCBufferLiveValue(int component);
+  void UI_SubmitCBufferLiveValues();
+  void UI_InvalidateCBufferLiveEdit();
+  void UI_SetCBufferPinned(bool pinned);
+  const ShaderReflection *CBufferReflection() const;
+  uint32_t CBufferEvent() const;
   void UI_FixedAddMatrixRows(RDTreeWidgetItem *n, const ShaderConstant &c, const ShaderVariable &v);
 
   void exportCSV(QTextStream &ts, const QString &prefix, RDTreeWidgetItem *item);
@@ -250,6 +358,28 @@ private:
   } m_CBufferSlot = {ShaderStage::Count, 0, 0};
 
   CBufferData m_CurCBuffer;
+  QToolButton *m_CBufferPin = NULL;
+  uint32_t m_CBufferDisplayedEvent = 0;
+  uint32_t m_CBufferPinnedEvent = 0;
+  std::unique_ptr<ShaderReflection> m_CBufferPinnedReflection;
+  UsedDescriptor m_CBufferPinnedBinding;
+  CBufferData m_CBufferPinnedData;
+
+  // ReplayLab: per-user display names for the reflected constants shown in the CBuffer view,
+  // keyed by the constant block's layout. Reloaded on every refresh.
+  ReplayLabCBufferAliases m_CBufferAliases;
+  bool m_ShowCBufferSemanticFields = true;
+  QFileSystemWatcher *m_CBufferAliasWatcher = NULL;
+  QTimer *m_CBufferAliasRefreshTimer = NULL;
+  QString m_CBufferAliasFile;
+  QString m_CBufferAliasFileStamp;
+  QString m_CBufferAliasIdentity;
+  int m_CBufferAliasSequence = -1;
+  std::unique_ptr<CBufferLiveEdit> m_CBufferLiveEdit;
+  QLineEdit *m_CBufferSearch = NULL;
+  QLabel *m_CBufferSearchEmpty = NULL;
+  QSet<uint> m_CBufferSearchExpansion;
+  bool m_CBufferSearchActive = false;
 
   static QList<BufferViewer *> m_CBufferViews;
 
@@ -296,6 +426,8 @@ private:
   QPoint m_Scroll[(int)MeshDataStage::Count];
 
   int m_Sequence = 0;
+  uint32_t m_DeferredEventID = 0;
+  bool m_HasDeferredEvent = false;
 
   RDTableView *m_CurView = NULL;
   bool m_CurFixed = false;
@@ -333,6 +465,7 @@ private:
 
   QAction *m_ExportCSV = NULL;
   QAction *m_ExportBytes = NULL;
+  QAction *m_CopyCSV = NULL;
   QAction *m_DebugVert = NULL;
   QAction *m_DebugMeshThread = NULL;
   QAction *m_FilterMesh = NULL;
@@ -352,6 +485,23 @@ private:
   bool isMeshDraw();
 
   void SetupMeshView();
+  void SetupMeshUV();
+  int UVTextureMode() const;
+  void UpdateMeshUV();
+  void UpdateMeshUVGeometry();
+  void StartMeshUVGeometry();
+  void UpdateMeshUVTexture();
+  void UpdateMeshUVPreview();
+  void UpdateMeshUVSelection();
+  void SyncMeshUVTableSelection();
+  void UpdateMeshCameraClip();
+  bool RecoverMeshCamera();
+  QMatrix4x4 MeshPreviewTransform() const;
+  void RemapCameraPivots(const MeshDisplay &previous);
+  QVector4D MeshPreviewPosition(const QVector4D &position, uint32_t index) const;
+  void FocusMeshSelection(bool wholeMesh = false);
+  bool PrepareMeshEvidence();
+  void QueueMeshPreview();
   void SetupRawView();
 
   void SetMeshFilter(MeshFilter filter, uint32_t taskGroup = ~0U, uint32_t meshGroup = ~0U);
