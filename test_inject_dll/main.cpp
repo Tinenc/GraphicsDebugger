@@ -47,8 +47,10 @@ static void OpenConsole()
 {
     if(AllocConsole())
     {
-        freopen("CONOUT$", "w", stdout);
-        freopen("CONOUT$", "w", stderr);
+        FILE *fpOut = NULL;
+        FILE *fpErr = NULL;
+        freopen_s(&fpOut, "CONOUT$", "w", stdout);
+        freopen_s(&fpErr, "CONOUT$", "w", stderr);
         SetConsoleTitleA("Test Inject DLL - Console");
         SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE),
                                 FOREGROUND_GREEN | FOREGROUND_INTENSITY);

@@ -10,8 +10,13 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot "provider.json") -Raw | ConvertFrom-Json
 $python = Join-Path $repoRoot "replaylab\.venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $python)) {
-    $pythonCommand = Get-Command python.exe -ErrorAction Stop
-    $python = $pythonCommand.Source
+    $buildInputPython = Join-Path $repoRoot "replaylab\output\build-inputs\environment\Scripts\python.exe"
+    if (Test-Path -LiteralPath $buildInputPython) {
+        $python = $buildInputPython
+    } else {
+        $pythonCommand = Get-Command python.exe -ErrorAction Stop
+        $python = $pythonCommand.Source
+    }
 }
 $script = Join-Path $PSScriptRoot "deploy_provider.py"
 $application = [System.IO.Path]::GetFullPath($ApplicationDirectory)

@@ -4047,7 +4047,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
     {
       size_t baseCommandStart = idx;
       // We need to clone the signature nodes countExtraNode times
-      size_t countExtraNodes = countExtraActions * sigSize;
+      size_t countExtraNodes = (size_t)countExtraActions * sigSize;
       sdFile->chunks.reserve(sdFile->chunks.size() + countExtraNodes);
       // Insert space for the new nodes
       const size_t oldSize = eventNodes.size();

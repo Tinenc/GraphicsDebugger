@@ -24,6 +24,7 @@
  ******************************************************************************/
 
 #include <winsock2.h>
+#include "3rdparty/Detours/detours.h"
 #include "core/core.h"
 #include "hooks/hooks.h"
 #include "os/os_specific.h"
@@ -130,6 +131,8 @@ public:
 
     m_RecurseSlot = Threading::AllocateTLSSlot();
     Threading::SetTLSValue(m_RecurseSlot, NULL);
+
+    InstallPackedLauncherInlineHooks();
   }
 
 private:
@@ -137,6 +140,121 @@ private:
 
   int m_WSARefCount;
   uint64_t m_RecurseSlot = 0;
+
+  PFN_CREATE_PROCESS_W m_DetourRealCreateProcessW = NULL;
+  PFN_CREATE_PROCESS_A m_DetourRealCreateProcessA = NULL;
+  PFN_CREATE_PROCESS_AS_USER_W m_DetourRealCreateProcessAsUserW = NULL;
+
+  void InstallPackedLauncherInlineHooks()
+  {
+    wchar_t exePath[MAX_PATH] = {};
+    DWORD len = GetModuleFileNameW(NULL, exePath, MAX_PATH - 1);
+    if(len == 0)
+      return;
+
+    rdcstr exeLower = strlower(StringFormat::Wide2UTF8(exePath));
+    int slash = exeLower.find_last_of("\\/");
+    rdcstr exeBase = (slash >= 0) ? exeLower.substr(slash + 1) : exeLower;
+
+    // Packed launchers such as Arena Breakout Infinite's GameLoader.exe have no static
+    // CreateProcess* IAT entries, so IAT hooking alone misses child process creation.
+    if(exeBase != "gameloader.exe")
+      return;
+
+    HMODULE kernelBase = GetModuleHandleW(L"kernelbase.dll");
+    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    HMODULE advapi32 = GetModuleHandleW(L"advapi32.dll");
+
+    m_DetourRealCreateProcessW =
+        (PFN_CREATE_PROCESS_W)GetProcAddress(kernelBase ? kernelBase : kernel32, "CreateProcessW");
+    m_DetourRealCreateProcessA =
+        (PFN_CREATE_PROCESS_A)GetProcAddress(kernelBase ? kernelBase : kernel32, "CreateProcessA");
+    m_DetourRealCreateProcessAsUserW = (PFN_CREATE_PROCESS_AS_USER_W)GetProcAddress(
+        kernelBase ? kernelBase : advapi32, "CreateProcessAsUserW");
+
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+
+    LONG errW = NO_ERROR, errA = NO_ERROR, errUserW = NO_ERROR;
+    if(m_DetourRealCreateProcessW)
+      errW = DetourAttach(&(PVOID &)m_DetourRealCreateProcessW, Detour_CreateProcessW_hook);
+    if(m_DetourRealCreateProcessA)
+      errA = DetourAttach(&(PVOID &)m_DetourRealCreateProcessA, Detour_CreateProcessA_hook);
+    if(m_DetourRealCreateProcessAsUserW)
+      errUserW = DetourAttach(&(PVOID &)m_DetourRealCreateProcessAsUserW,
+                              Detour_CreateProcessAsUserW_hook);
+
+    LONG commitErr = DetourTransactionCommit();
+    RDCLOG(
+        "Installed packed-launcher inline CreateProcess hooks for %s: commit=%ld (W=%ld A=%ld "
+        "AsUserW=%ld)",
+        exeBase.c_str(), commitErr, errW, errA, errUserW);
+  }
+
+  static BOOL WINAPI Detour_CreateProcessW_hook(
+      LPCWSTR lpApplicationName, LPWSTR lpCommandLine, LPSECURITY_ATTRIBUTES lpProcessAttributes,
+      LPSECURITY_ATTRIBUTES lpThreadAttributes, BOOL bInheritHandles, DWORD dwCreationFlags,
+      LPVOID lpEnvironment, LPCWSTR lpCurrentDirectory, LPSTARTUPINFOW lpStartupInfo,
+      LPPROCESS_INFORMATION lpProcessInformation)
+  {
+    rdcstr app = lpApplicationName ? StringFormat::Wide2UTF8(lpApplicationName) : "<null>";
+    rdcstr cmd = lpCommandLine ? StringFormat::Wide2UTF8(lpCommandLine) : "<null>";
+    RDCLOG("Inline CreateProcessW: app=%s cmd=%s flags=0x%x", app.c_str(), cmd.c_str(),
+           dwCreationFlags);
+
+    return Hooked_CreateProcess(
+        "InlineCreateProcessW",
+        [=](DWORD flags, LPVOID env, LPPROCESS_INFORMATION pi) {
+          return syshooks.m_DetourRealCreateProcessW(
+              lpApplicationName, lpCommandLine, lpProcessAttributes, lpThreadAttributes,
+              bInheritHandles, flags, env, lpCurrentDirectory, lpStartupInfo, pi);
+        },
+        dwCreationFlags, ShouldInject(lpApplicationName, lpCommandLine), lpEnvironment,
+        lpProcessInformation);
+  }
+
+  static BOOL WINAPI Detour_CreateProcessA_hook(
+      LPCSTR lpApplicationName, LPSTR lpCommandLine, LPSECURITY_ATTRIBUTES lpProcessAttributes,
+      LPSECURITY_ATTRIBUTES lpThreadAttributes, BOOL bInheritHandles, DWORD dwCreationFlags,
+      LPVOID lpEnvironment, LPCSTR lpCurrentDirectory, LPSTARTUPINFOA lpStartupInfo,
+      LPPROCESS_INFORMATION lpProcessInformation)
+  {
+    RDCLOG("Inline CreateProcessA: app=%s cmd=%s flags=0x%x",
+           lpApplicationName ? lpApplicationName : "<null>",
+           lpCommandLine ? lpCommandLine : "<null>", dwCreationFlags);
+
+    return Hooked_CreateProcess(
+        "InlineCreateProcessA",
+        [=](DWORD flags, LPVOID env, LPPROCESS_INFORMATION pi) {
+          return syshooks.m_DetourRealCreateProcessA(
+              lpApplicationName, lpCommandLine, lpProcessAttributes, lpThreadAttributes,
+              bInheritHandles, flags, env, lpCurrentDirectory, lpStartupInfo, pi);
+        },
+        dwCreationFlags, ShouldInject(lpApplicationName, lpCommandLine), lpEnvironment,
+        lpProcessInformation);
+  }
+
+  static BOOL WINAPI Detour_CreateProcessAsUserW_hook(
+      HANDLE hToken, LPCWSTR lpApplicationName, LPWSTR lpCommandLine,
+      LPSECURITY_ATTRIBUTES lpProcessAttributes, LPSECURITY_ATTRIBUTES lpThreadAttributes,
+      BOOL bInheritHandles, DWORD dwCreationFlags, LPVOID lpEnvironment, LPCWSTR lpCurrentDirectory,
+      LPSTARTUPINFOW lpStartupInfo, LPPROCESS_INFORMATION lpProcessInformation)
+  {
+    rdcstr app = lpApplicationName ? StringFormat::Wide2UTF8(lpApplicationName) : "<null>";
+    rdcstr cmd = lpCommandLine ? StringFormat::Wide2UTF8(lpCommandLine) : "<null>";
+    RDCLOG("Inline CreateProcessAsUserW: app=%s cmd=%s flags=0x%x", app.c_str(), cmd.c_str(),
+           dwCreationFlags);
+
+    return Hooked_CreateProcess(
+        "InlineCreateProcessAsUserW",
+        [=](DWORD flags, LPVOID env, LPPROCESS_INFORMATION pi) {
+          return syshooks.m_DetourRealCreateProcessAsUserW(
+              hToken, lpApplicationName, lpCommandLine, lpProcessAttributes, lpThreadAttributes,
+              bInheritHandles, flags, env, lpCurrentDirectory, lpStartupInfo, pi);
+        },
+        dwCreationFlags, ShouldInject(lpApplicationName, lpCommandLine), lpEnvironment,
+        lpProcessInformation);
+  }
 
   bool CheckRecurse()
   {

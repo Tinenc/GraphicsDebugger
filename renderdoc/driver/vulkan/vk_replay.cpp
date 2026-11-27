@@ -6317,11 +6317,13 @@ rdcstr VulkanReplay::PrepareEventShaderFloatPreview(uint32_t eventId, uint32_t o
       requested.sourceViews.push_back(GetResID(color.imageView));
     }
     if(rendering.depth.pNext || rendering.stencil.pNext ||
-       (rendering.depth.imageView && rendering.stencil.imageView &&
+       (rendering.depth.imageView != VK_NULL_HANDLE &&
+        rendering.stencil.imageView != VK_NULL_HANDLE &&
         rendering.depth.imageView != rendering.stencil.imageView))
       return "Independent float preview requires a shared Vulkan depth/stencil view";
     requested.sourceViews.push_back(GetResID(
-        rendering.depth.imageView ? rendering.depth.imageView : rendering.stencil.imageView));
+        rendering.depth.imageView != VK_NULL_HANDLE ? rendering.depth.imageView
+                                                    : rendering.stencil.imageView));
   }
   else
   {

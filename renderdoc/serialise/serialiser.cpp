@@ -210,6 +210,12 @@ uint32_t Serialiser<SerialiserMode::Reading>::BeginChunk(uint32_t, uint64_t)
 }
 
 template <>
+void Serialiser<SerialiserMode::Writing>::SkipCurrentChunk()
+{
+  RDCERR("Cannot skip chunk when writing");
+}
+
+template <>
 void Serialiser<SerialiserMode::Reading>::SkipCurrentChunk()
 {
   if(ExportStructure())

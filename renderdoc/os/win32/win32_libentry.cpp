@@ -34,7 +34,7 @@
 
 #include <iostream>
 
-RDOC_CONFIG(bool, Debug_OpenConsole, true,
+RDOC_CONFIG(bool, Debug_OpenConsole, false,
             "Open a debug console window when injected into a target process. "
             "Disable this if the console interferes with the target application (e.g. SDK login windows).");
 
@@ -42,7 +42,8 @@ static bool OpenConsole()
 {
   if(AllocConsole())
   {
-    freopen("CONOUT$", "w", stdout);
+    FILE *fp = NULL;
+    freopen_s(&fp, "CONOUT$", "w", stdout);
     SetConsoleTitle(L"Debug Console");
     SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE),
                             FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_RED);

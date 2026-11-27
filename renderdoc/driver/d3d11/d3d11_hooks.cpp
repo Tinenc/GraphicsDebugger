@@ -26,6 +26,7 @@
 #include "d3d11_hooks.h"
 #include "driver/dxgi/dxgi_wrapped.h"
 #include "hooks/hooks.h"
+#include "strings/string_utils.h"
 #include "d3d11_device.h"
 
 ID3DDevice *GetD3D11DeviceIfAlloc(IUnknown *dev)
@@ -108,6 +109,28 @@ private:
     {
       return real(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion,
                   pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel, ppImmediateContext);
+    }
+
+    // UAGame.exe (Arena Breakout Infinite) is a D3D12 title whose embedded UI/DirectComposition
+    // creates auxiliary D3D11 BGRA devices. Wrapping those devices breaks dcomp.dll's internal
+    // interface queries and causes a 0xc0000005 crash in dcomp.dll.
+    if((Flags & D3D11_CREATE_DEVICE_BGRA_SUPPORT) != 0 && ppSwapChain == NULL)
+    {
+      wchar_t exePath[MAX_PATH] = {};
+      if(GetModuleFileNameW(NULL, exePath, MAX_PATH - 1) > 0)
+      {
+        rdcstr exeLower = strlower(StringFormat::Wide2UTF8(exePath));
+        if(exeLower.contains("uagame.exe"))
+        {
+          RDCLOG("Bypassing auxiliary BGRA D3D11 device wrapping in UAGame.exe (Flags=0x%x)",
+                 Flags);
+          HRESULT ret = real(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels,
+                             SDKVersion, pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel,
+                             ppImmediateContext);
+          EndRecurse();
+          return ret;
+        }
+      }
     }
 
     RDCDEBUG("Call to Create_Internal Flags %x", Flags);

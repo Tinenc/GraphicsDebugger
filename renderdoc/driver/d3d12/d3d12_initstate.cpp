@@ -1103,7 +1103,7 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
 
         D3D12InitialContents initContents(D3D12InitialContents::Copy, type);
         ResourceContents = initContents.srcData = AllocAlignedBuffer(RDCMAX(ContentsLength, 64ULL));
-        initContents.dataSize = ContentsLength;
+        initContents.dataSize = (size_t)ContentsLength;
         initContents.resourceType = type;
         SetInitialContents(id, initContents);
       }
@@ -1193,7 +1193,7 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
       D3D12InitialContents initContents(D3D12InitialContents::Copy, type);
       initContents.resourceType = type;
       initContents.resource = mappedBuffer;
-      initContents.dataSize = ContentsLength;
+      initContents.dataSize = (size_t)ContentsLength;
 
       initContents.sparseBinds = sparseBinds;
 
